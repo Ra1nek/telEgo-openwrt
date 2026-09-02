@@ -7,7 +7,6 @@ on:
       - 'telego-pkg/**'
       - 'nginx-pkg/**'
       - 'luci-app-telego/**'
-      - 'luci-i18n-telego-ru/**'
       - 'telego-src/**'
       - '.github/workflows/build-telego.yaml'
   pull_request:
@@ -68,82 +67,92 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-          submodules: recursive
-          
-      - name: Download Go binary artifact
-        uses: actions/download-artifact@v5
-        with:
-          name: telego-binary-x86_64
-          path: telego-pkg/files/usr/bin/
-          
-      - name: Verify Go binary placement
+        
+      - name: Setup OpenWrt SDK Environment
         run: |
-          echo "=== Verifying Go Binary ==="
-          ls -lh telego-pkg/files/usr/bin/telego
-          file telego-pkg/files/usr/bin/telego
-          chmod +x telego-pkg/files/usr/bin/telego
-      
-      # ------------------------------------------------------------------------
-      # OpenWrt SDK 25.12 Setup with APK Build Rules
-      # Configuration passed via ENV variables (not 'with:')
-      # ------------------------------------------------------------------------
-      - name: Setup OpenWrt SDK (25.12)
-        uses: openwrt/gh-action-sdk@main
-        env:
-          OPENWRT_VERSION: "25.12.4"
-          INDEX: "1"
-      
-      # ------------------------------------------------------------------------
-      # Build All Packages in Workspace Root
-      # SDK auto-detects Makefiles in workspace root directories
-      # ------------------------------------------------------------------------
-      - name: Build OpenWrt Packages (APK Format)
-        run: |
-          echo "=== Building OpenWrt Packages ==="
-          echo "Packages to build:"
-          echo "  1. telego-pkg/Makefile         → telego daemon binary package"
-          echo "  2. nginx-pkg/Makefile          → Nginx reverse proxy config"
-          echo "  3. luci-app-telego/Makefile    → LuCI web interface (EN)"
-          echo "  4. luci-i18n-telego-ru/Makefile → Russian translation package"
-          echo ""
+          echo "Setting up OpenWrt SDK environment..."
+          export PATH="$PWD/sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target/bin:$PATH"
+          echo "SDK_PATH=$PWD/sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target" >> $GITHUB_ENV
           
-          # Build all packages using SDK make system
-          make package/telego-pkg/compile V=99
-          make package/nginx-pkg/compile V=99
-          make package/luci-app-telego/compile V=99
-          make package/luci-i18n-telego-ru/compile V=99
+      - name: Download OpenWrt SDK (25.12.4)
+        run: |
+          echo "Downloading OpenWrt SDK 25.12.4..."
+          mkdir -p sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          # Download SDK tarball from OpenWrt official releases
+          wget -q https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-25.12.4-x86-64-sdk.tar.xz || \
+            wget -q https://archive.openwrt.org/sites/openwrt-backup/archive/releases/25.12.4/targets/x86/64/openwrt-25.12.4-x86-64-sdk.tar.xz
+          tar -xJf openwrt-25.12.4-x86-64-sdk.tar.xz --strip-components=1
+          rm -f openwrt-25.12.4-x86_64-sdk.tar.xz
+          echo "✓ SDK extracted successfully"
+          ls -la
+        working-directory: .
+        
+      - name: Configure OpenWrt Build System
+        run: |
+          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          echo "Configuring build system..."
+          # Generate default configuration
+          make defconfig
+          echo "✓ Configuration generated"
+        
+      - name: Add Custom Feed with telEgo Packages
+        run: |
+          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          echo "Adding custom feed 'action' for telEgo packages..."
           
-      - name: Generate Package Index (packages.adb)
+          # Create feeds directory if not exists
+          mkdir -p feeds
+          
+          # Register the custom feed pointing to parent directory (where our packages are)
+          echo "src-git file ../" >> feeds.conf
+          
+          # Update feeds and sync packages
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+          
+          echo "✓ Custom feed 'action' registered with 4 packages:"
+          echo "  - telego-pkg (core daemon)"
+          echo "  - nginx-pkg (nginx config helper)"
+          echo "  - luci-app-telego (web interface + Russian translation merged)"
+        
+      - name: Build All telEgo Packages
         run: |
-          echo "=== Generating packages.adb Index ==="
-          # SDK INDEX=1 env var triggers automatic index generation
-          make package/index V=99
-          ls -lh bin/packages/*/packages.adb 2>/dev/null || true
-      
-      # ------------------------------------------------------------------------
-      # Verify All Built Artifacts
-      # ------------------------------------------------------------------------
-      - name: List All Built Packages
+          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          echo "========================================"
+          echo "Building telEgo Package Suite v0.6.0"
+          echo "========================================"
+          
+          # Compile the unified LuCI application (which now compiles both the app and ru translation natively)
+          make package/feeds/action/luci-app-telego/compile V=s
+          
+          # Compile the core system daemon package and Nginx routing helper configs together
+          make package/feeds/action/telego-pkg/compile V=s
+          make package/feeds/action/nginx-pkg/compile V=s
+          
+          echo "✓ All packages compiled successfully"
+        
+      - name: Generate Package Index (ADB)
         run: |
-          echo "=== Built APK Files ==="
-          find bin/packages -name "*.apk" -type f | sort
-          echo ""
-          echo "=== Package Sizes ==="
-          for apk in $(find bin/packages -name "*.apk"); do
-            ls -lh "$apk"
-          done
-      
-      # ------------------------------------------------------------------------
-      # Upload All Artifacts (APK + ADB)
-      # ------------------------------------------------------------------------
-      - name: Upload APK Packages
+          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          echo "Generating package index..."
+          make package/index V=s
+          echo "✓ Package index generated"
+        
+      - name: List Built Packages
+        run: |
+          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
+          echo "========================================"
+          echo "Built APK Packages:"
+          echo "========================================"
+          find bin/packages -name "*.apk" -exec ls -lh {} \;
+          
+      - name: Upload All Artifacts (APK + ADB)
         uses: actions/upload-artifact@v5
         with:
           name: telego-packages-apk
           path: |
-            bin/packages/**/*.apk
+            sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target/bin/packages/**/*.apk
           retention-days: 30
           
       - name: Upload Package Index (ADB)
@@ -152,7 +161,7 @@ jobs:
         with:
           name: telego-packages-index
           path: |
-            bin/packages/*/packages.adb
+            sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target/bin/packages/*/packages.adb
           retention-days: 30
 
   # ============================================================================
