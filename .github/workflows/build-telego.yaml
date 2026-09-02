@@ -113,7 +113,7 @@ jobs:
           
           echo "✓ Custom feed 'action' registered with 4 packages:"
           echo "  - telego-pkg (core daemon)"
-          echo "  - nginx-pkg (nginx config helper)"
+          echo "  - nginx-telego (nginx config helper)"
           echo "  - luci-app-telego (web interface + Russian translation merged)"
         
       - name: Build All telEgo Packages
@@ -123,12 +123,12 @@ jobs:
           echo "Building telEgo Package Suite v0.6.0"
           echo "========================================"
           
-          # Compile the unified LuCI application (which now compiles both the app and ru translation natively)
+          # Compile the unified LuCI application (which compiles both app and i18n assets)
           make package/feeds/action/luci-app-telego/compile V=s
           
-          # Compile the core system daemon package and Nginx routing helper configs together
+          # Compile the core system daemon and Nginx routing helpers
           make package/feeds/action/telego-pkg/compile V=s
-          make package/feeds/action/nginx-pkg/compile V=s
+          make package/feeds/action/nginx-telego/compile V=s
           
           echo "✓ All packages compiled successfully"
         
