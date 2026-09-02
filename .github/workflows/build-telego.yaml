@@ -118,26 +118,19 @@ jobs:
         
       - name: Build All telEgo Packages
         run: |
-          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
           echo "=== Compiling Production APK Packages via OpenWrt SDK Feeds ==="
-          
-          # Build the main unified app package (which natively includes ru lmo assets)
           make package/feeds/action/luci-app-telego/compile V=s
-          
-          # Build the system daemon layer and nginx helpers
           make package/feeds/action/telego-pkg/compile V=s
           make package/feeds/action/nginx-telego/compile V=s
         
       - name: Generate Package Index (ADB)
         run: |
-          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
           echo "Generating package index..."
           make package/index V=s
           echo "✓ Package index generated"
         
       - name: List Built Packages
         run: |
-          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
           echo "========================================"
           echo "Built APK Packages:"
           echo "========================================"
@@ -148,7 +141,7 @@ jobs:
         with:
           name: telego-packages-apk
           path: |
-            sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target/bin/packages/**/*.apk
+            bin/packages/**/*.apk
           retention-days: 30
           
       - name: Upload Package Index (ADB)
@@ -157,7 +150,7 @@ jobs:
         with:
           name: telego-packages-index
           path: |
-            sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target/bin/packages/*/packages.adb
+            bin/packages/*/packages.adb
           retention-days: 30
 
   # ============================================================================
