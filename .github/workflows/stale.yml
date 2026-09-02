@@ -1,0 +1,28 @@
+name: Stale Issue/PR Manager
+
+on:
+  schedule:
+    - cron: '0 0 * * *'  # Daily at midnight
+
+jobs:
+  stale:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Mark stale issues and PRs
+        uses: actions/stale@v9
+        with:
+          days-before-stale: 30
+          days-before-close: 7
+          stale-issue-message: |
+            This issue has been automatically marked as stale because it has not had recent activity.
+            It will be closed if no further activity occurs within 7 days.
+            
+            Если проблема актуальна, пожалуйста, оставьте комментарий или обновите тикет.
+          stale-pr-message: |
+            This PR has been automatically marked as stale due to lack of activity.
+            Please update or close this pull request.
+          exempt-issue-labels: 'pinned,security'
+          exempt-pr-labels: 'pinned,security'
+          stale-issue-label: 'stale'
+          stale-pr-label: 'stale'

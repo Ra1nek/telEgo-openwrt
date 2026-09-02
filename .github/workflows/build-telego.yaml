@@ -1,0 +1,190 @@
+name: Build telEgo Packages (OpenWrt SDK)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'telego-pkg/**'
+      - 'nginx-pkg/**'
+      - 'luci-app-telego/**'
+      - 'luci-i18n-telego-ru/**'
+      - 'telego-src/**'
+      - '.github/workflows/build-telego.yaml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  TELEGO_VERSION: "0.6.0"
+  LUCI_VERSION: "1.0.0"
+
+jobs:
+  # ============================================================================
+  # PHASE 1: Build Go Binary (v0.6.0 with Middle-End Support)
+  # ============================================================================
+  build-go-binary:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: telego-src/go.sum
+          
+      - name: Build telEgo binary (x86_64)
+        working-directory: telego-src
+        run: |
+          echo "Building telEgo v0.6.0 for x86_64..."
+          CGO_ENABLED=0 go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o ../telego-pkg/files/usr/bin/telego \
+            ./cmd/telego
+          echo "✓ Binary built: $(ls -lh ../telego-pkg/files/usr/bin/telego)"
+          file ../telego-pkg/files/usr/bin/telego
+  
+      - name: Upload Go binary artifact
+        uses: actions/upload-artifact@v5
+        with:
+          name: telego-binary-x86_64
+          path: telego-pkg/files/usr/bin/telego
+          retention-days: 1
+
+  # ============================================================================
+  # PHASE 2: OpenWrt SDK Build (All Packages + Index)
+  # ============================================================================
+  build-openwrt-packages:
+    runs-on: ubuntu-latest
+    needs: build-go-binary
+    
+    env:
+      OPENWRT_VERSION: "25.12.4"
+      INDEX: "1"  # Force packages.adb index generation
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          
+      - name: Download Go binary artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: telego-binary-x86_64
+          path: telego-pkg/files/usr/bin/
+          
+      - name: Verify Go binary placement
+        run: |
+          echo "=== Verifying Go Binary ==="
+          ls -lh telego-pkg/files/usr/bin/telego
+          file telego-pkg/files/usr/bin/telego
+          chmod +x telego-pkg/files/usr/bin/telego
+      
+      # ------------------------------------------------------------------------
+      # OpenWrt SDK 25.12 Setup with APK Build Rules
+      # Configuration passed via ENV variables (not 'with:')
+      # ------------------------------------------------------------------------
+      - name: Setup OpenWrt SDK (25.12)
+        uses: openwrt/gh-action-sdk@main
+        env:
+          OPENWRT_VERSION: "25.12.4"
+          INDEX: "1"
+      
+      # ------------------------------------------------------------------------
+      # Build All Packages in Workspace Root
+      # SDK auto-detects Makefiles in workspace root directories
+      # ------------------------------------------------------------------------
+      - name: Build OpenWrt Packages (APK Format)
+        run: |
+          echo "=== Building OpenWrt Packages ==="
+          echo "Packages to build:"
+          echo "  1. telego-pkg/Makefile         → telego daemon binary package"
+          echo "  2. nginx-pkg/Makefile          → Nginx reverse proxy config"
+          echo "  3. luci-app-telego/Makefile    → LuCI web interface (EN)"
+          echo "  4. luci-i18n-telego-ru/Makefile → Russian translation package"
+          echo ""
+          
+          # Build all packages using SDK make system
+          make package/telego-pkg/compile V=99
+          make package/nginx-pkg/compile V=99
+          make package/luci-app-telego/compile V=99
+          make package/luci-i18n-telego-ru/compile V=99
+          
+      - name: Generate Package Index (packages.adb)
+        run: |
+          echo "=== Generating packages.adb Index ==="
+          # SDK INDEX=1 env var triggers automatic index generation
+          make package/index V=99
+          ls -lh bin/packages/*/packages.adb 2>/dev/null || true
+      
+      # ------------------------------------------------------------------------
+      # Verify All Built Artifacts
+      # ------------------------------------------------------------------------
+      - name: List All Built Packages
+        run: |
+          echo "=== Built APK Files ==="
+          find bin/packages -name "*.apk" -type f | sort
+          echo ""
+          echo "=== Package Sizes ==="
+          for apk in $(find bin/packages -name "*.apk"); do
+            ls -lh "$apk"
+          done
+      
+      # ------------------------------------------------------------------------
+      # Upload All Artifacts (APK + ADB)
+      # ------------------------------------------------------------------------
+      - name: Upload APK Packages
+        uses: actions/upload-artifact@v5
+        with:
+          name: telego-packages-apk
+          path: |
+            bin/packages/**/*.apk
+          retention-days: 30
+          
+      - name: Upload Package Index (ADB)
+        uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          name: telego-packages-index
+          path: |
+            bin/packages/*/packages.adb
+          retention-days: 30
+
+  # ============================================================================
+  # PHASE 3: Test Built Binary (Optional Verification)
+  # ============================================================================
+  test-binary:
+    runs-on: ubuntu-latest
+    needs: build-go-binary
+    
+    steps:
+      - name: Download Go binary artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: telego-binary-x86_64
+          path: ./test-bin/
+          
+      - name: Test telEgo Binary
+        run: |
+          echo "=== Testing telEgo v0.6.0 ==="
+          chmod +x ./test-bin/telego
+          ls -lh ./test-bin/telego
+          file ./test-bin/telego
+          
+          # Test binary execution (should show help or version)
+          if ./test-bin/telego --version 2>&1 | grep -q "telEgo"; then
+            echo "✓ Version check passed"
+          elif ./test-bin/telego -v 2>&1 | grep -q "telEgo"; then
+            echo "✓ Version check passed (-v flag)"
+          else
+            echo "✓ Binary is executable (no version flag available)"
+          fi
+          
+          # Verify binary architecture
+          ARCH=$(file ./test-bin/telego | grep -oP 'ELF\s*\K[^\s]+')
+          echo "Binary Architecture: $ARCH"

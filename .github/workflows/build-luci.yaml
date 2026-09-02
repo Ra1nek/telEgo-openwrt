@@ -1,0 +1,128 @@
+name: Build LuCI Interface (OpenWrt SDK)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'luci-app-telego/**'
+      - 'luci-i18n-telego-ru/**'
+      - '.github/workflows/build-luci.yaml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  LUCI_VERSION: "1.0.0"
+
+jobs:
+  # ============================================================================
+  # Build LuCI Packages using OpenWrt SDK (Native APK Format)
+  # ============================================================================
+  build-luci-packages:
+    runs-on: ubuntu-latest
+    
+    env:
+      OPENWRT_VERSION: "25.12.4"
+      INDEX: "0"  # No index needed for single workflow run
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          
+      # ------------------------------------------------------------------------
+      # Setup Go (only for cache, not for building LuCI)
+      # ------------------------------------------------------------------------
+      - name: Setup Go Cache
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.27'
+          cache-dependency-path: telego-src/go.sum
+          
+      # ------------------------------------------------------------------------
+      # OpenWrt SDK 25.12 Setup for LuCI Package Build
+      # ------------------------------------------------------------------------
+      - name: Setup OpenWrt SDK (25.12)
+        uses: openwrt/gh-action-sdk@main
+        env:
+          OPENWRT_VERSION: "25.12.4"
+          INDEX: "0"
+          
+      # ------------------------------------------------------------------------
+      # Build LuCI Packages Using Native SDK Make System
+      # No nFPM needed - OpenWrt SDK handles APK generation automatically
+      # ------------------------------------------------------------------------
+      - name: Build LuCI Packages (APK Format)
+        run: |
+          echo "=== Building LuCI Interface Packages ==="
+          echo "Packages to build:"
+          echo "  1. luci-app-telego/Makefile    → LuCI web interface (EN)"
+          echo "  2. luci-i18n-telego-ru/Makefile → Russian translation package"
+          echo ""
+          
+          # Build LuCI app package
+          make package/luci-app-telego/compile V=99
+          
+          # Build Russian translation package
+          make package/luci-i18n-telego-ru/compile V=99
+          
+      # ------------------------------------------------------------------------
+      # Verify Built Packages
+      # ------------------------------------------------------------------------
+      - name: List Built LuCI Packages
+        run: |
+          echo "=== Built LuCI APK Files ==="
+          find bin/packages -name "luci-app-telego*.apk" -type f | sort
+          find bin/packages -name "luci-i18n-telego-ru*.apk" -type f | sort
+          echo ""
+          echo "=== Package Sizes ==="
+          for apk in $(find bin/packages -name "luci-app-telego*.apk") $(find bin/packages -name "luci-i18n-telego-ru*.apk"); do
+            ls -lh "$apk"
+          done
+      
+      # ------------------------------------------------------------------------
+      # Upload LuCI APK Artifacts
+      # ------------------------------------------------------------------------
+      - name: Upload LuCI App Package (EN)
+        uses: actions/upload-artifact@v5
+        with:
+          name: luci-app-telego-apk
+          path: |
+            bin/packages/**/luci-app-telego*.apk
+          retention-days: 30
+          
+      - name: Upload LuCI Translation Package (RU)
+        uses: actions/upload-artifact@v5
+        with:
+          name: luci-i18n-telego-ru-apk
+          path: |
+            bin/packages/**/luci-i18n-telego-ru*.apk
+          retention-days: 30
+
+  # ============================================================================
+  # Test LuCI APK Structure (Optional Verification)
+  # ============================================================================
+  test-luci-packages:
+    runs-on: ubuntu-latest
+    needs: build-luci-packages
+    
+    steps:
+      - name: Download LuCI App Artifact
+        uses: actions/download-artifact@v5
+        with:
+          name: luci-app-telego-apk
+          path: ./test-apks/
+          
+      - name: Test APK Structure
+        run: |
+          echo "=== Testing LuCI APK Package Structure ==="
+          for apk in ./test-apks/*.apk; do
+            echo "--- $apk ---"
+            ls -lh "$apk"
+            file "$apk"
+            # List APK contents (APK is ZIP format)
+            unzip -l "$apk" | head -30
+            echo ""
+          done

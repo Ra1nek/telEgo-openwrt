@@ -1,0 +1,376 @@
+package gproxy
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"sync/atomic"
+	"time"
+
+	"github.com/panjf2000/gnet/v2"
+
+	"github.com/scratch-net/telego/pkg/dc"
+	"github.com/scratch-net/telego/pkg/tlsfront"
+	"github.com/scratch-net/telego/pkg/transport/faketls"
+)
+
+const (
+	proxyShutdownTimeout = 90 * time.Second
+	publicReadBufferCap  = 64 * 1024
+	publicWriteBufferCap = 64 * 1024
+)
+
+// Secret represents a named proxy secret.
+type Secret struct {
+	Name   string // User-friendly name for logging
+	Key    []byte // 16-byte secret key
+	Host   string // SNI hostname
+	RawHex string // Original hex string for link generation
+}
+
+// Config configures the gnet proxy server.
+type Config struct {
+	// Secrets is the list of allowed proxy secrets.
+	Secrets []Secret
+	Host    string // Default SNI hostname (from first secret)
+
+	// Network
+	BindAddr string
+
+	// TLS Fronting
+	MaskHost           string // Domain to mimic (SNI validation, proxy links)
+	MaskPort           int    // Default port
+	FetchRealCert      bool
+	SpliceUnrecognized bool
+	CertRefreshHours   int
+
+	// Certificate fetching (where to connect to get real cert)
+	// Defaults to MaskHost:MaskPort if not set
+	CertHost string
+	CertPort int
+
+	// FakeCertSize sets the exact payload size of the fake encrypted-certificate
+	// ApplicationData record in the FakeTLS ServerHello. 0 = auto (match the mask
+	// backend's real first cert-record size, falling back to random padding).
+	FakeCertSize int
+
+	// MaskSNISafelist is an opt-in list of extra domains that an unauthenticated
+	// probe may be fronted to. When a bad-secret ClientHello's SNI is on this
+	// list, the connection is spliced to that domain (port 443) instead of the
+	// default splice target, so the on-wire conversation matches the claimed SNI.
+	MaskSNISafelist []string
+
+	// ClockSyncURL, when set, is fetched once at startup; its HTTP Date header
+	// corrects a skewed server clock for the handshake time-skew check.
+	ClockSyncURL string
+
+	// Splice target (where to forward unrecognized clients)
+	// Defaults to MaskHost:MaskPort if not set
+	SpliceHost          string
+	SplicePort          int
+	SpliceProxyProtocol int           // 0 = off, 1 = v1 (text), 2 = v2 (binary)
+	SpliceIdleTimeout   time.Duration // Idle timeout for splice connections (default 30s)
+
+	// Performance
+	IPPreference      dc.IPPreference
+	IdleTimeout       time.Duration
+	TimeSkewTolerance time.Duration
+
+	// ClientSilenceClose, when > 0, closes a relaying connection whose last
+	// relayed payload was server->client and has gone unanswered by the client
+	// for this long. Breaks an iOS MtProtoKit bad_salt "Updating" wedge. 0 = off.
+	ClientSilenceClose time.Duration
+
+	// Upstream (DC connection)
+	Socks5Addr string // SOCKS5 proxy for DC connections (e.g., "127.0.0.1:1080")
+
+	// Incoming connection handling
+	ProxyProtocol bool // Accept incoming PROXY protocol headers
+	// InternalProxyProtocol accepts PROXY headers only from loopback TCP or Unix
+	// peers that authenticate with the process-local token. Native WEB backends
+	// use it to retain the validated browser IP.
+	InternalProxyProtocol bool
+	InternalProxyAuth     *InternalProxyAuth
+	HandshakeTimeout      time.Duration // Max time for handshake before closing (default 30s)
+	MaxConnections        int           // Max concurrent accepted connections, 0 = unlimited
+	MaxConnectionsPerIP   int           // Max concurrent connections per IP+secret, 0 = unlimited
+	MaxIPsPerUser         int           // Max unique IPs per user, 0 = unlimited
+	IPBlockTimeout        time.Duration // How long blocked IPs stay blocked (default 5m)
+
+	// Backpressure
+	MaxWriteBuffer int // Max pending bytes per connection before closing (0 = 4MB default)
+
+	// Anti-DPI record shaping (proxy -> client direction).
+	// EnableDRS turns on the Chrome-style probe-then-ramp record sizer:
+	// outbound TLS ApplicationData starts with 1369-byte records and ramps
+	// to full size after 8 records or 128 KB.
+	EnableDRS bool
+	// EnableSplitTLS emits the first outbound ApplicationData record as a
+	// 1-byte record before continuing normally. Defeats passive signatures
+	// keyed on the first record.
+	EnableSplitTLS bool
+
+	// gnet-specific
+	Multicore    bool // Use multiple event loops
+	ReusePort    bool // Enable SO_REUSEPORT
+	LockOSThread bool // Lock goroutines to OS threads
+	NumEventLoop int  // Number of event loops (0 = auto)
+
+	// WebProxyFingerprint changes when restart-only [web-proxy] settings change.
+	// It contains no secret values and exists only for hot-reload diagnostics.
+	WebProxyFingerprint string
+	// MiddleEndFingerprint changes when restart-only [middle-end] settings
+	// change. It is a digest and never contains proxy credentials or tags.
+	MiddleEndFingerprint string
+}
+
+// DefaultConfig returns sensible defaults.
+func DefaultConfig() Config {
+	return Config{
+		MaskPort:          443,
+		CertRefreshHours:  5,
+		HandshakeTimeout:  5 * time.Second,
+		IdleTimeout:       5 * time.Minute,
+		TimeSkewTolerance: 3 * time.Second,
+		IPPreference:      dc.PreferIPv4,
+		Multicore:         true,
+		ReusePort:         true,
+		LockOSThread:      true,
+		EnableDRS:         true,
+		EnableSplitTLS:    true,
+	}
+}
+
+// parseBindAddress parses the bind address and returns the gnet address string.
+// Returns the gnet-formatted address and whether it's a Unix socket.
+func parseBindAddress(addr string) (gnetAddr string, isUnix bool) {
+	if strings.HasPrefix(addr, "unix://") {
+		return addr, true
+	}
+	if strings.HasPrefix(addr, "tcp://") {
+		return addr, false
+	}
+	// Auto-detect: paths starting with "/" are Unix sockets
+	if strings.HasPrefix(addr, "/") {
+		return "unix://" + addr, true
+	}
+	return "tcp://" + addr, false
+}
+
+// IsUnixSocket returns true if the bind address is a Unix socket.
+func IsUnixSocket(addr string) bool {
+	_, isUnix := parseBindAddress(addr)
+	return isUnix
+}
+
+// Run starts the proxy with graceful shutdown support using gnet.
+// Returns a shutdown function that can be called to stop the server.
+func Run(cfg *Config, logger Logger) (shutdown func(), errCh <-chan error) {
+	shutdownFn, _, ch := RunWithHandler(cfg, logger)
+	return shutdownFn, ch
+}
+
+// RunWithHandler starts the proxy and returns the handler for hot-reload.
+// Returns a shutdown function, the handler (for hot-reload), and error channel.
+func RunWithHandler(cfg *Config, logger Logger) (shutdown func(), handler *ProxyHandler, errCh <-chan error) {
+	if logger == nil {
+		logger = defaultLogger{}
+	}
+	handler = NewProxyHandler(cfg, logger)
+	shutdown, errCh = runWithPreparedHandler(cfg, logger, handler)
+	return shutdown, handler, errCh
+}
+
+// RunWithMiddleEnd starts the proxy with an externally owned, already-started
+// Middle-End binding source. It validates and constructs the handler before any
+// network runtime starts. The caller must keep the source alive until shutdown
+// returns and every public connection has received OnClose.
+func RunWithMiddleEnd(
+	cfg *Config,
+	logger Logger,
+	frontend MiddleEndFrontendConfig,
+) (shutdown func(), handler *ProxyHandler, errCh <-chan error, err error) {
+	if logger == nil {
+		logger = defaultLogger{}
+	}
+	handler, err = NewProxyHandlerWithMiddleEnd(cfg, logger, frontend)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	shutdown, errCh = runWithPreparedHandler(cfg, logger, handler)
+	return shutdown, handler, errCh, nil
+}
+
+func runWithPreparedHandler(
+	cfg *Config,
+	logger Logger,
+	handler *ProxyHandler,
+) (shutdown func(), errCh <-chan error) {
+	ch := make(chan error, 1)
+
+	// Probe DC addresses at startup and sort by RTT
+	dc.SetProbeLogger(logger.Info)
+	if cfg.Socks5Addr != "" {
+		if err := dc.SetProbeSocks5(cfg.Socks5Addr); err != nil {
+			logger.Warn("Failed to set SOCKS5 for DC probing: %v", err)
+		} else {
+			logger.Info("DC probing via SOCKS5: %s", cfg.Socks5Addr)
+		}
+	}
+	dc.Init()
+
+	// Use atomic pointer to store engine reference
+	var engPtr atomic.Pointer[gnet.Engine]
+	// Signal that engine is ready
+	ready := make(chan struct{})
+
+	go func() {
+		// Initialize DC client for outgoing connections
+		dcHandler := &dcEventHandler{proxy: handler}
+		dcClient, err := gnet.NewClient(
+			dcHandler,
+			gnet.WithMulticore(cfg.Multicore),
+			gnet.WithLockOSThread(cfg.LockOSThread),
+			gnet.WithReadBufferCap(128*1024),  // 128KB read buffer
+			gnet.WithWriteBufferCap(256*1024), // 256KB write buffer - more batching to DC
+		)
+		if err != nil {
+			ch <- fmt.Errorf("failed to create DC client: %w", err)
+			return
+		}
+		if err := dcClient.Start(); err != nil {
+			ch <- fmt.Errorf("failed to start DC client: %w", err)
+			return
+		}
+		handler.dcClient = dcClient
+		if cfg.Socks5Addr != "" {
+			logger.Debug("DC client started with SOCKS5 proxy: %s", cfg.Socks5Addr)
+		} else {
+			logger.Debug("DC client started with %d event loops", cfg.NumEventLoop)
+		}
+
+		// Correct a skewed server clock from an HTTP Date header (once, at startup)
+		// so the handshake time-skew check doesn't reject every client.
+		if cfg.ClockSyncURL != "" {
+			if off, err := faketls.SyncClock(cfg.ClockSyncURL, 0); err != nil {
+				logger.Warn("Clock sync from %s failed: %v (using local clock)", cfg.ClockSyncURL, err)
+			} else {
+				logger.Info("Clock sync from %s: offset %+ds applied", cfg.ClockSyncURL, off)
+			}
+		}
+
+		// Initialize TLS fronting if configured
+		if cfg.MaskHost != "" && cfg.FetchRealCert {
+			handler.certFetcher = tlsfront.NewCertFetcher(cfg.CertRefreshHours, cfg.MaskHost)
+
+			// Fetch certificate synchronously at startup
+			logger.Debug("Fetching TLS certificate from %s:%d (SNI: %s)...", cfg.CertHost, cfg.CertPort, cfg.MaskHost)
+			cert, err := handler.certFetcher.FetchCert(cfg.CertHost, cfg.CertPort)
+			if err != nil {
+				logger.Warn("Failed to fetch certificate: %v (will retry in background)", err)
+			} else {
+				logger.Debug("Certificate fetched: %d certs in chain", len(cert.Chain))
+			}
+
+			// Start background refresh
+			handler.certFetcher.StartBackgroundRefresh(cfg.CertHost, cfg.CertPort)
+
+			// Initialize ServerHello fetcher for hybrid mode (real TLS fingerprint)
+			handler.serverHelloFetcher = tlsfront.NewServerHelloFetcher(cfg.CertHost, cfg.CertPort)
+			logger.Debug("Fetching real ServerHello from %s:%d for hybrid TLS mode...", cfg.CertHost, cfg.CertPort)
+			_, _, err = handler.serverHelloFetcher.GetServerHelloTemplate()
+			if err != nil {
+				logger.Warn("Failed to fetch ServerHello template: %v (will retry)", err)
+			} else {
+				logger.Info("Hybrid TLS mode enabled: using real ServerHello from %s", cfg.CertHost)
+			}
+			handler.serverHelloFetcher.StartBackgroundRefresh()
+		}
+
+		// Custom handler to capture engine
+		wrapper := &engineCaptureHandler{
+			ProxyHandler: handler,
+			engPtr:       &engPtr,
+			ready:        ready,
+		}
+
+		opts := publicGnetOptions(cfg)
+
+		addr, isUnix := parseBindAddress(cfg.BindAddr)
+
+		// Clean up existing socket file before binding
+		if isUnix {
+			socketPath := strings.TrimPrefix(addr, "unix://")
+			if err := os.Remove(socketPath); err != nil && !os.IsNotExist(err) {
+				logger.Warn("Failed to remove existing socket file %s: %v", socketPath, err)
+			}
+			wrapper.socketPath = socketPath
+		}
+
+		logger.Info("Starting gnet proxy on %s (multicore=%v, reuseport=%v)",
+			cfg.BindAddr, cfg.Multicore, cfg.ReusePort)
+
+		ch <- gnet.Run(wrapper, addr, opts...)
+	}()
+
+	shutdownFn := func() {
+		// Wait for engine to be ready with a timeout
+		ctx, cancel := context.WithTimeout(context.Background(), proxyShutdownTimeout)
+		defer cancel()
+
+		select {
+		case <-ready:
+			if eng := engPtr.Load(); eng != nil {
+				eng.Stop(ctx)
+			}
+		case <-ctx.Done():
+			// Timeout waiting for engine, nothing to stop
+		}
+	}
+
+	return shutdownFn, ch
+}
+
+func publicGnetOptions(cfg *Config) []gnet.Option {
+	opts := []gnet.Option{
+		gnet.WithMulticore(cfg.Multicore),
+		gnet.WithReusePort(cfg.ReusePort),
+		gnet.WithLockOSThread(cfg.LockOSThread),
+		// Pin the audited gnet defaults so dependency changes cannot silently
+		// alter per-readable-event work or static outbound-buffer capacity.
+		gnet.WithReadBufferCap(publicReadBufferCap),
+		gnet.WithWriteBufferCap(publicWriteBufferCap),
+	}
+	if cfg.NumEventLoop > 0 {
+		opts = append(opts, gnet.WithNumEventLoop(cfg.NumEventLoop))
+	}
+	// Enable the engine ticker only when the client-silence wedge breaker is
+	// active; OnTick sweeps relaying connections for the iOS bad_salt wedge.
+	if cfg.ClientSilenceClose > 0 {
+		opts = append(opts, gnet.WithTicker(true))
+	}
+	return opts
+}
+
+// engineCaptureHandler wraps ProxyHandler to capture the engine on boot.
+type engineCaptureHandler struct {
+	*ProxyHandler
+	engPtr     *atomic.Pointer[gnet.Engine]
+	ready      chan struct{}
+	socketPath string // Unix socket path for chmod (empty if TCP)
+}
+
+func (h *engineCaptureHandler) OnBoot(eng gnet.Engine) gnet.Action {
+	h.engPtr.Store(&eng)
+	close(h.ready)
+
+	// Set Unix socket permissions so nginx/haproxy can connect
+	if h.socketPath != "" {
+		if err := os.Chmod(h.socketPath, 0666); err != nil {
+			h.logger.Warn("Failed to chmod socket %s: %v", h.socketPath, err)
+		}
+	}
+
+	return h.ProxyHandler.OnBoot(eng)
+}

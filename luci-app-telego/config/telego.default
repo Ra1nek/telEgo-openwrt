@@ -1,0 +1,21 @@
+# telEgo Default Configuration
+# ==============================
+#
+# Default UCI configuration file for luci-app-telego.
+# This file is installed to /etc/config/telego during package installation.
+#
+
+config 'general'
+	option 'use_middle_proxy' '1'
+	option 'tls_mode' '1'
+	option 'secure_mode' '0'
+	option 'tls_domain' 'google.com'
+
+config 'server'
+	option 'port' '443'
+
+config 'web_proxy'
+	option 'enabled' '0'
+	option 'carrier' 'https-lanes'
+	option 'bind_to' '127.0.0.1:8080'
+	option 'hostname' ''

@@ -1,0 +1,156 @@
+name: Release Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version'
+        required: true
+        default: '1.0.0'
+
+env:
+  TELEGO_VERSION: "0.6.0"
+  LUCI_VERSION: "1.0.0"
+
+jobs:
+  build-all-packages:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache-dependency-path: telego-src/go.sum
+          
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pip make git wget unzip
+          pip3 install nfpm
+  
+      - name: Build telEgo binary (x86_64)
+        working-directory: telego-src
+        run: |
+          echo "Building telEgo binary..."
+          CGO_ENABLED=0 go build \
+            -trimpath \
+            -ldflags="-s -w" \
+            -o ../telego-pkg/files/bin/telego \
+            ./cmd/telego
+  
+      - name: Verify telEgo binary
+        run: |
+          ls -lh telego-pkg/files/bin/telego
+          file telego-pkg/files/bin/telego
+
+      - name: Build telEgo APK package
+        working-directory: telego-pkg
+        run: |
+          echo "Building telEgo APK..."
+          mkdir -p ../../packages
+          
+          nfpm pkg \
+            --target ../../packages/telego_${{ env.TELEGO_VERSION }}_x86_64.apk \
+            --packager apk
+
+      - name: Build LuCI APK package
+        working-directory: luci-app-telego
+        run: |
+          echo "Building LuCI APK..."
+          
+          nfpm pkg \
+            --target ../../packages/luci-app-telego_${{ env.LUCI_VERSION }}_noarch.apk \
+            --packager apk
+
+      - name: Build Nginx Config APK package
+        working-directory: nginx-pkg
+        run: |
+          echo "Building Nginx Config APK..."
+          
+          nfpm pkg \
+            --target ../../packages/nginx-telego_${{ env.TELEGO_VERSION }}_x86_64.apk \
+            --packager apk
+
+      - name: List all built packages
+        run: |
+          echo "=== Built Packages ==="
+          ls -lh packages/*.apk
+          echo ""
+          echo "=== Package Details ==="
+          for pkg in packages/*.apk; do
+            echo "--- $pkg ---"
+            file "$pkg"
+          done
+
+      - name: Upload release artifacts
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            packages/telego_*.apk
+            packages/luci-app-telego_*.apk
+            packages/nginx-telego_*.apk
+          body: |
+            ## Release Notes
+            
+            ### Packages Included:
+            - `telego_${{ env.TELEGO_VERSION }}_x86_64.apk` - telEgo MTProxy + WEB Proxy server
+            - `luci-app-telego_${{ env.LUCI_VERSION }}_noarch.apk` - LuCI web interface (EN/RU)
+            - `nginx-telego_${{ env.TELEGO_VERSION }}_x86_64.apk` - Nginx TLS fronting configuration
+            
+            ### Installation:
+            ```bash
+            # Download packages
+            wget https://github.com/YOUR_REPO/telEgo-openwrt/releases/download/v${{ github.event.release.tag_name }}/telego_*.apk
+            wget https://github.com/YOUR_REPO/telEgo-openwrt/releases/download/v${{ github.event.release.tag_name }}/luci-app-telego_*.apk
+            
+            # Install on OpenWRT
+            apk add --allow-untrusted telego_*.apk
+            apk add --allow-untrusted luci-app-telego_*.apk
+            ```
+
+  create-release-archive:
+    runs-on: ubuntu-latest
+    needs: build-all-packages
+    
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: '*'
+          path: artifacts/
+          
+      - name: Create release archive
+        run: |
+          echo "Creating complete release archive..."
+          mkdir release-archive
+          cp artifacts/packages/*.apk release-archive/
+          cp README.md release-archive/
+          cp LICENSE release-archive/
+          cp -r docs/ release-archive/
+          
+          tar -czf telego-openwrt-${{ github.event.release.tag_name }}.tar.gz \
+            -C release-archive .
+          
+          ls -lh telego-openwrt-*.tar.gz
+
+      - name: Upload complete archive
+        uses: softprops/action-gh-release@v1
+        with:
+          files: telego-openwrt-${{ github.event.release.tag_name }}.tar.gz
+
+  notify-on-success:
+    runs-on: ubuntu-latest
+    needs: [build-all-packages, create-release-archive]
+    
+    steps:
+      - name: Success notification
+        run: |
+          echo "✅ Release ${{ github.event.release.tag_name }} published successfully!"
+          echo "📦 Packages available at:"
+          echo "   https://github.com/${{ github.repository }}/releases/tag/${{ github.event.release.tag_name }}"
