@@ -119,18 +119,14 @@ jobs:
       - name: Build All telEgo Packages
         run: |
           cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
-          echo "========================================"
-          echo "Building telEgo Package Suite v0.6.0"
-          echo "========================================"
+          echo "=== Compiling Production APK Packages via OpenWrt SDK Feeds ==="
           
-          # Compile the unified LuCI application (which compiles both app and i18n assets)
+          # Build the main unified app package (which natively includes ru lmo assets)
           make package/feeds/action/luci-app-telego/compile V=s
           
-          # Compile the core system daemon and Nginx routing helpers
+          # Build the system daemon layer and nginx helpers
           make package/feeds/action/telego-pkg/compile V=s
           make package/feeds/action/nginx-telego/compile V=s
-          
-          echo "✓ All packages compiled successfully"
         
       - name: Generate Package Index (ADB)
         run: |
