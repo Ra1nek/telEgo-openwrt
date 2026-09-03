@@ -24,7 +24,7 @@ define Package/telego
   SUBMENU:=Proxy
   TITLE:=Telegram MTProxy + WEB Proxy server with Middle-End support
   URL:=https://github.com/Ra1nek/telEgo-openwrt
-  DEPENDS:=+ca-bundle +libopenssl +luci-app-telego
+  DEPENDS:=+ca-bundle +libopenssl
 endef
 
 define Package/telego/description
