@@ -1,13 +1,10 @@
-name: Build telEgo Packages (OpenWrt SDK)
+name: Build telEgo Packages
 
 on:
   push:
     branches: [main]
     paths:
-      - 'telego-pkg/**'
-      - 'nginx-pkg/**'
-      - 'luci-app-telego/**'
-      - 'telego-src/**'
+      - 'package/**'
       - '.github/workflows/build-telego.yaml'
   pull_request:
     branches: [main]
@@ -15,174 +12,85 @@ on:
 
 env:
   TELEGO_VERSION: "0.6.0"
-  LUCI_VERSION: "1.0.0"
 
 jobs:
-  # ============================================================================
-  # PHASE 1: Build Go Binary (v0.6.0 with Middle-End Support)
-  # ============================================================================
-  build-go-binary:
+  build-all-packages:
     runs-on: ubuntu-latest
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v5
-        
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v5
         with:
-          go-version: '1.27'
-          cache-dependency-path: telego-src/go.sum
-          
-      - name: Build telEgo binary (x86_64)
-        working-directory: telego-src
+          go-version: '1.22'
+      
+      - name: Download OpenWrt SDK 25.12.4
         run: |
-          echo "Building telEgo v0.6.0 for x86_64..."
-          CGO_ENABLED=0 go build \
-            -trimpath \
-            -ldflags="-s -w" \
-            -o ../telego-pkg/files/usr/bin/telego \
-            ./cmd/telego
-          echo "✓ Binary built: $(ls -lh ../telego-pkg/files/usr/bin/telego)"
-          file ../telego-pkg/files/usr/bin/telego
-  
-      - name: Upload Go binary artifact
-        uses: actions/upload-artifact@v5
-        with:
-          name: telego-binary-x86_64
-          path: telego-pkg/files/usr/bin/telego
-          retention-days: 1
-
-  # ============================================================================
-  # PHASE 2: OpenWrt SDK Build (All Packages + Index)
-  # ============================================================================
-  build-openwrt-packages:
-    runs-on: ubuntu-latest
-    needs: build-go-binary
-    
-    env:
-      OPENWRT_VERSION: "25.12.4"
-      INDEX: "1"  # Force packages.adb index generation
-    
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        
-      - name: Setup OpenWrt SDK Environment
+          echo "Downloading OpenWrt SDK..."
+          SDK_URL="https://downloads.openwrt.org/releases/25.12.4/sdk/OpenWrt-SDK-25.12.4_x86_64_gcc-x86_64-openwrt_target_musl-linux-gnu.tar.xz"
+          wget -q "$SDK_URL" --progress=bar:force
+          tar -xf OpenWrt-SDK-*.tar.xz
+          mv OpenWrt-SDK-* openwrt-sdk
+      
+      - name: Register Local Feed
         run: |
-          echo "Setting up OpenWrt SDK environment..."
-          export PATH="$PWD/sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target/bin:$PATH"
-          echo "SDK_PATH=$PWD/sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target" >> $GITHUB_ENV
-          
-      - name: Download OpenWrt SDK (25.12.4)
-        run: |
-          echo "Downloading OpenWrt SDK 25.12.4..."
-          mkdir -p sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
-          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
-          # Download SDK tarball from OpenWrt official releases
-          wget -q https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-25.12.4-x86-64-sdk.tar.xz || \
-            wget -q https://archive.openwrt.org/sites/openwrt-backup/archive/releases/25.12.4/targets/x86/64/openwrt-25.12.4-x86-64-sdk.tar.xz
-          tar -xJf openwrt-25.12.4-x86-64-sdk.tar.xz --strip-components=1
-          rm -f openwrt-25.12.4-x86_64-sdk.tar.xz
-          echo "✓ SDK extracted successfully"
-          ls -la
-        working-directory: .
-        
-      - name: Configure OpenWrt Build System
-        run: |
-          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
-          echo "Configuring build system..."
-          # Generate default configuration
-          make defconfig
-          echo "✓ Configuration generated"
-        
-      - name: Add Custom Feed with telEgo Packages
-        run: |
-          cd sdk-25.12.4_x86_64_gcc-x86_64-openwrt_target
-          echo "Adding custom feed 'action' for telEgo packages..."
-          
-          # Create feeds directory if not exists
-          mkdir -p feeds
-          
-          # Register the custom feed pointing to parent directory (where our packages are)
-          echo "src-git file ../" >> feeds.conf
-          
-          # Update feeds and sync packages
+          cd openwrt-sdk
+          echo "src-local file ../package" >> feeds.conf.default
           ./scripts/feeds update -a
           ./scripts/feeds install -a
-          
-          echo "✓ Custom feed 'action' registered with 4 packages:"
-          echo "  - telego-pkg (core daemon)"
-          echo "  - nginx-telego (nginx config helper)"
-          echo "  - luci-app-telego (web interface + Russian translation merged)"
-        
-      - name: Build All telEgo Packages
+      
+      - name: Build telEgo Core Package
+        working-directory: openwrt-sdk
         run: |
-          echo "=== Compiling Production APK Packages via OpenWrt SDK Feeds ==="
-          make package/feeds/action/luci-app-telego/compile V=s
-          make package/feeds/action/telego-pkg/compile V=s
-          make package/feeds/action/nginx-telego/compile V=s
-        
-      - name: Generate Package Index (ADB)
+          echo "=== Building telEgo Core Package ==="
+          make package/feeds/file/telego/clean V=s
+          make package/feeds/file/telego/compile V=s
+          ls -lh bin/packages/*/*/telego_*.apk || true
+      
+      - name: Build LuCI Application Packages
+        working-directory: openwrt-sdk
         run: |
-          echo "Generating package index..."
-          make package/index V=s
-          echo "✓ Package index generated"
-        
-      - name: List Built Packages
+          echo "=== Building LuCI Application Packages ==="
+          make package/feeds/file/luci-app-telego/clean V=s
+          make package/feeds/file/luci-app-telego/compile V=s
+          ls -lh bin/packages/*/*/luci-*.apk || true
+      
+      - name: Build Nginx Configuration Package
+        working-directory: openwrt-sdk
         run: |
-          echo "========================================"
-          echo "Built APK Packages:"
-          echo "========================================"
-          find bin/packages -name "*.apk" -exec ls -lh {} \;
-          
-      - name: Upload All Artifacts (APK + ADB)
-        uses: actions/upload-artifact@v5
+          echo "=== Building Nginx Configuration Package ==="
+          make package/feeds/file/nginx-telego/clean V=s
+          make package/feeds/file/nginx-telego/compile V=s
+          ls -lh bin/packages/*/*/nginx-*.apk || true
+      
+      - name: Collect All Built Packages
+        run: |
+          echo "=== Collecting All Built Packages ==="
+          mkdir -p packages
+          find openwrt-sdk/bin/packages -name "*.apk" -exec cp {} packages/ \;
+          ls -lh packages/*.apk
+      
+      - name: Upload telEgo Core Package
+        uses: actions/upload-artifact@v4
         with:
-          name: telego-packages-apk
-          path: |
-            bin/packages/**/*.apk
+          name: telego-core-package
+          path: packages/telego_*.apk
           retention-days: 30
-          
-      - name: Upload Package Index (ADB)
-        uses: actions/upload-artifact@v5
-        if: always()
+      
+      - name: Upload LuCI Packages
+        uses: actions/upload-artifact@v4
         with:
-          name: telego-packages-index
-          path: |
-            bin/packages/*/packages.adb
+          name: luci-packages
+          path: packages/luci-*.apk
           retention-days: 30
-
-  # ============================================================================
-  # PHASE 3: Test Built Binary (Optional Verification)
-  # ============================================================================
-  test-binary:
-    runs-on: ubuntu-latest
-    needs: build-go-binary
-    
-    steps:
-      - name: Download Go binary artifact
-        uses: actions/download-artifact@v5
+      
+      - name: Upload Nginx Package
+        uses: actions/upload-artifact@v4
         with:
-          name: telego-binary-x86_64
-          path: ./test-bin/
-          
-      - name: Test telEgo Binary
-        run: |
-          echo "=== Testing telEgo v0.6.0 ==="
-          chmod +x ./test-bin/telego
-          ls -lh ./test-bin/telego
-          file ./test-bin/telego
-          
-          # Test binary execution (should show help or version)
-          if ./test-bin/telego --version 2>&1 | grep -q "telEgo"; then
-            echo "✓ Version check passed"
-          elif ./test-bin/telego -v 2>&1 | grep -q "telEgo"; then
-            echo "✓ Version check passed (-v flag)"
-          else
-            echo "✓ Binary is executable (no version flag available)"
-          fi
-          
-          # Verify binary architecture
-          ARCH=$(file ./test-bin/telego | grep -oP 'ELF\s*\K[^\s]+')
-          echo "Binary Architecture: $ARCH"
+          name: nginx-package
+          path: packages/nginx-*.apk
+          retention-days: 30
