@@ -47,24 +47,24 @@ jobs:
         working-directory: openwrt-sdk
         run: |
           echo "=== Building telEgo Core Package ==="
-          make package/package/telego/clean V=s
-          make package/package/telego/compile V=s
+          make package/telego/clean V=s
+          make package/telego/compile V=s
           ls -lh bin/packages/*/*/telego_*.apk || true
       
       - name: Build LuCI Application Packages
         working-directory: openwrt-sdk
         run: |
           echo "=== Building LuCI Application Packages ==="
-          make package/package/luci-app-telego/clean V=s
-          make package/package/luci-app-telego/compile V=s
+          make package/luci-app-telego/clean V=s
+          make package/luci-app-telego/compile V=s
           ls -lh bin/packages/*/*/luci-*.apk || true
       
       - name: Build Nginx Configuration Package
         working-directory: openwrt-sdk
         run: |
           echo "=== Building Nginx Configuration Package ==="
-          make package/package/nginx-telego/clean V=s
-          make package/package/nginx-telego/compile V=s
+          make package/nginx-telego/clean V=s
+          make package/nginx-telego/compile V=s
           ls -lh bin/packages/*/*/nginx-*.apk || true
       
       - name: Collect All Built Packages
