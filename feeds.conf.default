@@ -1,0 +1,3 @@
+# Local feed configuration for telEgo OpenWrt packages
+# This file enables local package development without SDK download
+src-local file ./package
