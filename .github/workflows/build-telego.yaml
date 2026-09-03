@@ -28,12 +28,12 @@ jobs:
         with:
           go-version: '1.22'
       
-      - name: Download OpenWrt SDK 25.12.4
+      - name: Download OpenWrt SDK 23.05.6
         run: |
           echo "Downloading OpenWrt SDK..."
-          SDK_URL="https://downloads.openwrt.org/releases/25.12.4/sdk/OpenWrt-SDK-25.12.4_x86_64_gcc-x86_64-openwrt_target_musl-linux-gnu.tar.xz"
+          SDK_URL="https://downloads.openwrt.org/releases/23.05.6/sdk/OpenWrt-SDK-23.05.6_x86_64_gcc-x86_64_musl-linux-gnu.tar.gz"
           wget -q "$SDK_URL" --progress=bar:force
-          tar -xf OpenWrt-SDK-*.tar.xz
+          tar -xf OpenWrt-SDK-*.tar.gz
           mv OpenWrt-SDK-* openwrt-sdk
       
       - name: Register Local Feed
