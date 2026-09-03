@@ -26,15 +26,15 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.26'
       
-      - name: Download OpenWrt SDK 23.05.6
+      - name: Download OpenWrt SDK 25.12.4
         run: |
           echo "Downloading OpenWrt SDK..."
-          SDK_URL="https://downloads.openwrt.org/releases/23.05.6/sdk/OpenWrt-SDK-23.05.6_x86_64_gcc-x86_64_musl-linux-gnu.tar.gz"
+          SDK_URL="https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
           wget -q "$SDK_URL" --progress=bar:force
-          tar -xf OpenWrt-SDK-*.tar.gz
-          mv OpenWrt-SDK-* openwrt-sdk
+          tar --zstd -xf openwrt-sdk-*.tar.zst
+          mv openwrt-sdk-* openwrt-sdk
       
       - name: Register Local Feed
         run: |
@@ -47,24 +47,24 @@ jobs:
         working-directory: openwrt-sdk
         run: |
           echo "=== Building telEgo Core Package ==="
-          make package/feeds/file/telego/clean V=s
-          make package/feeds/file/telego/compile V=s
+          make package/package/telego/clean V=s
+          make package/package/telego/compile V=s
           ls -lh bin/packages/*/*/telego_*.apk || true
       
       - name: Build LuCI Application Packages
         working-directory: openwrt-sdk
         run: |
           echo "=== Building LuCI Application Packages ==="
-          make package/feeds/file/luci-app-telego/clean V=s
-          make package/feeds/file/luci-app-telego/compile V=s
+          make package/package/luci-app-telego/clean V=s
+          make package/package/luci-app-telego/compile V=s
           ls -lh bin/packages/*/*/luci-*.apk || true
       
       - name: Build Nginx Configuration Package
         working-directory: openwrt-sdk
         run: |
           echo "=== Building Nginx Configuration Package ==="
-          make package/feeds/file/nginx-telego/clean V=s
-          make package/feeds/file/nginx-telego/compile V=s
+          make package/package/nginx-telego/clean V=s
+          make package/package/nginx-telego/compile V=s
           ls -lh bin/packages/*/*/nginx-*.apk || true
       
       - name: Collect All Built Packages
