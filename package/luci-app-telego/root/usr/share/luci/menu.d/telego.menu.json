@@ -1,0 +1,22 @@
+{
+  "services": {
+    "telego_status": {
+      "title": "telEgo",
+      "description": "Telegram MTProxy + WEB Proxy Server",
+      "menuid": "admin_services.telego_status",
+      "action": "view",
+      "path": "telego/status",
+      "order": 10,
+      "acl": ["luci-app-telego"]
+    },
+    "telego_config": {
+      "title": "Configuration",
+      "description": "MTProxy and WEB Proxy Settings",
+      "menuid": "admin_services.telego_config",
+      "action": "view",
+      "path": "telego/config",
+      "order": 20,
+      "acl": ["luci-app-telego"]
+    }
+  }
+}
