@@ -9,13 +9,19 @@ PKG_RELEASE:=1
 PKG_ARCH:=$(LINUX_KERNEL)
 PKG_INSTALL:=1
 
+# Local source configuration for OpenWrt 25.12 SDK with golang.mk
+# Uses file:// protocol to reference local Go module in workspace root
+define PKG_SOURCE_URL = file://${PWD}/../telego-src
+PKG_SOURCE_PROTO:=file
+PKG_SOURCE_VERSION:=main
+
 include $(INCLUDE_DIR)/package.mk
 
 # Include golang.mk for proper Go cross-compilation in OpenWrt 25.12 SDK
 include $(INCLUDE_DIR)/golang.mk
 
-# Go package configuration for native cross-compilation
-GO_PKG:=github.com/Scratch-net/telego
+# Go package configuration - module path matches telego-src/go.mod
+GO_PKG:=github.com/scratch-net/telego
 GO_LDFLAGS:=-s -w
 
 # =============================================================================
