@@ -9,11 +9,9 @@ PKG_RELEASE:=1
 PKG_ARCH:=$(LINUX_KERNEL)
 PKG_INSTALL:=1
 
-# Bundle source directly in package directory - no download needed
-PKG_SOURCE_PROTO:=file
-PKG_SOURCE_URL:=.
-PKG_SOURCE_VERSION:=main
-PKG_MIRROR_HASH:=skip
+# Bundle Go source code directly in src/ subdirectory for golang.mk
+# No download needed - source is bundled with the package
+PKG_INSTALL:=1
 
 include $(INCLUDE_DIR)/package.mk
 
