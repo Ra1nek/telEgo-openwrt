@@ -41,7 +41,7 @@ jobs:
           # Copy feeds.conf.default from repo root to SDK directory
           cp ../../feeds.conf.default ./feeds.conf.default
           # Register local feed with packages using action feed path
-          echo "src-link action \$GITHUB_WORKSPACE" >> feeds.conf.default
+          echo "src-link action $GITHUB_WORKSPACE" >> feeds.conf.default
           ./scripts/feeds update action 2>&1 || true
           ./scripts/feeds install -a -p action 2>&1 || true
       
