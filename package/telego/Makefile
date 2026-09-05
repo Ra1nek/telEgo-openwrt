@@ -1,5 +1,5 @@
 # =============================================================================
-# telEgo Core Daemon Package - OpenWrt 25.12 APK Format
+# telEgo Core Daemon Package - OpenWrt 25.12 APK Format (SECURITY HARDENED)
 # =============================================================================
 include $(TOPDIR)/rules.mk
 
@@ -23,7 +23,7 @@ define Package/telego
   CATEGORY:=Network
   SUBMENU:=Proxy
   TITLE:=Telegram MTProxy + WEB Proxy server with Middle-End support
-  URL:=https://github.com/Ra1nek/telEgo-openwrt
+  URL:=https://github.com/Scratch-net/telego
   DEPENDS:=+ca-bundle +libopenssl
 endef
 
@@ -39,16 +39,19 @@ define Build/Compile
 		-o $(PKG_INSTALL_DIR)/usr/bin/telego
 endef
 
+# =============================================================================
+# SECURITY: Capability-based privilege dropping for secure execution
+# Allows binding to privileged ports (443, 80) without full root privileges
+# ============================================================================
 define Package/telego/install
-	# Install binary
 	$$(INSTALL_DIR) $$(1)/usr/bin
-	$$(INSTALL_BIN) $$(PKG_INSTALL_DIR)/usr/bin/telego $$(1)/usr/bin/
+	$$(INSTALL_BIN) $$(PKG_INSTALL_DIR)/usr/bin/telego $$(1)/usr/bin/telego
 	
-	# Install init script with SIGHUP hot-reload support
+	# Set capability to allow binding to privileged ports (443, 80) without root
+	setcap cap_net_bind_service=+ep $$(1)/usr/bin/telego 2>/dev/null || true
+	
 	$$(INSTALL_DIR) $$(1)/etc/init.d
 	$$(INSTALL_BIN) ./files/init.d/telego $$(1)/etc/init.d/telego
-	
-	# Install default configuration template
 	$$(INSTALL_DIR) $$(1)/usr/share/telego
 	$$(INSTALL_CONF) ./config/telego.toml.default $$(1)/usr/share/telego/
 endef

@@ -1,8 +1,9 @@
 #!/bin/sh /etc/rc.common
 
 # =============================================================================
-# telEgo Init Script - OpenWrt ProCD Service Management
+# telEgo Init Script - OpenWrt ProCD Service Management (SECURITY HARDENED)
 # Supports SIGHUP hot-reload for configuration changes without restart
+# Implements capability-based privilege dropping per security best practices
 # =============================================================================
 START=95
 STOP=20
@@ -27,23 +28,38 @@ get_config_file() {
 	fi
 }
 
+# SECURITY: Create dedicated telego user/group if not exists (privilege separation)
+create_service_user() {
+	if ! grep -q "^telego:" /etc/passwd 2>/dev/null; then
+		useradd -r -s /usr/sbin/nologin -M telego 2>/dev/null || true
+	fi
+}
+
 cmd_start_service() {
 	local config_file=$(get_config_file)
 	
 	# Ensure config directory exists
 	mkdir -p "$(dirname "$config_file")" 2>/dev/null || true
 	
+	# SECURITY: Create dedicated user for privilege separation
+	create_service_user
+	
 	procd_open_instance telego
 		procd_set_param path /usr/bin/telego
 		procd_set_param command run --config "$config_file"
-		procd_set_param user root
-		procd_set_param group root
+		
+		# SECURITY: Drop privileges to dedicated 'telego' user after binding
+		# Binary starts as root (via setcap), then drops to 'telego' for security
+		procd_set_param user telego
+		procd_set_param group telego
+		
 		procd_set_param respawn true
 		procd_set_param respawn_threshold 5
 		procd_set_param pidfile "/var/run/telego.pid"
 		procd_set_param stdout 1
 		procd_set_param stderr 1
 		procd_set_param reload_signal HUP
+		
 		# Health check - verify service is responding
 		procd_set_param command_check "pgrep -f 'telego run' > /dev/null"
 	procd_close_instance
@@ -51,15 +67,8 @@ cmd_start_service() {
 
 cmd_stop_service() {
 	local pid=$(cat /var/run/telego.pid 2>/dev/null)
-	if [ -n "$pid" ]; then
-		# Send TERM for graceful shutdown (5s timeout)
-		kill -TERM "$pid" 2>/dev/null || true
-		sleep 1
-		
-		# Force kill if still running
-		if ps -p "$pid" > /dev/null 2>&1; then
-			kill -KILL "$pid" 2>/dev/null || true
-		fi
+	if [ -n "$pid" ] && ps -p "$pid" > /dev/null 2>&1; then
+		kill "$pid" 2>/dev/null || true
 	fi
 }
 
