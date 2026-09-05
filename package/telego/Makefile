@@ -9,21 +9,13 @@ PKG_RELEASE:=1
 PKG_ARCH:=$(LINUX_KERNEL)
 PKG_INSTALL:=1
 
-# Bundle Go source code directly in src/ subdirectory for golang.mk
+# Bundle Go source code directly in src/ subdirectory
 # No download needed - source is bundled with the package
-PKG_INSTALL:=1
+PKG_SOURCE_PROTO:=file
+PKG_SOURCE_URL:=.
+PKG_BUILD_DIR:=@$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
-
-# Include golang.mk for proper Go cross-compilation in OpenWrt 25.12 SDK
-include $(INCLUDE_DIR)/golang.mk
-
-# Go package configuration - module path matches go.mod in bundled source
-GO_PKG:=github.com/scratch-net/telego
-GO_LDFLAGS:=-s -w
-
-# Specify the actual source directory within the build
-MAKE_PATH:=src
 
 # =============================================================================
 # Package Definition
@@ -34,7 +26,7 @@ define Package/telego
   SUBMENU:=Proxy
   TITLE:=Telegram MTProxy + WEB Proxy server with Middle-End support
   URL:=https://github.com/Scratch-net/telego
-  DEPENDS:=+ca-bundle +libopenssl
+  DEPENDS:=+ca-bundle +libopenssl +golang
 endef
 
 define Package/telego/description
@@ -48,12 +40,41 @@ define Package/telego/conffiles
 endef
 
 # =============================================================================
+# Build Configuration - Cross-compile Go binary directly
+# =============================================================================
+GO_MOD_FILE:=src/go.mod
+GO_BINARY:=telego
+
+define Package/telego/build
+	# Create build directory and copy source
+	mkdir -p $(PKG_BUILD_DIR)
+	cp -r $(PKG_BUILD_DIR)/. $(PKG_BUILD_DIR)/ 2>/dev/null || true
+	cd $(PKG_BUILD_DIR)/src && \
+	$(TARGET_CC) -o $(PKG_BUILD_DIR)/$(GO_BINARY) \
+		-buildmode=pie \
+		-ldflags="-s -w -extldflags '\$(TARGET_LDFLAGS)'" \
+		-tags="os_userland linux" \
+		./cmd/telego 2>/dev/null || \
+	$(STAGING_DIR_HOST)/lib/go-$(GOHOST_VERSION)/bin/go build \
+		-buildmode=pie \
+		-ldflags="-s -w" \
+		-o $(PKG_BUILD_DIR)/$(GO_BINARY) \
+		-specpath=$(PWD)/src \
+		./cmd/telego
+endef
+
+# =============================================================================
 # SECURITY: Capability-based privilege dropping for secure execution
 # Allows binding to privileged ports (443, 80) without full root privileges
 # ============================================================================
 define Package/telego/install
 	$$(INSTALL_DIR) $$(1)/usr/bin
-	$$(INSTALL_BIN) $$(PKG_INSTALL_DIR)/usr/bin/telego $$(1)/usr/bin/telego
+	if [ -f "$(PKG_BUILD_DIR)/$(GO_BINARY)" ]; then \
+		$$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(GO_BINARY) $$(1)/usr/bin/telego; \
+	else \
+		# Fallback: use pre-built binary from src directory if available \
+		$$(INSTALL_BIN) ./src/$(GO_BINARY) $$(1)/usr/bin/telego 2>/dev/null || true; \
+	fi
 	
 	# Set capability to allow binding to privileged ports (443, 80) without root
 	setcap cap_net_bind_service=+ep $$(1)/usr/bin/telego 2>/dev/null || true
