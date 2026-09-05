@@ -33,7 +33,8 @@ jobs:
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: "x86_64"
-          FEED_DIR: ${{ github.workspace }}/package
+          FEED_DIR: "${{ github.workspace }}/package"
+          PACKAGES: "telego luci-app-telego nginx-telego"
           INDEX: 1
           V: "s"
       

@@ -11,6 +11,9 @@ PKG_INSTALL:=1
 
 include $(INCLUDE_DIR)/package.mk
 
+# Include golang.mk for proper Go cross-compilation in OpenWrt 25.12 SDK
+include $(INCLUDE_DIR)/golang.mk
+
 # Go package configuration for native cross-compilation
 GO_PKG:=github.com/Scratch-net/telego
 GO_LDFLAGS:=-s -w
