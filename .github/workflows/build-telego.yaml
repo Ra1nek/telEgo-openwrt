@@ -42,8 +42,10 @@ jobs:
           cp ../../feeds.conf.default ./feeds.conf.default
           # Register local feed with packages using GitHub Actions context expression
           echo "src-link action ${{ github.workspace }}" >> feeds.conf.default
-          ./scripts/feeds update action 2>&1 || true
-          ./scripts/feeds install -a -p action 2>&1 || true
+          # Create symlinks for all packages in the openwrt-sdk package directory
+          ln -sf ../../package/telego package/telego 2>/dev/null || true
+          ln -sf ../../package/luci-app-telego package/luci-app-telego 2>/dev/null || true
+          ln -sf ../../package/nginx-telego package/nginx-telego 2>/dev/null || true
       
       - name: Build telEgo Core Package
         working-directory: openwrt-sdk
