@@ -33,6 +33,7 @@ jobs:
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: x86_64
+          FEEDNAME: local
           PACKAGES: telego
           V: s
       
@@ -40,6 +41,7 @@ jobs:
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: x86_64
+          FEEDNAME: local
           PACKAGES: luci-app-telego
           V: s
       
@@ -47,6 +49,7 @@ jobs:
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: x86_64
+          FEEDNAME: local
           PACKAGES: nginx-telego
           V: s
       
