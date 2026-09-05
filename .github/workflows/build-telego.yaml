@@ -40,12 +40,10 @@ jobs:
           cd openwrt-sdk
           # Copy feeds.conf.default from repo root to SDK directory
           cp ../../feeds.conf.default ./feeds.conf.default
-          # Register local feed with packages using relative path (canonical SDK syntax)
-          echo "src-link action ." >> feeds.conf.default
-          # Create symlinks for all packages in the openwrt-sdk package directory
-          ln -sf ../../../package/telego package/telego 2>/dev/null || true
-          ln -sf ../../../package/luci-app-telego package/luci-app-telego 2>/dev/null || true
-          ln -sf ../../../package/nginx-telego package/nginx-telego 2>/dev/null || true
+          # Register local feed with packages using absolute path ($PWD in container)
+          echo "src-link action \$PWD" >> feeds.conf.default
+          ./scripts/feeds update action 2>&1 || true
+          ./scripts/feeds install -a -p action 2>&1 || true
       
       - name: Build telEgo Core Package
         working-directory: openwrt-sdk
