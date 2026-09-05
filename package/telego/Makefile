@@ -11,8 +11,8 @@ PKG_INSTALL:=1
 
 # Local source configuration for OpenWrt 25.12 SDK with golang.mk
 # Uses file:// protocol to reference local Go module in workspace root
-define PKG_SOURCE_URL = file://${PWD}/../telego-src
 PKG_SOURCE_PROTO:=file
+PKG_SOURCE_URL:=${PWD}/../telego-src
 PKG_SOURCE_VERSION:=main
 
 include $(INCLUDE_DIR)/package.mk
