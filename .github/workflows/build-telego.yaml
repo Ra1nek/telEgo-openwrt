@@ -27,6 +27,7 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.27'
+          cache-dependency-path: telego-src/go.sum
       
       - name: Download OpenWrt SDK 25.12.4
         run: |
@@ -39,10 +40,10 @@ jobs:
           cd openwrt-sdk
           # Copy feeds.conf.default from repo root to SDK directory
           cp ../../feeds.conf.default ./feeds.conf.default
-          # Register local feed with packages
-          echo "src-local file ../package" >> feeds.conf.default
-          ./scripts/feeds update -a 2>&1 || true
-          ./scripts/feeds install -a 2>&1 || true
+          # Register local feed with packages using action feed path
+          echo "src-link action $GITHUB_WORKSPACE" >> feeds.conf.default
+          ./scripts/feeds update action 2>&1 || true
+          ./scripts/feeds install -a -p action 2>&1 || true
       
       - name: Build telEgo Core Package
         working-directory: openwrt-sdk

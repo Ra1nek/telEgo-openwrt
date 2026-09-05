@@ -1,0 +1,18 @@
+# telego nginx locations configuration
+# Reverse proxy and TLS fronting for telEgo proxy integration
+
+# Main web proxy location
+location / {
+    proxy_pass http://127.0.0.1:8080;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+}
+
+# MTProxy protocol handler
+location /mtproto {
+    internal;
+    proxy_pass http://127.0.0.1:8443/mtproto;
+}
