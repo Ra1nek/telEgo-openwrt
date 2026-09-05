@@ -27,14 +27,14 @@ jobs:
         uses: actions/setup-go@v5
         with:
           go-version: '1.27'
-          cache-dependency-path: package/telego/src/go.sum
+          cache-dependency-path: telego-src/go.sum
       
       - name: Build OpenWrt APK Packages
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: "x86_64"
-          FEED_DIR: "${{ github.workspace }}/package"
-          PACKAGES: "telego luci-app-telego nginx-telego"
+          FEED_DIR: "${{ github.workspace }}"
+          PACKAGES: "telego-pkg nginx-telego luci-app-telego"
           INDEX: 1
           V: "s"
       
