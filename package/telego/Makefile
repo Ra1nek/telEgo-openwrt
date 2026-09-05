@@ -9,20 +9,23 @@ PKG_RELEASE:=1
 PKG_ARCH:=$(LINUX_KERNEL)
 PKG_INSTALL:=1
 
-# Local source configuration for OpenWrt 25.12 SDK with golang.mk
-# Uses file:// protocol to reference local Go module in workspace root
+# Bundle source directly in package directory - no download needed
 PKG_SOURCE_PROTO:=file
-PKG_SOURCE_URL:=${PWD}/../telego-src
+PKG_SOURCE_URL:=.
 PKG_SOURCE_VERSION:=main
+PKG_MIRROR_HASH:=skip
 
 include $(INCLUDE_DIR)/package.mk
 
 # Include golang.mk for proper Go cross-compilation in OpenWrt 25.12 SDK
 include $(INCLUDE_DIR)/golang.mk
 
-# Go package configuration - module path matches telego-src/go.mod
+# Go package configuration - module path matches go.mod in bundled source
 GO_PKG:=github.com/scratch-net/telego
 GO_LDFLAGS:=-s -w
+
+# Specify the actual source directory within the build
+MAKE_PATH:=src
 
 # =============================================================================
 # Package Definition
@@ -42,10 +45,8 @@ define Package/telego/description
   and Telegram Middle-End (v0.6.0+). Optimized for OpenWrt routers.
 endef
 
-define Build/Compile
-	$(GO_PKG_BIN) $(PKG_BUILD_DIR)/go/src/$(GO_PKG)/telego \
-		-trimpath -ldflags "$(GO_LDFLAGS)" \
-		-o $(PKG_INSTALL_DIR)/usr/bin/telego
+define Package/telego/conffiles
+/etc/config/telego
 endef
 
 # =============================================================================
@@ -63,10 +64,6 @@ define Package/telego/install
 	$$(INSTALL_BIN) ./files/init.d/telego $$(1)/etc/init.d/telego
 	$$(INSTALL_DIR) $$(1)/usr/share/telego
 	$$(INSTALL_CONF) ./config/telego.toml.default $$(1)/usr/share/telego/
-endef
-
-define Package/telego/conffiles
-/etc/config/telego
 endef
 
 define Package/telego/postinst
