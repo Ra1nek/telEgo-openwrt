@@ -29,51 +29,32 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
       
-      - name: Download OpenWrt SDK 25.12.4
-        run: |
-          echo "Downloading OpenWrt SDK..."
-          curl -L -o sdk.tar.zst https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst
-          mkdir -p openwrt-sdk && tar --zstd -xf sdk.tar.zst -C openwrt-sdk --strip-components=1
-      
-      - name: Setup Local Feed
-        run: |
-          cd openwrt-sdk
-          # Copy feeds.conf.default from repo root to SDK directory
-          cp ../../feeds.conf.default ./feeds.conf.default
-          # Register local feed with packages using absolute path ($PWD in container)
-          echo "src-link action \$PWD" >> feeds.conf.default
-          ./scripts/feeds update action 2>&1 || true
-          ./scripts/feeds install -a -p action 2>&1 || true
-      
       - name: Build telEgo Core Package
-        working-directory: openwrt-sdk
-        run: |
-          echo "=== Building telEgo Core Package ==="
-          make package/telego/clean V=s 2>&1 || true
-          make package/telego/compile V=s 2>&1
-          ls -lh bin/packages/*/*/telego_*.apk || true
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: x86_64
+          PACKAGES: telego
+          V: s
       
       - name: Build LuCI Application Packages
-        working-directory: openwrt-sdk
-        run: |
-          echo "=== Building LuCI Application Packages ==="
-          make package/luci-app-telego/clean V=s 2>&1 || true
-          make package/luci-app-telego/compile V=s 2>&1
-          ls -lh bin/packages/*/*/luci-*.apk || true
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: x86_64
+          PACKAGES: luci-app-telego
+          V: s
       
       - name: Build Nginx Configuration Package
-        working-directory: openwrt-sdk
-        run: |
-          echo "=== Building Nginx Configuration Package ==="
-          make package/nginx-telego/clean V=s 2>&1 || true
-          make package/nginx-telego/compile V=s 2>&1
-          ls -lh bin/packages/*/*/nginx-*.apk || true
+        uses: openwrt/gh-action-sdk@main
+        env:
+          ARCH: x86_64
+          PACKAGES: nginx-telego
+          V: s
       
       - name: Collect All Built Packages
         run: |
           echo "=== Collecting All Built Packages ==="
           mkdir -p packages
-          find openwrt-sdk/bin/packages -name "*.apk" 2>/dev/null | while read f; do cp "$f" packages/; done || true
+          find bin/packages -name "*.apk" 2>/dev/null | while read f; do cp "$f" packages/; done || true
           ls -lh packages/*.apk 2>&1 || echo "No APK files found"
       
       - name: Upload telEgo Core Package
