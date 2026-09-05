@@ -29,57 +29,16 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
       
-      - name: Build telEgo Core Package
+      - name: Build OpenWrt APK Packages
         uses: openwrt/gh-action-sdk@main
         env:
-          ARCH: x86_64
+          ARCH: "x86_64"
           FEED_DIR: ${{ github.workspace }}/package
-          FEEDNAME: local
-          PACKAGES: telego
-          V: s
+          INDEX: 1
+          V: "s"
       
-      - name: Build LuCI Application Packages
-        uses: openwrt/gh-action-sdk@main
-        env:
-          ARCH: x86_64
-          FEED_DIR: ${{ github.workspace }}/package
-          FEEDNAME: local
-          PACKAGES: luci-app-telego
-          V: s
-      
-      - name: Build Nginx Configuration Package
-        uses: openwrt/gh-action-sdk@main
-        env:
-          ARCH: x86_64
-          FEED_DIR: ${{ github.workspace }}/package
-          FEEDNAME: local
-          PACKAGES: nginx-telego
-          V: s
-      
-      - name: Collect All Built Packages
-        run: |
-          echo "=== Collecting All Built Packages ==="
-          mkdir -p packages
-          find bin/packages -name "*.apk" 2>/dev/null | while read f; do cp "$f" packages/; done || true
-          ls -lh packages/*.apk 2>&1 || echo "No APK files found"
-      
-      - name: Upload telEgo Core Package
+      - name: Store packages
         uses: actions/upload-artifact@v4
         with:
-          name: telego-core-package
-          path: packages/telego_*.apk
-          retention-days: 30
-      
-      - name: Upload LuCI Packages
-        uses: actions/upload-artifact@v4
-        with:
-          name: luci-packages
-          path: packages/luci-*.apk
-          retention-days: 30
-      
-      - name: Upload Nginx Package
-        uses: actions/upload-artifact@v4
-        with:
-          name: nginx-package
-          path: packages/nginx-*.apk
-          retention-days: 30
+          name: telEgo-openwrt-apk-packages
+          path: bin/packages/**/*.apk
