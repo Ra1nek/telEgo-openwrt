@@ -1,244 +1,228 @@
 'use strict';
-const view = require('ui').view;
+
+'require view';
+'require form';
+
 return view.extend({
 	render: function() {
-		const form = new L.ui.Form(this, 'telego_config', _('telEgo Configuration'));
-		form.title = _('Telegram MTProxy + WEB Proxy Settings');
-		form.description = _('Configure your Telegram proxy server settings. Changes take effect after service reload.');
+		const m = new form.Map(
+			'telego',
+			_('telEgo Configuration'),
+			_('Configure Telegram MTProxy, WEB Proxy, TLS fronting and Middle-End settings.')
+		);
 
-		// === General Settings Section ===
-		const generalSection = form.section(form.TypedSection, 'general', _('General Settings'));
-		generalSection.addremove = false;
+		let s = m.section(form.TypedSection, 'general', _('General Settings'));
+		s.anonymous = true;
+		s.addremove = false;
 
-		// Bind Address
-		generalSection.tab('main', _('Main'));
-		generalSection.tab('advanced', _('Advanced'));
+		let o = s.option(form.Flag, 'enabled', _('Enable telEgo'));
+		o.default = '0';
 
-		const bindTo = new form.Value(generalSection, 'bind_to', _('Bind Address'),
-			_('Address and port to listen on. Example: 0.0.0.0:443 or unix:///run/telego.sock'));
-		bindTo.datatype = 'string';
-		bindTo.default = '0.0.0.0:443';
-		generalSection.tab('main', bindTo);
+		o = s.option(form.Value, 'bind_to', _('Bind Address'), _('Address and port to listen on.'));
+		o.datatype = 'string';
+		o.default = '0.0.0.0:443';
 
-		// Log Level
-		const logLevel = new form.Value(generalSection, 'log_level', _('Log Level'));
-		logLevel.datatype = "list('trace', 'debug', 'info', 'warn', 'error')";
-		logLevel.default = 'info';
-		generalSection.tab('main', logLevel);
+		o = s.option(form.ListValue, 'log_level', _('Log Level'));
+		o.value('trace', _('Trace'));
+		o.value('debug', _('Debug'));
+		o.value('info', _('Info'));
+		o.value('warn', _('Warning'));
+		o.value('error', _('Error'));
+		o.default = 'info';
 
-		// Proxy Protocol Support
-		const proxyProtocol = new form.Flag(generalSection, 'proxy_protocol', _('Enable PROXY Protocol'));
-		proxyProtocol.description = _('Accept incoming PROXY protocol headers (for reverse proxy setups)');
-		generalSection.tab('main', proxyProtocol);
+		o = s.option(form.Flag, 'proxy_protocol', _('Enable PROXY Protocol'));
+		o.description = _('Accept incoming PROXY protocol headers from a trusted reverse proxy.');
 
-		// Max Connections Per IP
-		const maxConnPerIP = new form.Value(generalSection, 'max_connections_per_ip', 
-			_('Max Connections Per IP'), _('Maximum concurrent connections per client IP'));
-		maxConnPerIP.datatype = 'uinteger';
-		maxConnPerIP.default = 100;
-		generalSection.tab('advanced', maxConnPerIP);
+		o = s.option(form.Value, 'max_connections_per_ip', _('Max Connections Per IP'));
+		o.datatype = 'uinteger';
+		o.default = '100';
 
-		// Max IPs Per User
-		const maxIPsPerUser = new form.Value(generalSection, 'max_ips_per_user', 
-			_('Max Unique IPs Per User'), _('Maximum unique client IPs per authenticated user'));
-		maxIPsPerUser.datatype = 'uinteger';
-		maxIPsPerUser.default = 10;
-		generalSection.tab('advanced', maxIPsPerUser);
+		o = s.option(form.Value, 'max_ips_per_user', _('Max Unique IPs Per User'));
+		o.datatype = 'uinteger';
+		o.default = '10';
 
-		// IP Block Timeout
-		const ipBlockTimeout = new form.Value(generalSection, 'ip_block_timeout', 
-			_('IP Block Timeout'), _('Duration blocked IPs remain blocked (e.g., 1h, 30m)'));
-		ipBlockTimeout.datatype = 'string';
-		ipBlockTimeout.default = '1h';
-		generalSection.tab('advanced', ipBlockTimeout);
+		o = s.option(form.Value, 'ip_block_timeout', _('IP Block Timeout'));
+		o.datatype = 'string';
+		o.default = '5m';
 
-		// Handshake Timeout
-		const handshakeTimeout = new form.Value(generalSection, 'handshake_timeout', 
-			_('Handshake Timeout'), _('Maximum time for MTProto handshake (e.g., 5s)'));
-		handshakeTimeout.datatype = 'string';
-		handshakeTimeout.default = '5s';
-		generalSection.tab('advanced', handshakeTimeout);
+		o = s.option(form.Value, 'handshake_timeout', _('Handshake Timeout'));
+		o.datatype = 'string';
+		o.default = '5s';
 
-		// === Secrets Section ===
-		const secretsSection = form.section(form.TypedSection, 'secrets', _('User Secrets'));
-		secretsSection.addremove = true;
-		secretsSection.anonymous = true;
-		secretsSection.sortable = true;
+		s = m.section(form.TypedSection, 'secret', _('User Secrets'));
+		s.anonymous = true;
+		s.addremove = true;
+		s.sortable = true;
 
-		// Secret Name
-		const secretName = new form.Value(secretsSection, '.name', _('Username'),
-			_('Identifier for this user (used in proxy links)'));
-		secretName.rmplaceholder = _('username');
-		secretsSection.tab('main', secretName);
+		o = s.option(form.Value, 'name', _('Username'), _('Identifier used in generated proxy links.'));
+		o.datatype = 'uciname';
+		o.rmempty = false;
 
-		// Secret Value
-		const secretValue = new form.Value(secretsSection, 'secret', _('Secret'),
-			_('32-character hex secret. Generate with: telego generate <hostname>'));
-		secretValue.datatype = 'hexstring';
-		secretValue.length = 16; // 16 bytes = 32 hex chars
-		secretsSection.tab('main', secretValue);
+		o = s.option(form.Value, 'secret', _('Secret'), _('Exactly 32 hexadecimal characters.'));
+		o.datatype = 'string';
+		o.rmempty = false;
+		o.validate = function(section_id, value) {
+			return /^[0-9a-fA-F]{32}$/.test(value) ? true : _('Secret must contain exactly 32 hexadecimal characters.');
+		};
 
-		// Secret Description
-		const secretDesc = new form.Value(secretsSection, 'description', _('Description'),
-			_('Optional description for this user'));
-		secretDesc.rmplaceholder = _('User description');
-		secretsSection.tab('main', secretDesc);
+		o = s.option(form.Value, 'description', _('Description'));
+		o.datatype = 'string';
 
-		// === TLS Fronting Section ===
-		const tlsFrontingSection = form.section(form.TypedSection, 'tls_fronting', 
-			_('TLS Fronting'), _('Traffic obfuscation settings'));
-		tlsFrontingSection.addremove = false;
+		s = m.section(form.TypedSection, 'tls_fronting', _('TLS Fronting'));
+		s.anonymous = true;
+		s.addremove = false;
 
-		// Enable TLS Fronting
-		const tlsEnabled = new form.Flag(tlsFrontingSection, 'enabled', _('Enable TLS Fronting'));
-		tlsEnabled.description = _('Mimic legitimate HTTPS traffic to bypass censorship');
-		tlsFrontingSection.tab('main', tlsEnabled);
+		o = s.option(form.Value, 'mask_host', _('Mask Host'), _('Domain to mimic for TLS fronting.'));
+		o.datatype = 'hostname';
+		o.default = 'www.google.com';
 
-		// Mask Host
-		const maskHost = new form.Value(tlsFrontingSection, 'mask_host', 
-			_('Mask Host'), _('Domain to mimic (SNI validation, proxy links)'));
-		maskHost.datatype = 'hostname';
-		tlsFrontingSection.tab('main', maskHost);
+		o = s.option(form.Value, 'mask_port', _('Mask Port'));
+		o.datatype = 'port';
+		o.default = '443';
 
-		// Mask Port
-		const maskPort = new form.Value(tlsFrontingSection, 'mask_port', 
-			_('Mask Port'), _('Port for TLS fronting'));
-		maskPort.datatype = 'port';
-		maskPort.default = 443;
-		tlsFrontingSection.tab('advanced', maskPort);
+		o = s.option(form.Value, 'cert_host', _('Certificate Host'), _('Optional certificate fetch override.'));
+		o.datatype = 'hostname';
 
-		// Certificate Host (Optional)
-		const certHost = new form.Value(tlsFrontingSection, 'cert_host', 
-			_('Certificate Host'), _('Override certificate fetch host'));
-		certHost.datatype = 'hostname';
-		tlsFrontingSection.tab('advanced', certHost);
+		o = s.option(form.Value, 'cert_port', _('Certificate Port'));
+		o.datatype = 'port';
 
-		// Cert Port (Optional)
-		const certPort = new form.Value(tlsFrontingSection, 'cert_port', 
-			_('Certificate Port'), _('Override certificate fetch port'));
-		certPort.datatype = 'port';
-		tlsFrontingSection.tab('advanced', certPort);
+		o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
+		o.datatype = 'uinteger';
 
-		// === WEB Proxy Section ===
-		const webProxySection = form.section(form.TypedSection, 'web_proxy', 
-			_('WEB Proxy'), _('New Telegram proxy standard (August 2026)'));
-		webProxySection.addremove = false;
+		o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
+		o.datatype = 'hostname';
 
-		// Enable WEB Proxy
-		const webEnabled = new form.Flag(webProxySection, 'enabled', _('Enable WEB Proxy'));
-		webEnabled.description = _('WEB proxy with HTTPS/HTTP2/WebSocket carriers');
-		webProxySection.tab('main', webEnabled);
+		o = s.option(form.Value, 'splice_host', _('Splice Host'));
+		o.datatype = 'hostname';
 
-		// Carrier Mode
-		const carrierMode = new form.Value(webProxySection, 'carrier', 
-			_('Carrier Mode'), _('Transport protocol for WEB proxy'));
-		carrierMode.datatype = "list('https', 'http2', 'websocket', 'https-lanes', 'websocket-lanes')";
-		carrierMode.default = 'https-lanes';
-		webProxySection.tab('main', carrierMode);
+		o = s.option(form.Value, 'splice_port', _('Splice Port'));
+		o.datatype = 'port';
 
-		// WEB Proxy Bind Address
-		const webBindTo = new form.Value(webProxySection, 'bind_to', 
-			_('WEB Proxy Bind'), _('Address for WEB proxy listener'));
-		webBindTo.datatype = 'string';
-		webBindTo.default = '127.0.0.1:8443';
-		webProxySection.tab('main', webBindTo);
+		o = s.option(form.ListValue, 'splice_proxy_protocol', _('Splice PROXY Protocol'));
+		o.value('0', _('Disabled'));
+		o.value('1', _('PROXY protocol v1'));
+		o.value('2', _('PROXY protocol v2'));
 
-		// WEB Proxy Hostname
-		const webHostname = new form.Value(webProxySection, 'hostname', 
-			_('WEB Proxy Hostname'), _('Override hostname for WEB proxy'));
-		webHostname.datatype = 'hostname';
-		webProxySection.tab('main', webHostname);
+		o = s.option(form.Value, 'splice_idle_timeout', _('Splice Idle Timeout'));
+		o.datatype = 'string';
+		o.default = '30s';
 
-		// WEB Proxy Backend
-		const webBackend = new form.Value(webProxySection, 'backend', 
-			_('WEB Proxy Backend'), _('Backend address for WEB proxy'));
-		webBackend.datatype = 'string';
-		webProxySection.tab('main', webBackend);
+		o = s.option(form.Flag, 'enable_drs', _('Enable DRS'));
+		o.default = '1';
 
-		// Trusted Proxy CIDRs
-		const trustedCIDRs = new form.Value(webProxySection, 'trusted_proxy_cidrs', 
-			_('Trusted Proxy CIDRs'), _('CIDR ranges for X-Forwarded-For validation'));
-		trustedCIDRs.datatype = 'string';
-		trustedCIDRs.default = '127.0.0.0/8';
-		webProxySection.tab('advanced', trustedCIDRs);
+		o = s.option(form.Flag, 'enable_split_tls', _('Enable Split TLS'));
+		o.default = '1';
 
-		// === Middle-End Section (v0.6.0) ===
-		const middleEndSection = form.section(form.TypedSection, 'middle_end', 
-			_('Telegram Middle-End'), _('Middle-End relay configuration'));
-		middleEndSection.addremove = false;
+		s = m.section(form.TypedSection, 'web_proxy', _('WEB Proxy'));
+		s.anonymous = true;
+		s.addremove = false;
 
-		// Enable Middle-End
-		const meEnabled = new form.Flag(middleEndSection, 'enabled', _('Enable Middle-End'));
-		meEnabled.description = _('Telegram Middle-End relay for improved performance and NAT traversal');
-		middleEndSection.tab('main', meEnabled);
+		o = s.option(form.Flag, 'enabled', _('Enable WEB Proxy'));
+		o.description = _('Expose the native WEB proxy through the configured local listener.');
 
-		// Proxy Tag (Promo Code)
-		const proxyTag = new form.Value(middleEndSection, 'proxy_tag', 
-			_('Proxy Tag'), _('Telegram promo tag for Middle-End identification'));
-		proxyTag.datatype = 'string';
-		middleEndSection.tab('main', proxyTag);
+		o = s.option(form.ListValue, 'carrier', _('Carrier Mode'));
+		['https', 'http2', 'websocket', 'https-lanes', 'websocket-lanes'].forEach(function(value) {
+			o.value(value, value);
+		});
+		o.default = 'https-lanes';
 
-		// SOCKS5 Proxy for ME Traffic
-		const socks5Proxy = new form.Value(middleEndSection, 'socks5', 
-			_('SOCKS5 Proxy'), _('Route Middle-End traffic through SOCKS5 proxy'));
-		socks5Proxy.datatype = 'string';
-		middleEndSection.tab('advanced', socks5Proxy);
+		o = s.option(form.Value, 'bind_to', _('WEB Proxy Bind'));
+		o.datatype = 'string';
+		o.default = '127.0.0.1:8443';
 
-		// NAT IP for STUN Discovery
-		const natIP = new form.Value(middleEndSection, 'nat_ip', 
-			_('NAT IP'), _('Custom external IP for STUN discovery (NAT networks)'));
-		natIP.datatype = 'ipaddr';
-		middleEndSection.tab('advanced', natIP);
+		o = s.option(form.Value, 'hostname', _('WEB Proxy Hostname'));
+		o.datatype = 'hostname';
 
-		// === Performance Section ===
-		const perfSection = form.section(form.TypedSection, 'performance', 
-			_('Performance'), _('Tuning parameters'));
-		perfSection.addremove = false;
+		o = s.option(form.Value, 'backend', _('WEB Proxy Backend'));
+		o.datatype = 'string';
 
-		// TCP Buffer Size
-		const tcpBufferKB = new form.Value(perfSection, 'tcp_buffer_kb', 
-			_('TCP Buffer (KB)'), _('Socket buffer size in kilobytes'));
-		tcpBufferKB.datatype = 'uinteger';
-		tcpBufferKB.default = 128;
-		perfSection.tab('main', tcpBufferKB);
+		o = s.option(form.DynamicList, 'trusted_proxy_cidrs', _('Trusted Proxy CIDRs'));
+		o.datatype = 'cidr';
+		o.default = ['127.0.0.0/8'];
 
-		// Prefer IP Version
-		const preferIP = new form.Value(perfSection, 'prefer_ip', 
-			_('Prefer IP Version'), _('DC connection preference'));
-		preferIP.datatype = "list('prefer-ipv4', 'prefer-ipv6', 'only-ipv4', 'only-ipv6')";
-		preferIP.default = 'prefer-ipv4';
-		perfSection.tab('main', preferIP);
+		o = s.option(form.Value, 'num_event_loops', _('WEB Event Loops'));
+		o.datatype = 'uinteger';
+		o.default = '0';
 
-		// Idle Timeout
-		const idleTimeout = new form.Value(perfSection, 'idle_timeout', 
-			_('Idle Timeout'), _('Connection idle timeout (e.g., 5m)'));
-		idleTimeout.datatype = 'string';
-		idleTimeout.default = '5m';
-		perfSection.tab('main', idleTimeout);
+		s = m.section(form.TypedSection, 'middle_end', _('Telegram Middle-End'));
+		s.anonymous = true;
+		s.addremove = false;
 
-		// Num Event Loops
-		const numEventLoops = new form.Value(perfSection, 'num_event_loops', 
-			_('Event Loops'), _('Number of event loops (0 = auto)'));
-		numEventLoops.datatype = 'uinteger';
-		numEventLoops.default = 0;
-		perfSection.tab('advanced', numEventLoops);
+		o = s.option(form.Flag, 'enabled', _('Enable Middle-End'));
+		o.description = _('Use Telegram Middle-End relay transport.');
 
-		// === Metrics Section ===
-		const metricsSection = form.section(form.TypedSection, 'metrics', 
-			_('Metrics'), _('Prometheus metrics configuration'));
-		metricsSection.addremove = false;
+		o = s.option(form.Value, 'proxy_tag', _('Proxy Tag'), _('Telegram promo tag for Middle-End identification.'));
+		o.datatype = 'string';
 
-		// Enable Metrics
-		const metricsEnabled = new form.Flag(metricsSection, 'enabled', _('Enable Prometheus Metrics'));
-		metricsSection.tab('main', metricsEnabled);
+		o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'), _('Route Middle-End traffic through SOCKS5.'));
+		o.datatype = 'string';
 
-		// Metrics Bind Address
-		const metricsBindTo = new form.Value(metricsSection, 'bind_to', 
-			_('Metrics Address'), _('Prometheus metrics listener address'));
-		metricsBindTo.datatype = 'string';
-		metricsBindTo.default = '127.0.0.1:9090';
-		metricsSection.tab('main', metricsBindTo);
+		o = s.option(form.Value, 'socks5_username', _('SOCKS5 Username'));
+		o.datatype = 'string';
 
-		return form.render();
+		o = s.option(form.Value, 'socks5_password', _('SOCKS5 Password'));
+		o.password = true;
+		o.datatype = 'string';
+
+		o = s.option(form.Value, 'artifact_proxy', _('Artifact Proxy'));
+		o.datatype = 'string';
+
+		o = s.option(form.Value, 'nat_ip', _('STUN NAT IP'), _('Custom external IP used for STUN discovery behind NAT.'));
+		o.datatype = 'ipaddr';
+
+		o = s.option(form.Value, 'max_connections', _('Middle-End Max Connections'));
+		o.datatype = 'uinteger';
+
+		o = s.option(form.Value, 'queue_budget_mb', _('Middle-End Queue Budget (MB)'));
+		o.datatype = 'uinteger';
+
+		s = m.section(form.TypedSection, 'performance', _('Performance'));
+		s.anonymous = true;
+		s.addremove = false;
+
+		o = s.option(form.Value, 'tcp_buffer_kb', _('TCP Buffer (KB)'));
+		o.datatype = 'uinteger';
+		o.default = '128';
+
+		o = s.option(form.Value, 'num_event_loops', _('Event Loops'));
+		o.datatype = 'uinteger';
+		o.default = '0';
+
+		o = s.option(form.ListValue, 'prefer_ip', _('Prefer IP Version'));
+		o.value('prefer-ipv4', _('Prefer IPv4'));
+		o.value('prefer-ipv6', _('Prefer IPv6'));
+		o.value('only-ipv4', _('IPv4 only'));
+		o.value('only-ipv6', _('IPv6 only'));
+		o.default = 'prefer-ipv4';
+
+		o = s.option(form.Value, 'idle_timeout', _('Idle Timeout'));
+		o.datatype = 'string';
+		o.default = '5m';
+
+		o = s.option(form.Value, 'max_write_buffer_mb', _('Max Write Buffer (MB)'));
+		o.datatype = 'uinteger';
+
+		o = s.option(form.Value, 'client_silence_close', _('Client Silence Close'));
+		o.datatype = 'string';
+		o.default = '0s';
+
+		s = m.section(form.TypedSection, 'upstream', _('Upstream'));
+		s.anonymous = true;
+		s.addremove = false;
+		o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'));
+		o.datatype = 'string';
+
+		s = m.section(form.TypedSection, 'metrics', _('Metrics'));
+		s.anonymous = true;
+		s.addremove = false;
+		o = s.option(form.Value, 'bind_to', _('Metrics Address'));
+		o.datatype = 'string';
+		o.default = '127.0.0.1:9090';
+		o.description = _('Keep metrics bound to localhost unless you explicitly need remote Prometheus access.');
+		o = s.option(form.Value, 'path', _('Metrics Path'));
+		o.datatype = 'string';
+		o.default = '/metrics';
+
+		return m.render();
 	}
 });
