@@ -241,6 +241,10 @@ return view.extend({
 		o.datatype = 'string';
 		o.default = '/metrics';
 
+		o = s.option(form.Flag, 'diagnostics', _('Enable Diagnostics'));
+		o.description = _('Enable private runtime diagnostics; requires a literal loopback metrics address.');
+		o.default = '0';
+
 		return m.render();
 	}
 });

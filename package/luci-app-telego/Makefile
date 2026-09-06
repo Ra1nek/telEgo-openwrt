@@ -1,7 +1,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
-PKG_VERSION:=0.6.0
+PKG_VERSION:=0.6.1
 PKG_RELEASE:=1
 PKG_BUILD_DEPENDS:=luci-base/host
 
@@ -23,9 +23,6 @@ define Package/luci-i18n-telego-ru
   DEPENDS:=+luci-app-telego
   HIDDEN:=1
   PKGARCH:=all
-endef
-
-define Build/Compile
 endef
 
 define Package/luci-app-telego/install

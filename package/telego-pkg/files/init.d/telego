@@ -102,6 +102,7 @@ generate_config() {
 		echo; echo '[metrics]'
 		write_toml_string 'bind-to' "$(uci_get_default metrics bind_to '127.0.0.1:9090')"
 		write_toml_string 'path' "$(uci_get_default metrics path '/metrics')"
+		write_toml_bool 'diagnostics' metrics diagnostics 0
 
 		echo; echo '[web-proxy]'
 		write_toml_bool 'enabled' web_proxy enabled 0
@@ -148,6 +149,15 @@ start_service() {
 		return 1
 	}
 
+	[ -x /sbin/ujail ] || {
+		echo 'telego: /sbin/ujail is required' >&2
+		return 1
+	}
+	[ -r "$CAPS" ] || {
+		echo "telego: $CAPS is required" >&2
+		return 1
+	}
+
 	generate_config || {
 		echo 'telego: failed to generate TOML configuration' >&2
 		return 1
@@ -165,16 +175,13 @@ start_service() {
 	procd_set_param file "$RUNTIME_CONFIG"
 	procd_set_param reload_signal HUP
 
-	if [ -x /sbin/ujail ] && [ -r "$CAPS" ]; then
-		procd_add_jail telego log
-		procd_add_jail_mount /etc/ssl/certs/ca-certificates.crt
-		procd_add_jail_mount /etc/resolv.conf
-		procd_add_jail_mount /etc/hosts
-		procd_add_jail_mount_rw /var/etc
-		procd_add_jail_mount_rw /tmp
-		procd_set_param capabilities "$CAPS"
-		procd_set_param no_new_privs 1
-	fi
+	procd_add_jail telego log ronly requirejail
+	procd_add_jail_mount /etc/ssl/certs/ca-certificates.crt
+	procd_add_jail_mount /etc/resolv.conf
+	procd_add_jail_mount /etc/hosts
+	procd_add_jail_mount_rw /var/etc
+	procd_set_param capabilities "$CAPS"
+	procd_set_param no_new_privs 1
 
 	procd_close_instance
 }

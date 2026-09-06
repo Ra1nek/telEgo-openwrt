@@ -5,40 +5,38 @@ on:
     tags:
       - 'v*'
 
-env:
-  GO_VERSION: '1.27'
-
 permissions:
   contents: write
 
 jobs:
   build-release:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Validate release version
         shell: bash
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          PKG_VERSION="$(sed -n 's/^PKG_VERSION:=//p' package/telego-pkg/Makefile)"
-          test -n "$PKG_VERSION"
-          test "$VERSION" = "$PKG_VERSION" || {
-            echo "Release tag ${GITHUB_REF_NAME} does not match PKG_VERSION=${PKG_VERSION}" >&2
-            exit 1
-          }
-          echo "TELEGO_VERSION=$VERSION" >> "$GITHUB_ENV"
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          pkg_version="$(sed -n 's/^PKG_VERSION:=//p' package/telego-pkg/Makefile | head -n1)"
+          test -n "$pkg_version"
+          test "$version" = "$pkg_version"
+          echo "TELEGO_VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: ${{ env.GO_VERSION }}
+          go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
+
+      - name: Apply OpenWrt source patch
+        run: python3 .github/scripts/apply-upstream-patches.py
 
       - name: Verify LuCI i18n
         run: python3 .github/scripts/check-luci-i18n.py
@@ -57,11 +55,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p package/telego-pkg/files/usr/bin
-          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           go build \
             -buildmode=pie \
             -trimpath \
-            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${BUILD_DATE}" \
+            -buildvcs=false \
+            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o package/telego-pkg/files/usr/bin/telego \
             ./telego-src/cmd/telego
           chmod 0755 package/telego-pkg/files/usr/bin/telego
