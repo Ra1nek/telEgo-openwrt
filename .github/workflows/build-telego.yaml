@@ -35,6 +35,7 @@ jobs:
           ARCH: "x86_64"
           FEED_DIR: "${{ github.workspace }}"
           PACKAGES: "telego nginx-telego luci-app-telego"
+          IGNORE_ERRORS: 1
           INDEX: 1
           V: "s"
       
