@@ -6,14 +6,11 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=telego
 PKG_VERSION:=0.6.0
 PKG_RELEASE:=1
-PKG_SOURCE_PROTO:=local
-PKG_SOURCE_URL:=./
-PKG_SOURCE:=$(PKG_NAME)-$(PKG_VERSION).tar.gz
 PKG_ARCH:=$(LINUX_KERNEL)
 PKG_INSTALL:=1
 
 # Bundle Go source code directly in src/ subdirectory
-# Local source protocol bypasses Download/default FILE field requirement
+# No download needed - source is bundled with the package
 PKG_BUILD_DIR:=@$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
@@ -41,14 +38,11 @@ define Package/telego/conffiles
 endef
 
 # =============================================================================
-# Build/Prepare - Local source setup for out-of-tree compilation
-# Bypasses Download/default FILE field requirement by using PKG_SOURCE_PROTO:=local
+# Build/Prepare - Local source setup without download
 # =============================================================================
 define Build/Prepare
-	# Create symlink to local source directory instead of downloading
-	mkdir -p $(PKG_BUILD_DIR)/src
-	ln -sf $(CURDIR)/* $(PKG_BUILD_DIR)/src/ 2>/dev/null || \
-	cp -r $(CURDIR)/* $(PKG_BUILD_DIR)/src/
+	mkdir -p $(PKG_BUILD_DIR)
+	cp -r ./src/* $(PKG_BUILD_DIR)/
 endef
 
 # =============================================================================
