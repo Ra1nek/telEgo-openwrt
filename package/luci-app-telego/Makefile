@@ -39,22 +39,22 @@ endef
 
 define Package/luci-app-telego/install
 	# Install menu definition (JSON format for OpenWrt 25.12)
-	$$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
-	$$(INSTALL_DATA) ./root/usr/share/luci/menu.d/telego.menu.json $(1)/usr/share/luci/menu.d/
+	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
+	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/telego.menu.json $(1)/usr/share/luci/menu.d/
 	
 	# Install JavaScript resources (modern LuCI client-side rendering)
-	$$(INSTALL_DIR) $(1)/www/luci-static/resources/view/telego
-	$$(INSTALL_DATA) ./htdocs/resources/view/telego/config.js $(1)/www/luci-static/resources/view/telego/
-	$$(INSTALL_DATA) ./htdocs/resources/view/telego/status.js $(1)/www/luci-static/resources/view/telego/
-	$$(INSTALL_DATA) ./htdocs/resources/view/telego/form.js $(1)/www/luci-static/resources/view/telego/
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/telego
+	$(INSTALL_DATA) ./htdocs/resources/view/telego/config.js $(1)/www/luci-static/resources/view/telego/
+	$(INSTALL_DATA) ./htdocs/resources/view/telego/status.js $(1)/www/luci-static/resources/view/telego/
+	$(INSTALL_DATA) ./htdocs/resources/view/telego/form.js $(1)/www/luci-static/resources/view/telego/
 	
 	# Install CSS stylesheets
-	$$(INSTALL_DIR) $(1)/www/luci-static/resources/css
-	$$(INSTALL_DATA) ./htdocs/css/telego.css $(1)/www/luci-static/resources/css/
+	$(INSTALL_DIR) $(1)/www/luci-static/resources/css
+	$(INSTALL_DATA) ./htdocs/css/telego.css $(1)/www/luci-static/resources/css/
 	
 	# Install default configuration file
-	$$(INSTALL_DIR) $(1)/etc/config
-	$$(INSTALL_CONF) ./config/telego.default $(1)/etc/config/telego
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./config/telego.default $(1)/etc/config/telego
 endef
 
 define Package/luci-app-telego/postinst
@@ -85,8 +85,8 @@ define Package/luci-i18n-telego-ru
 endef
 
 define Package/luci-i18n-telego-ru/install
-	$$(INSTALL_DIR) $(1)/usr/share/luci/i18n
-	$$(INSTALL_DATA) ./po/ru/telego.po $(1)/usr/share/luci/i18n/telego.ru.lmo
+	$(INSTALL_DIR) $(1)/usr/share/luci/i18n
+	$(INSTALL_DATA) ./po/ru/telego.po $(1)/usr/share/luci/i18n/telego.ru.lmo
 endef
 
 define Package/luci-i18n-telego-ru/prerm
