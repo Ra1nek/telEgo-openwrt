@@ -9,7 +9,7 @@ UCI_CONFIG=telego
 RUNTIME_CONFIG=/var/etc/telego.toml
 CAPS=/etc/capabilities/telego.json
 
- toml_quote() {
+toml_quote() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g; s//\\r/g; s/
 /\\n/g'
 }
@@ -144,7 +144,7 @@ start_service() {
 	config_get_bool enabled general enabled 0
 	[ "$enabled" -eq 1 ] || return 0
 
-	command -v id >/dev/null 2>&1 && id telego >/dev/null 2>&1 || {
+	id telego >/dev/null 2>&1 || {
 		echo 'telego: user telego does not exist' >&2
 		return 1
 	}
