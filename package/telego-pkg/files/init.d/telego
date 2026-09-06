@@ -10,8 +10,7 @@ RUNTIME_CONFIG=/var/etc/telego.toml
 CAPS=/etc/capabilities/telego.json
 
 toml_quote() {
-	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g; s//\\r/g; s/
-/\\n/g'
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
 }
 
 uci_get_default() {
