@@ -1,285 +1,143 @@
-// telEgo Form Helpers for LuCI
-// OpenWrt 25.12 Reusable Components and Validators
 'use strict';
+
 return {
-	// === Custom Datatypes ===
-	
-	// Validate hex secret (exactly 32 characters)
 	validateSecret: function(value) {
-		if (!value || value.length !== 32) {
-			return false;
-		}
-		const hexRegex = /^[0-9a-fA-F]{32}$/;
-		return hexRegex.test(value);
+		return /^[0-9a-fA-F]{32}$/.test(value || '');
 	},
 
-	// Validate bind address (IP:Port or unix://path)
 	validateBindAddress: function(value) {
-		if (!value) return false;
-		
-		// Unix socket format
-		if (value.startsWith('unix://') || value.startsWith('/')) {
+		if (!value)
+			return false;
+		if (value.startsWith('unix://') || value.startsWith('/'))
 			return true;
-		}
-		
-		// IP:Port format
-		const parts = value.split(':');
-		if (parts.length !== 2) return false;
-		
-		const ip = parts[0];
-		const port = parseInt(parts[1], 10);
-		
-		// Validate IP
-		const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-		const ipv6Regex = /^([0-9a-fA-F:]+)$/;
-		
-		if (!ipv4Regex.test(ip) && !ipv6Regex.test(ip)) {
+
+		const ipv6 = value.match(/^\[([0-9a-fA-F:]+)\]:(\d+)$/);
+		const ipv4 = value.match(/^([^:]+):(\d+)$/);
+		const port = Number((ipv6 || ipv4 || [])[2]);
+		if (!Number.isInteger(port) || port < 1 || port > 65535)
 			return false;
-		}
-		
-		// Validate port range
-		if (port < 1 || port > 65535) {
+		if (ipv6)
+			return /^[0-9a-fA-F:]+$/.test(ipv6[1]);
+		if (!ipv4)
 			return false;
-		}
-		
-		return true;
+		return ipv4[1].split('.').length === 4 && ipv4[1].split('.').every(function(octet) {
+			const n = Number(octet);
+			return /^\d{1,3}$/.test(octet) && n >= 0 && n <= 255;
+		});
 	},
 
-	// Validate duration string (e.g., "5s", "1m", "2h")
 	validateDuration: function(value) {
-		if (!value) return false;
-		const durationRegex = /^(\d+)([smhd])$/;
-		return durationRegex.test(value);
+		return /^(\d+)(ms|s|m|h|d)$/.test(value || '');
 	},
 
-	// Validate CIDR notation
 	validateCIDR: function(value) {
-		if (!value) return false;
+		if (!value)
+			return false;
 		const parts = value.split('/');
-		if (parts.length !== 2) return false;
-		
-		const ip = parts[0];
-		const mask = parseInt(parts[1], 10);
-		
-		// Basic IP validation
-		const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-		if (!ipv4Regex.test(ip)) return false;
-		
-		// Validate CIDR mask (0-32)
-		return mask >= 0 && mask <= 32;
+		if (parts.length !== 2)
+			return false;
+		const mask = Number(parts[1]);
+		if (!Number.isInteger(mask))
+			return false;
+		if (parts[0].indexOf(':') !== -1)
+			return /^[0-9a-fA-F:]+$/.test(parts[0]) && mask >= 0 && mask <= 128;
+		return parts[0].split('.').length === 4 && parts[0].split('.').every(function(octet) {
+			const n = Number(octet);
+			return /^\d{1,3}$/.test(octet) && n >= 0 && n <= 255;
+		}) && mask >= 0 && mask <= 32;
 	},
 
-	// Validate hostname
 	validateHostname: function(value) {
-		if (!value) return false;
-		const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$/;
-		return hostnameRegex.test(value);
+		return /^(?=.{1,253}$)([a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$/.test(value || '');
 	},
 
-	// Validate port number
 	validatePort: function(value) {
-		const port = parseInt(value, 10);
-		return !isNaN(port) && port >= 1 && port <= 65535;
+		const port = Number(value);
+		return Number.isInteger(port) && port >= 1 && port <= 65535;
 	},
 
-	// === Form Field Helpers ===
-
-	// Create a secret input field with validation
 	createSecretField: function(form, section, name, title, description) {
 		const field = new form.Value(section, name, title, description);
 		field.datatype = 'string';
-		field.length = 32;
-		field.validation = function(value) {
-			if (!this.validateSecret(value)) {
-				return _('Invalid secret format. Must be exactly 32 hexadecimal characters.');
-			}
-			return true;
-		};
-		field.placeholder = '0123456789abcdef0123456789abcdef';
+		field.validate = function(value) {
+			return this.validateSecret(value) ? true : _('Invalid secret format. Use exactly 32 hexadecimal characters.');
+		}.bind(this);
 		return field;
 	},
 
-	// Create a bind address input with validation
 	createBindAddressField: function(form, section, name, title) {
 		const field = new form.Value(section, name, title);
 		field.datatype = 'string';
-		field.default = '0.0.0.0:443';
-		field.placeholder = '0.0.0.0:443 or unix:///run/telego.sock';
-		field.validation = function(value) {
-			if (!this.validateBindAddress(value)) {
-				return _('Invalid bind address. Use IP:Port format (e.g., 0.0.0.0:443) or unix://path');
-			}
-			return true;
-		};
+		field.validate = function(value) {
+			return this.validateBindAddress(value) ? true : _('Invalid bind address. Use IP:port, [IPv6]:port, or unix://path.');
+		}.bind(this);
 		return field;
 	},
 
-	// Create a duration input with validation
-	createDurationField: function(form, section, name, title, defaultVal) {
+	createDurationField: function(form, section, name, title, defaultValue) {
 		const field = new form.Value(section, name, title);
 		field.datatype = 'string';
-		field.default = defaultVal || '5m';
-		field.placeholder = 'e.g., 5s, 1m, 2h';
-		field.validation = function(value) {
-			if (!this.validateDuration(value)) {
-				return _('Invalid duration format. Use number + unit (s/m/h/d). Example: 5s, 1m, 2h');
-			}
-			return true;
-		};
+		field.default = defaultValue || '5m';
+		field.validate = function(value) {
+			return this.validateDuration(value) ? true : _('Invalid duration. Example: 5s, 1m, 2h.');
+		}.bind(this);
 		return field;
 	},
 
-	// Create a CIDR input with validation
 	createCIDRField: function(form, section, name, title) {
 		const field = new form.Value(section, name, title);
 		field.datatype = 'string';
-		field.default = '127.0.0.0/8';
-		field.placeholder = 'e.g., 192.168.1.0/24';
-		field.validation = function(value) {
-			if (!this.validateCIDR(value)) {
-				return _('Invalid CIDR format. Use IP/mask (e.g., 192.168.1.0/24)');
-			}
-			return true;
-		};
+		field.validate = function(value) {
+			return this.validateCIDR(value) ? true : _('Invalid CIDR notation.');
+		}.bind(this);
 		return field;
 	},
 
-	// Create a hostname input with validation
 	createHostnameField: function(form, section, name, title) {
 		const field = new form.Value(section, name, title);
 		field.datatype = 'string';
-		field.validation = function(value) {
-			if (!this.validateHostname(value)) {
-				return _('Invalid hostname format');
-			}
-			return true;
-		};
+		field.validate = function(value) {
+			return this.validateHostname(value) ? true : _('Invalid hostname.');
+		}.bind(this);
 		return field;
 	},
 
-	// Create a port input with validation
-	createPortField: function(form, section, name, title, defaultVal) {
+	createPortField: function(form, section, name, title, defaultValue) {
 		const field = new form.Value(section, name, title);
-		field.datatype = 'uinteger';
-		field.default = defaultVal || 443;
-		field.min = 1;
-		field.max = 65535;
+		field.datatype = 'port';
+		field.default = defaultValue || 443;
 		return field;
 	},
 
-	// === Proxy Link Generator ===
-
-	generateProxyLinks: function(config) {
-		const links = [];
-		
-		// MTProxy link format
-		if (config.secrets && config.tls_fronting.enabled) {
-			for (let username in config.secrets) {
-				const secret = config.secrets[username];
-				const maskHost = config.tls_fronting.mask_host;
-				const maskPort = config.tls_fronting.mask_port || 443;
-				
-				// MTProxy link (ee protocol with TLS fronting)
-				links.push({
-					type: 'MTProxy',
-					protocol: 'eetls',
-					link: `mtproto://${maskHost}:${maskPort}?secret=${secret}`,
-					username: username
-				});
-			}
-		}
-		
-		// WEB Proxy link format (new 2026 standard)
-		if (config.web_proxy && config.web_proxy.enabled) {
-			for (let username in config.secrets) {
-				const secret = config.secrets[username];
-				const hostname = config.web_proxy.hostname || config.tls_fronting.mask_host;
-				
-				// WEB Proxy link
-				links.push({
-					type: 'WEB Proxy',
-					protocol: config.web_proxy.carrier,
-					link: `webproxy://${hostname}?secret=${secret}`,
-					username: username
-				});
-			}
-		}
-		
-		return links;
-	},
-
-	// === UI Components ===
-
-	// Create a reusable secret row template
-	createSecretRow: function(username, secret) {
-		const E = L.ui.E;
-		return E('div', {'class': 'secret-row'}, [
-			E('span', {'class': 'secret-username'}, [username]),
-			E('code', {'class': 'secret-value'}, [secret]),
-			E('button', {'class': 'btn btn-action copy-btn', 'onclick': `copyToClipboard('${secret}')`}, 
-				[L.text_('Copy')])
-		]);
-	},
-
-	// === Utility Functions ===
-
-	// Copy text to clipboard
-	copyToClipboard: function(text) {
-		const textarea = document.createElement('textarea');
-		textarea.value = text;
-		document.body.appendChild(textarea);
-		textarea.select();
-		document.execCommand('copy');
-		document.body.removeChild(textarea);
-	},
-
-	// Format bytes to human readable
 	formatBytes: function(bytes) {
-		if (!bytes || bytes === 0) return '0 B';
+		if (!Number.isFinite(Number(bytes)) || Number(bytes) <= 0)
+			return _('0 B');
 		const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-		const unitIndex = Math.floor(Math.log(bytes) / Math.log(1024));
-		return parseFloat((bytes / Math.pow(1024, unitIndex)).toFixed(2)) + ' ' + units[unitIndex];
+		const index = Math.min(Math.floor(Math.log(Number(bytes)) / Math.log(1024)), units.length - 1);
+		return (Number(bytes) / Math.pow(1024, index)).toFixed(index ? 2 : 0) + ' ' + _(units[index]);
 	},
 
-	// Parse duration string to seconds
-	parseDuration: function(durationStr) {
-		if (!durationStr) return 0;
-		const match = durationStr.match(/^(\d+)([smhd])$/);
-		if (!match) return 0;
-		
-		const value = parseInt(match[1], 10);
-		const unit = match[2];
-		
-		switch(unit) {
-			case 's': return value;
-			case 'm': return value * 60;
-			case 'h': return value * 3600;
-			case 'd': return value * 86400;
-			default: return 0;
-		}
+	parseDuration: function(value) {
+	const match = String(value || '').match(/^(\d+)(ms|s|m|h|d)$/);
+		if (!match)
+			return 0;
+		const multipliers = { ms: 0.001, s: 1, m: 60, h: 3600, d: 86400 };
+		return Number(match[1]) * multipliers[match[2]];
 	},
 
-	// Generate random hex secret (32 chars)
 	generateSecret: function() {
-		const chars = '0123456789abcdef';
-		let result = '';
-		for (let i = 0; i < 32; i++) {
-			result += chars[Math.floor(Math.random() * chars.length)];
-		}
-		return result;
+		const bytes = new Uint8Array(16);
+		crypto.getRandomValues(bytes);
+		return Array.from(bytes, function(byte) {
+			return byte.toString(16).padStart(2, '0');
+		}).join('');
 	},
 
-	// Validate TLS certificate path
 	validateCertPath: function(value) {
-		if (!value) return false;
-		// Basic path validation - must start with / or be a relative path
-		const pathRegex = /^(\/ [\w\-.]+|[a-zA-Z0-9_\-\.]+)$/;
-		return pathRegex.test(value);
+		return /^(?:\/[^\0]+|[A-Za-z0-9_.-]+)$/.test(value || '');
 	},
 
-	// Validate carrier type for WEB Proxy
 	validateCarrier: function(value) {
-		const validCarriers = ['http', 'https', 'quic'];
-		return validCarriers.includes(value.toLowerCase());
+		return ['https', 'http2', 'websocket', 'https-lanes', 'websocket-lanes'].includes(String(value || '').toLowerCase());
 	}
 };
