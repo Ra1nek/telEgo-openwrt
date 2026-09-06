@@ -14,12 +14,12 @@ permissions:
 
 jobs:
   analyze:
-    name: Analyze JavaScript (LuCI Frontend)
+    name: Analyze ${{ matrix.language }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        language: ['javascript']
+        language: ['javascript', 'go']
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
