@@ -5,50 +5,78 @@ on:
     branches: [main]
     paths:
       - 'package/**'
+      - 'telego-src/**'
+      - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
   pull_request:
     branches: [main]
+    paths:
+      - 'package/**'
+      - 'telego-src/**'
+      - 'feeds.conf.default'
+      - '.github/workflows/build-telego.yaml'
   workflow_dispatch:
 
 env:
-  TELEGO_VERSION: "0.6.0"
+  TELEGO_VERSION: '0.6.0'
 
 jobs:
   build-all-packages:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      
+
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
-      
+
+      - name: Verify Go source
+        working-directory: telego-src
+        run: |
+          gofmt -l . | tee /tmp/gofmt-files
+          test ! -s /tmp/gofmt-files
+          go vet ./...
+          go test ./...
+
       - name: Build Go Binary
         run: |
-          cd telego-src
-          go build -buildmode=pie -ldflags="-s -w" -o telego ./cmd/telego
-          mkdir -p ../telego-pkg/files/usr/bin/
-          cp telego ../telego-pkg/files/usr/bin/telego
-          chmod +x ../telego-pkg/files/usr/bin/telego
-      
+          mkdir -p package/telego-pkg/files/usr/bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA}" \
+            -o package/telego-pkg/files/usr/bin/telego \
+            ./telego-src/cmd/telego
+          chmod 0755 package/telego-pkg/files/usr/bin/telego
+
       - name: Build OpenWrt APK Packages
-        uses: openwrt/gh-action-sdk@main
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: "x86_64"
-          FEED_DIR: "${{ github.workspace }}"
-          PACKAGES: "telego-pkg nginx-telego luci-app-telego"
-          IGNORE_ERRORS: 1
+          ARCH: x86_64
+          FEED_DIR: ${{ github.workspace }}
+          FEEDNAME: telego
+          PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
           INDEX: 1
-          V: "s"
-      
-      - name: Store packages
+          V: s
+
+      - name: Verify APK feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$(find bin/packages -type f -name '*.apk' -print -quit)"
+          test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
+
+      - name: Store APK feed
         uses: actions/upload-artifact@v4
         with:
-          name: telEgo-openwrt-apk-packages
-          path: bin/packages/**/*.apk
+          name: telEgo-openwrt-apk-feed
+          path: bin/packages/**
+          if-no-files-found: error
