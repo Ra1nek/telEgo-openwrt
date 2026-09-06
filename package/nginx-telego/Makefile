@@ -11,7 +11,7 @@ define Package/nginx-telego
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Nginx configuration helper for telEgo proxy integration
-  DEPENDS:=+nginx-ssl +telego
+  DEPENDS:=+nginx-ssl +telego-pkg
 endef
 
 define Package/nginx-telego/description
