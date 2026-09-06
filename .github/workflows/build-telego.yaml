@@ -29,26 +29,20 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
       
-      - name: Build Go Binary for x86_64
-        working-directory: ./telego-src
+      - name: Build Go Binary
         run: |
-          mkdir -p ../package/telego/files/usr/bin/
+          cd telego-src
           go build -buildmode=pie -ldflags="-s -w" -o telego ./cmd/telego
-          cp telego ../package/telego/files/usr/bin/telego
-          chmod +x ../package/telego/files/usr/bin/telego
-      
-      - name: Prepare SDK Package Filesystem
-        run: |
-          # Ensure the binary is in place for OpenWrt SDK to package
-          mkdir -p ./telego/files/usr/bin/
-          cp ./telego-src/telego ./telego/files/usr/bin/telego 2>/dev/null || true
+          mkdir -p ../telego-pkg/files/usr/bin/
+          cp telego ../telego-pkg/files/usr/bin/telego
+          chmod +x ../telego-pkg/files/usr/bin/telego
       
       - name: Build OpenWrt APK Packages
         uses: openwrt/gh-action-sdk@main
         env:
           ARCH: "x86_64"
           FEED_DIR: "${{ github.workspace }}"
-          PACKAGES: "telego nginx-telego luci-app-telego"
+          PACKAGES: "telego-pkg nginx-telego luci-app-telego"
           IGNORE_ERRORS: 1
           INDEX: 1
           V: "s"
