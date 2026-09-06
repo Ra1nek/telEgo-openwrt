@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=telego-pkg
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,6 +11,11 @@ define Package/telego-pkg
   CATEGORY:=Network
   TITLE:=telEgo high-performance Telegram proxy core daemon
   DEPENDS:=+libc +ca-bundle +procd-ujail
+  PKGARCH:=x86_64
+endef
+
+define Package/telego-pkg/description
+Production telEgo proxy daemon packaged for OpenWrt 25.12+ x86_64.
 endef
 
 define Package/telego-pkg/install
@@ -27,8 +32,15 @@ endef
 define Package/telego-pkg/postinst
 #!/bin/sh
 [ -n "$${IPKG_INSTROOT}" ] && exit 0
-addgroup -S telego 2>/dev/null || true
-adduser -S -D -H -s /sbin/nologin -G telego telego 2>/dev/null || true
+
+if ! grep -q '^telego:' /etc/group 2>/dev/null; then
+	addgroup -S telego || exit 1
+fi
+
+if ! grep -q '^telego:' /etc/passwd 2>/dev/null; then
+	adduser -S -D -H -s /bin/false -G telego telego || exit 1
+fi
+
 exit 0
 endef
 
