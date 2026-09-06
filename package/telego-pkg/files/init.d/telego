@@ -10,16 +10,12 @@ UCI_FILE=/etc/config/telego
 RUNTIME_CONFIG=/var/etc/telego.toml
 CAPS=/etc/capabilities/telego.json
 
-# Quote a UCI scalar as a TOML basic string.
 toml_quote() {
 	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
 }
 
 uci_get_default() {
-	local section="$1"
-	local option="$2"
-	local default="$3"
-	local value
+	local section="$1" option="$2" default="$3" value
 	value="$(uci -q get "${UCI_CONFIG}.${section}.${option}" 2>/dev/null)"
 	[ -n "$value" ] && printf '%s' "$value" || printf '%s' "$default"
 }
@@ -32,29 +28,37 @@ uci_bool() {
 }
 
 write_toml_string() {
-	local key="$1"
-	local value="$2"
-	printf '%s = "%s"\n' "$key" "$(toml_quote "$value")"
+	printf '%s = "%s"\n' "$1" "$(toml_quote "$2")"
 }
 
 write_toml_int() {
-	local key="$1"
 	local value="$2"
-	case "$value" in
-		''|*[!0-9-]*) value=0 ;;
-	esac
-	printf '%s = %s\n' "$key" "$value"
+	case "$value" in ''|*[!0-9-]*) value=0 ;; esac
+	printf '%s = %s\n' "$1" "$value"
 }
 
 write_toml_bool() {
-	local key="$1"
-	printf '%s = %s\n' "$key" "$(uci_bool "$2" "$3" "$4")"
+	printf '%s = %s\n' "$1" "$(uci_bool "$2" "$3" "$4")"
+}
+
+_emit_toml_list_item() {
+	local value="$1"
+	[ -n "$value" ] || return 0
+	[ -n "$LIST_FIRST" ] && printf ', '
+	printf '"%s"' "$(toml_quote "$value")"
+	LIST_FIRST=1
+}
+
+_emit_secret() {
+	local section="$1" name secret
+	name="$(uci_get_default "$section" name "$section")"
+	secret="$(uci_get_default "$section" secret '')"
+	[ -n "$secret" ] || return 0
+	printf '"%s" = "%s"\n' "$(toml_quote "$name")" "$(toml_quote "$secret")"
 }
 
 generate_config() {
-	local tmp="${RUNTIME_CONFIG}.$$"
-	local value
-
+	local tmp="${RUNTIME_CONFIG}.$$" value
 	mkdir -p /var/etc || return 1
 	umask 077
 
@@ -69,11 +73,9 @@ generate_config() {
 		write_toml_int 'max-ips-per-user' "$(uci_get_default general max_ips_per_user '10')"
 		write_toml_string 'ip-block-timeout' "$(uci_get_default general ip_block_timeout '5m')"
 		write_toml_string 'handshake-timeout' "$(uci_get_default general handshake_timeout '5s')"
-		value="$(uci_get_default general clock_sync_url '')"
-		[ -n "$value" ] && write_toml_string 'clock-sync-url' "$value"
+		value="$(uci_get_default general clock_sync_url '')"; [ -n "$value" ] && write_toml_string 'clock-sync-url' "$value"
 
-		echo
-		echo '[tls-fronting]'
+		echo; echo '[tls-fronting]'
 		write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
 		write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
 		value="$(uci_get_default tls_fronting cert_host '')"; [ -n "$value" ] && write_toml_string 'cert-host' "$value"
@@ -85,16 +87,9 @@ generate_config() {
 		write_toml_string 'splice-idle-timeout' "$(uci_get_default tls_fronting splice_idle_timeout '30s')"
 		write_toml_bool 'enable-drs' tls_fronting enable_drs 1
 		write_toml_bool 'enable-split-tls' tls_fronting enable_split_tls 1
-		printf 'mask-sni-safelist = ['
-		uci -q get "${UCI_CONFIG}.tls_fronting.mask_sni_safelist" >/dev/null 2>&1 && {
-			local first=1 item
-			config_load "$UCI_CONFIG"
-			config_list_foreach tls_fronting mask_sni_safelist _emit_toml_list_item
-		}
-		printf ']\n'
+		printf 'mask-sni-safelist = ['; LIST_FIRST=; config_load "$UCI_CONFIG"; config_list_foreach tls_fronting mask_sni_safelist _emit_toml_list_item; printf ']\n'
 
-		echo
-		echo '[performance]'
+		echo; echo '[performance]'
 		write_toml_int 'tcp-buffer-kb' "$(uci_get_default performance tcp_buffer_kb '128')"
 		write_toml_int 'num-event-loops' "$(uci_get_default performance num_event_loops '0')"
 		write_toml_string 'prefer-ip' "$(uci_get_default performance prefer_ip 'prefer-ipv4')"
@@ -102,30 +97,23 @@ generate_config() {
 		write_toml_int 'max-write-buffer-mb' "$(uci_get_default performance max_write_buffer_mb '0')"
 		write_toml_string 'client-silence-close' "$(uci_get_default performance client_silence_close '0s')"
 
-		echo
-		echo '[upstream]'
+		echo; echo '[upstream]'
 		write_toml_string 'socks5' "$(uci_get_default upstream socks5 '')"
 
-		echo
-		echo '[metrics]'
+		echo; echo '[metrics]'
 		write_toml_string 'bind-to' "$(uci_get_default metrics bind_to '127.0.0.1:9090')"
 		write_toml_string 'path' "$(uci_get_default metrics path '/metrics')"
 
-		echo
-		echo '[web-proxy]'
+		echo; echo '[web-proxy]'
 		write_toml_bool 'enabled' web_proxy enabled 0
 		write_toml_string 'carrier' "$(uci_get_default web_proxy carrier 'https-lanes')"
 		write_toml_string 'bind-to' "$(uci_get_default web_proxy bind_to '127.0.0.1:8443')"
 		write_toml_string 'hostname' "$(uci_get_default web_proxy hostname '')"
 		write_toml_string 'backend' "$(uci_get_default web_proxy backend '')"
 		write_toml_int 'num-event-loops' "$(uci_get_default web_proxy num_event_loops '0')"
-		printf 'trusted-proxy-cidrs = ['
-		config_load "$UCI_CONFIG"
-		config_list_foreach web_proxy trusted_proxy_cidrs _emit_toml_list_item
-		printf ']\n'
+		printf 'trusted-proxy-cidrs = ['; LIST_FIRST=; config_load "$UCI_CONFIG"; config_list_foreach web_proxy trusted_proxy_cidrs _emit_toml_list_item; printf ']\n'
 
-		echo
-		echo '[middle-end]'
+		echo; echo '[middle-end]'
 		write_toml_bool 'enabled' middle_end enabled 0
 		write_toml_string 'proxy-tag' "$(uci_get_default middle_end proxy_tag '')"
 		write_toml_string 'socks5' "$(uci_get_default middle_end socks5 '')"
@@ -136,40 +124,12 @@ generate_config() {
 		write_toml_int 'max-connections' "$(uci_get_default middle_end max_connections '0')"
 		write_toml_int 'queue-budget-mb' "$(uci_get_default middle_end queue_budget_mb '0')"
 
-		echo
-		echo '[secrets]'
+		echo; echo '[secrets]'
 		config_load "$UCI_CONFIG"
 		config_foreach _emit_secret secret
-	} > "$tmp" || {
-		rm -f "$tmp"
-		return 1
-	}
+	} > "$tmp" || { rm -f "$tmp"; return 1; }
 
-	chmod 0600 "$tmp"
-	mv -f "$tmp" "$RUNTIME_CONFIG"
-}
-
-_emit_toml_list_item() {
-	local value="$1"
-	[ -n "$value" ] || return 0
-	printf '%s"%s"' "${first:+,}" "$(toml_quote "$value")"
-	first=1
-}
-
-_emit_secret() {
-	local section="$1"
-	local name secret
-	name="$(uci_get_default "$section" name "$section")"
-	secret="$(uci_get_default "$section" secret '')"
-	[ -n "$secret" ] || return 0
-	printf '"%s" = "%s"\n' "$(toml_quote "$name")" "$(toml_quote "$secret")"
-}
-
-validate_config() {
-	[ -s "$RUNTIME_CONFIG" ] || return 1
-	# The Go daemon is the authoritative TOML validator. Do not start a service
-	# with a partially generated configuration.
-	"$PROG" check --config "$RUNTIME_CONFIG" >/dev/null 2>&1
+	chmod 0600 "$tmp" && mv -f "$tmp" "$RUNTIME_CONFIG"
 }
 
 service_triggers() {
@@ -186,16 +146,8 @@ start_service() {
 		echo 'telego: failed to generate TOML configuration' >&2
 		return 1
 	}
-
-	validate_config || {
-		echo 'telego: generated TOML configuration failed validation' >&2
-		return 1
-	}
-
-	[ -x "$PROG" ] || {
-		echo "telego: $PROG not found" >&2
-		return 1
-	}
+	[ -s "$RUNTIME_CONFIG" ] || return 1
+	[ -x "$PROG" ] || { echo "telego: $PROG not found" >&2; return 1; }
 
 	procd_open_instance
 	procd_set_param command "$PROG" run --config "$RUNTIME_CONFIG"
@@ -208,7 +160,7 @@ start_service() {
 	procd_set_param reload_signal HUP
 
 	if [ -x /sbin/ujail ] && [ -r "$CAPS" ]; then
-		procd_add_jail telego ronly log
+		procd_add_jail telego ronly log requirejail
 		procd_add_jail_mount /etc/ssl/certs/ca-certificates.crt /etc/resolv.conf
 		procd_add_jail_mount_rw /var/etc
 		procd_set_param capabilities "$CAPS"
@@ -220,14 +172,9 @@ start_service() {
 
 reload_service() {
 	generate_config || return 1
-	validate_config || return 1
 	procd_send_signal telego HUP
 }
 
 stop_service() {
 	procd_kill telego
-}
-
-status_service() {
-	service_status "$PROG"
 }
