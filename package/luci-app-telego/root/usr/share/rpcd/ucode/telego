@@ -1,5 +1,6 @@
 'use strict';
 
+import { cursor } from 'uci';
 import { open, popen } from 'fs';
 
 function readfile(path) {
@@ -7,42 +8,75 @@ function readfile(path) {
 	if (!file)
 		return '';
 
-	let data = file.read('all') || '';
+	const data = file.read('all') || '';
 	file.close();
 	return data;
 }
 
-function service_running() {
+function service_info() {
 	const ubus = connect();
 	const result = ubus?.call('service', 'list', { name: 'telego' });
+	const info = { running: false, pid: 0 };
 
 	try {
 		const instances = result?.telego?.instances || {};
 		for (const name in instances) {
-			if (instances[name]?.running === true)
-				return true;
+			const instance = instances[name];
+			if (instance?.running === true) {
+				info.running = true;
+				info.pid = +(instance.pid || 0);
+				break;
+			}
 		}
 	}
 	catch (e) {}
 
-	return false;
+	return info;
 }
 
-function service_pid() {
-	const ubus = connect();
-	const result = ubus?.call('service', 'list', { name: 'telego' });
+function process_uptime(pid) {
+	if (!pid)
+		return 0;
 
-	try {
-		const instances = result?.telego?.instances || {};
-		for (const name in instances) {
-			const pid = instances[name]?.pid;
-			if (pid != null)
-				return +pid;
-		}
-	}
-	catch (e) {}
+	const uptime = readfile('/proc/uptime');
+	const uptime_match = match(uptime, /^([0-9]+(?:\.[0-9]+)?)/);
+	if (!uptime_match)
+		return 0;
 
-	return 0;
+	const stat = readfile('/proc/' + pid + '/stat');
+	const close = rindex(stat, ')');
+	if (close < 0)
+		return 0;
+
+	const fields = split(trim(substr(stat, close + 1)), /[ \t]+/);
+	if (length(fields) < 20)
+		return 0;
+
+	const start_ticks = +fields[19];
+	if (!isFinite(start_ticks) || start_ticks < 0)
+		return 0;
+
+	/* Linux clock tick is normally 100 Hz on OpenWrt. */
+	const hz = 100;
+	return Math.max(0, Math.floor(+uptime_match[1] - start_ticks / hz));
+}
+
+function metrics_endpoint() {
+	const uci = cursor();
+	uci.load('telego');
+
+	const bind = uci.get('telego', 'metrics', 'bind_to') || '127.0.0.1:9090';
+	const path = uci.get('telego', 'metrics', 'path') || '/metrics';
+
+	/* RPC must never fetch an arbitrary administrator-supplied endpoint. */
+	if (!/^127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(bind) &&
+		!/^\[::1\]:[1-9][0-9]{0,4}$/.test(bind))
+		return null;
+
+	if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/.test(path))
+		return null;
+
+	return 'http://' + bind + path;
 }
 
 function parse_number(value) {
@@ -60,12 +94,16 @@ function read_metrics() {
 		tx_bytes: 0
 	};
 
+	const endpoint = metrics_endpoint();
+	if (!endpoint)
+		return result;
+
 	const proc = popen([
 		'/usr/bin/uclient-fetch',
 		'-q',
 		'-O',
 		'-',
-		'http://127.0.0.1:9090/metrics'
+		endpoint
 	], 'r');
 
 	if (!proc)
@@ -112,14 +150,13 @@ function read_metrics() {
 const methods = {
 	status: {
 		call: function () {
-			const uptime = readfile('/proc/uptime');
-			const uptime_match = match(uptime, /^([0-9]+(?:\.[0-9]+)?)/);
+			const service = service_info();
 			const metrics = read_metrics();
 
 			return {
-				running: service_running(),
-				pid: service_pid(),
-				uptime: uptime_match ? Math.floor(+uptime_match[1]) : 0,
+				running: service.running,
+				pid: service.pid,
+				uptime: process_uptime(service.pid),
 				connections: Math.floor(metrics.connections),
 				ips_active: Math.floor(metrics.ips_active),
 				ips_tracked: Math.floor(metrics.ips_tracked),
