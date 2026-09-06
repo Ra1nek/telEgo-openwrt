@@ -7,14 +7,12 @@ PKG_NAME:=telego
 PKG_VERSION:=0.6.0
 PKG_RELEASE:=1
 PKG_ARCH:=$(LINUX_KERNEL)
-PKG_INSTALL:=1
 
-# Host Go bypass - use GitHub Actions pre-installed Go 1.27 instead of compiling golang-bootstrap
+# Host Go bypass - use GitHub Actions pre-installed Go 1.27
 GO_HOST_BUILD:=1
-export GO_CACHE_DIR=$(HOME)/.cache/go-build
+export GO_CACHE_DIR:=$(HOME)/.cache/go-build
 
-# Bundle Go source code directly in src/ subdirectory
-# No download needed - source is bundled with the package
+# Bundle source and build directory
 PKG_BUILD_DIR:=@$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
 
 include $(INCLUDE_DIR)/package.mk
@@ -26,77 +24,40 @@ define Package/telego
   SECTION:=net
   CATEGORY:=Network
   SUBMENU:=Proxy
-  TITLE:=Telegram MTProxy + WEB Proxy server with Middle-End support
+  TITLE:=Telegram MTProxy + WEB Proxy server (telego core daemon)
   URL:=https://github.com/Scratch-net/telego
-  DEPENDS:=+ca-bundle +libopenssl +libc
+  DEPENDS:=+libc +ca-bundle +libopenssl
 endef
 
 define Package/telego/description
   telEgo is a high-performance Telegram proxy server written in Go.
-  Supports MTProto, FakeTLS (ee), Obfuscated2 (dd), WEB Proxy protocols,
-  and Telegram Middle-End (v0.6.0+). Optimized for OpenWrt routers.
-endef
-
-define Package/telego/conffiles
-/etc/config/telego
+  Supports MTProto, FakeTLS (ee), Obfuscated2 (dd), WEB Proxy protocols.
 endef
 
 # =============================================================================
-# Build/Prepare - Local source setup without download
+# Build/Prepare - Copy local source files to build directory
 # =============================================================================
 define Build/Prepare
-	mkdir -p $(PKG_BUILD_DIR)
-	cp -r ./src/* $(PKG_BUILD_DIR)/
+	mkdir -p \$(PKG_BUILD_DIR)
+	cp -r ./src/* \$(PKG_BUILD_DIR)/
+	cd \$(PKG_BUILD_DIR) && \
+		export PATH:=/opt/hostedtoolcache/go/\$(shell ls /opt/hostedtoolcache/go/ | head -1)/bin:\$(PATH) && \
+		go build -buildmode=pie -ldflags="-s -w" -o telego ./cmd/telego
 endef
 
 # =============================================================================
-# Build Configuration - Cross-compile Go binary directly using host Go
+# Package Installation - Copy pre-compiled binary to package staging area
 # =============================================================================
-GO_MOD_FILE:=src/go.mod
-GO_BINARY:=telego
-
-define Package/telego/build
-	# Use host Go binary from GitHub Actions pre-installed location
-	export PATH:=/opt/hostedtoolcache/go/$(shell ls /opt/hostedtoolcache/go/ | head -1)/bin:$(PATH)
-	go build \
-		-buildmode=pie \
-		-ldflags="-s -w" \
-		-o $(PKG_BUILD_DIR)/$(GO_BINARY) \
-		-specpath=$(PWD)/src \
-		./cmd/telego
-endef
-
-# =============================================================================
-# SECURITY: Capability-based privilege dropping for secure execution
-# Allows binding to privileged ports (443, 80) without full root privileges
-# ============================================================================
 define Package/telego/install
-	$$(INSTALL_DIR) $$(1)/usr/bin
-	if [ -f "$(PKG_BUILD_DIR)/$(GO_BINARY)" ]; then \
-		$$(INSTALL_BIN) $(PKG_BUILD_DIR)/$(GO_BINARY) $$(1)/usr/bin/telego; \
-	else \
-		# Fallback: use pre-built binary from src directory if available \
-		$$(INSTALL_BIN) ./src/$(GO_BINARY) $$(1)/usr/bin/telego 2>/dev/null || true; \
-	fi
-	
-	# Set capability to allow binding to privileged ports (443, 80) without root
-	setcap cap_net_bind_service=+ep $$(1)/usr/bin/telego 2>/dev/null || true
-	
-	$$(INSTALL_DIR) $$(1)/etc/init.d
-	$$(INSTALL_BIN) ./files/init.d/telego $$(1)/etc/init.d/telego
-	$$(INSTALL_DIR) $$(1)/usr/share/telego
-	$$(INSTALL_CONF) ./config/telego.toml.default $$(1)/usr/share/telego/
+	$(INSTALL_DIR) $(1)/usr/bin
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/telego $(1)/usr/bin/telego
+	$(INSTALL_DIR) $(1)/etc/init.d
+	$(INSTALL_BIN) ./files/init.d/telego $(1)/etc/init.d/telego
 endef
 
 define Package/telego/postinst
 if [ ! -f "/etc/config/telego" ]; then
 	cp /usr/share/telego/telego.toml.default /etc/config/telego 2>/dev/null || true
-fi
-endef
-
-define Package/telego/postrm
-if [ -f "/etc/config/telego" ]; then
-	cfg -r telego 2>/dev/null || true
 fi
 endef
 
