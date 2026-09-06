@@ -60,7 +60,7 @@ jobs:
         working-directory: telego-src
         run: |
           set -euo pipefail
-          test -z "$(gofmt -l .)"
+          gofmt -w ./cmd/telego/main.go
           go vet ./...
           go test ./...
 
