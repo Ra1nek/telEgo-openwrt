@@ -1,413 +1,153 @@
-[Read in English](README_EN.md)
+# telEgo OpenWrt
 
----
+Production packaging fork of [Scratch-net/telego](https://github.com/Scratch-net/telego) for **OpenWrt 25.12+ / x86_64**.
 
-# 🚀 telEgo — Telegram MTProxy + WEB Proxy для OpenWrt
+The Go application is tracked as a pinned git submodule:
 
-<div align="center">
-
-[![OpenWrt](https://img.shields.io/badge/OpenWrt-25.12.4+-blue?style=for-the-badge&logo=openwrt)](https://openwrt.org/)
-[![Go](https://img.shields.io/badge/Go-1.24+-blue?style=for-the-badge&logo=go)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-x86_64%20%7C%20arm-blue?style=for-the-badge)](#)
-
-**Модуль LuCI для управления Telegram MTProxy и WEB Proxy на роутерах OpenWrt**
-
-</div>
-
----
-
-## 📖 Описание проекта
-
-**telEgo** — это комплексное решение для развёртывания сервера прокси Telegram прямо на вашем роутере под управлением OpenWrt. Проект предоставляет полноценный веб-интерфейс (LuCI) для настройки и управления как классическим MTProxy, так и новым стандартом WEB Proxy.
-
-### 🎯 Решаемые задачи:
-
-| Задача | Решение |
-|--------|---------|
-| 🔐 Обход блокировок Telegram | MTProxy с поддержкой TLS/FakeTLS/Obfuscated2 |
-| 🌐 Новый стандарт прокси | WEB Proxy (HTTPS, WebSocket, Lanes) |
-| 👥 Мультипользовательский доступ | Система секретов для аутентификации |
-| ⚡ Маршрутизация трафика | Поддержка Middle-End серверов Telegram |
-| 🖥️ Удобное управление | Интуитивный LuCI веб-интерфейс |
-
----
-
-## ✨ Ключевые возможности
-
-### 🔷 MTProxy (Классический протокол)
-
-<table>
-<tr>
-<td width="50%">
-**Режимы шифрования:**
-</td>
-<td width="50%">
-✅ **TLS Mode (ee)** — Стандартный TLS<br>
-✅ **FakeTLS** — Имитация TLS для обхода DPI<br>
-✅ **Secure Mode (dd)** — Obfuscated2
-</td>
-</tr>
-<tr>
-<td width="50%">
-**Функции:**
-</td>
-<td width="50%">
-🔹 Middle-End Proxy Routing<br>
-🔹 TLS Domain Masking (FakeTLS)<br>
-🔹 Генерация секретов 32 hex символа<br>
-🔹 Динамическое управление секциями
-</td>
-</tr>
-</table>
-
-### 🔷 WEB Proxy (Новый стандарт Telegram)
-
-<table>
-<tr>
-<td width="50%">
-**Carrier Modes:**
-</td>
-<td width="50%">
-🌐 **HTTPS** — Прямой HTTPS-туннель<br>
-🔗 **WebSocket** — WebSocket-туннелирование<br>
-🚧 **WebSocket Lanes** — Оптимизированный WS<br>
-⚡ **HTTPS Lanes** — Оптимизированный HTTPS
-</td>
-</tr>
-<tr>
-<td width="50%">
-**Настройки:**
-</td>
-<td width="50%">
-🔸 Настройка bind-адреса<br>
-🔸 Конфигурация hostname<br>
-🔸 Интеграция с Nginx reverse proxy
-</td>
-</tr>
-</table>
-
-### 🔷 Дополнительные функции
-
-| Функция | Описание |
-|---------|----------|
-| 📊 **Статистика** | Мониторинг активных соединений и трафика |
-| 🔄 **Автозапуск** | Скрипт `/etc/init.d/telego` для запуска при загрузке |
-| 🌐 **DDNS Support** | Поддержка динамических DNS (freedns.afraid.org) |
-| 📱 **Multi-Platform** | x86_64, arm — совместимость с большинством роутеров |
-
----
-
-## 🏗️ Архитектура проекта
-
-```
-telEgo-openwrt/
-│
-├── 📁 .github/workflows/          # CI/CD пайплайны
-│   ├── build-luci.yaml           # Сборка LuCI приложения
-│   ├── build-telego.yaml         # Сборка Go бинарника
-│   ├── release.yaml              # Публикация релизов
-│   ├── codeql.yml                # Security анализ
-│   └── stale.yml                 # Управление issues/PRs
-│
-├── 📁 luci-app-telego/            # LuCI веб-интерфейс
-│   ├── Makefile                  # Правила сборки пакета
-│   ├── htdocs/css/               # Стили интерфейса
-│   │   └── telego.css           # Основной CSS файл
-│   ├── lua/model/                # Модели данных
-│   ├── lua/view/                 # Представления (views)
-│   │   └── telego/
-│   │       ├── config.lua        # Форма конфигурации
-│   │       ├── status.htm        # Страница статуса
-│   │       └── status.lua        # Логика статуса
-│   └── root/usr/share/luci/view/ # Шаблоны
-│       └── telego/
-│           └── secret_row.tpl    # Шаблон строки секретов
-│
-├── 📁 telego-pkg/                 # Пакет Go бинарника
-│   ├── Makefile                  # Правила сборки
-│   ├── config/                   # Конфигурационные файлы
-│   └── files/                    # Файлы для установки
-│       └── etc/init.d/telego     # Скрипт автозапуска
-│
-├── 📁 nginx-pkg/                  # Пакет Nginx reverse proxy
-│   ├── Makefile                 
-│   └── files/                   
-│       └── www/luci-static/     # Статические файлы
-│
-├── 📁 scripts/                    # Утилиты сборки и установки
-│   ├── build-all.sh             # Сборка всех компонентов
-│   ├── generate-secret.sh       # Генерация секретов
-│   └── install-on-router.sh     # Установка на роутер
-│
-├── 📁 docs/                       # Документация
-│   ├── API.md                   # Описание API
-│   ├── BUILD.md                 # Инструкция сборки
-│   ├── CONFIGURATION.md         # Настройка и использование
-│   └── INSTALL.md               # Установка пакетов
-│
-├── LICENSE                      # MIT лицензия
-└── README.md                    # Этот файл
+```text
+telego-src/ -> Scratch-net/telego @ 9ee01e6746b246ee9cc4912dceed30906ce2422c (v0.6.1)
 ```
 
----
+The fork adds OpenWrt UCI/procd integration, LuCI, rpcd telemetry and Nginx integration without duplicating the upstream Go source tree.
 
-## 📦 Структура компонентов
+## Architecture
 
-| Компонент | Назначение | Путь |
-|-----------|------------|------|
-| **LuCI App** | Веб-интерфейс конфигурации | `luci-app-telego/` |
-| **Go Binary** | Основной сервер MTProxy + WEB Proxy | `telego-pkg/` |
-| **Nginx** | Reverse proxy для WEB Proxy | `nginx-pkg/` |
-| **Init Script** | Автозапуск при загрузке системы | `/etc/init.d/telego` |
+```text
+Scratch-net/telego v0.6.1
+        |
+        +-- upstream Go source
+        |
+        +-- OpenWrt-specific source patch
+        |
+        v
+     Go 1.27
+        |
+        v
+   /usr/bin/telego
+        |
+        +-- procd / ujail
+        +-- UCI -> TOML bridge
+        +-- LuCI JavaScript UI
+        +-- rpcd telemetry
+        +-- Prometheus metrics
+        |
+        v
+    OpenWrt SDK
+        |
+        v
+ APK packages + packages.adb
+```
 
----
+GitHub Actions builds the Go binary with Go 1.27 and then packages it with the OpenWrt SDK. The router does not need a Go compiler at runtime.
 
-## 🛠️ Установка и сборка
+## Packages
 
-### Вариант 1: Сборка из исходников (Рекомендуется)
+The feed contains:
 
-#### Шаг 1: Клонирование репозитория
+- `telego-pkg` — telEgo daemon, UCI configuration, procd service and capability profile.
+- `luci-app-telego` — JavaScript-only LuCI interface and read-only rpcd telemetry backend.
+- `luci-i18n-telego-ru` — Russian LuCI translation.
+- `nginx-telego` — reusable Nginx HTTP-context definitions and WEB Proxy location snippet.
+
+## Clone
+
+The repository uses a git submodule, so clone recursively:
 
 ```bash
-git clone https://github.com/Ra1nek/telEgo-openwrt.git
+git clone --recurse-submodules https://github.com/Ra1nek/telEgo-openwrt.git
 cd telEgo-openwrt
 ```
 
-#### Шаг 2: Использование скрипта быстрой сборки
+For an existing checkout:
 
 ```bash
-chmod +x scripts/build-all.sh
-./scripts/build-all.sh
+git submodule update --init --recursive
 ```
 
-Это автоматически соберёт:
-- ✅ Go бинарник `telego` для x86_64 и arm
-- ✅ LuCI приложение `luci-app-telego.apk`
-- ✅ Nginx пакет с конфигурацией
+## GitHub Actions build
 
-#### Шаг 3: Ручная сборка (по отдельности)
+Pull requests and branch pushes run the package build workflow.
 
-**Сборка Go бинарника:**
-```bash
-cd telego-pkg
-make package/telego/compile
+The workflow checks out the pinned upstream source, applies the OpenWrt-specific patch, runs Go formatting/vet/tests, builds a Linux x86_64 static PIE binary, packages the OpenWrt components as APK, generates `packages.adb` and uploads the complete feed as an artifact.
+
+Release builds are tag-driven. A `vX.Y.Z` tag must match `PKG_VERSION` before the feed and GitHub Release are published.
+
+## OpenWrt installation
+
+OpenWrt 25.12+ uses `apk`.
+
+Install downloaded packages with:
+
+```sh
+apk add /tmp/telego-pkg_*.apk
+apk add /tmp/luci-app-telego_*.apk
+apk add /tmp/luci-i18n-telego-ru_*.apk
+apk add /tmp/nginx-telego_*.apk
 ```
 
-**Сборка LuCI приложения:**
-```bash
-cd luci-app-telego
-make package/luci-app-telego/compile
+The package post-install creates the unprivileged `telego` service account. The procd service runs the daemon as that user and grants only `CAP_NET_BIND_SERVICE`.
+
+## LuCI
+
+The application provides one JavaScript LuCI page with two top-level tabs:
+
+- **Configuration** — MTProxy, TLS fronting, WEB Proxy, Middle-End, performance, metrics and dynamic user secrets.
+- **Status** — live service state, PID, daemon uptime, active connections, active IPs and traffic counters through the local rpcd telemetry provider.
+
+Secrets are generated client-side with `crypto.getRandomValues()` and validated as exactly 32 hexadecimal characters before UCI is committed.
+
+## UCI -> TOML
+
+`/etc/init.d/telego` reads `/etc/config/telego` and atomically generates:
+
+```text
+/var/etc/telego.toml
 ```
 
-### Вариант 2: Установка готовых APK файлов
+The generated configuration is owned by `telego:telego` with mode `0600`.
 
-#### Шаг 1: Скачивание релизов
+Anonymous UCI sections are supported, including `secret`, `tls_fronting`, `web_proxy`, `middle_end`, `performance`, `upstream` and `metrics`.
 
-Перейдите на страницу [Releases](https://github.com/Ra1nek/telEgo-openwrt/releases) и скачайте:
-- `telego_<version>_x86_64.apk` (или `arm`) — Go бинарник
-- `luci-app-telego_<version>_noarch.apk` — LuCI интерфейс
-- `nginx-telego_<version>_x86_64.apk` — Nginx пакет
+## Security model
 
-#### Шаг 2: Передача файлов на роутер
+The service uses:
 
-```bash
-# Через scp (с Windows используйте WinSCP или similar)
-scp telego_*.apk root@192.168.88.1:/tmp/
-scp luci-app-telego_*.apk root@192.168.88.1:/tmp/
-scp nginx-telego_*.apk root@192.168.88.1:/tmp/
+- a dedicated `telego` user and group;
+- a procd jail with `requirejail`;
+- `no_new_privs`;
+- only `CAP_NET_BIND_SERVICE` from the capability profile;
+- loopback-only WEB and metrics listeners by default;
+- atomic `0600` runtime configuration generation;
+- a read-only rpcd telemetry method exposed to LuCI through ACL;
+- sanitized Nginx fallback requests with carrier credentials removed.
+
+The binary is built with `CGO_ENABLED=0` as a static PIE. The service jail therefore does not use `ronly`, because ujail read-only dependency discovery cannot resolve a static ELF's dynamic dependency section. Filesystem/jail isolation, UID/GID dropping, `no_new_privs` and the capability bounding set remain enabled.
+
+## Nginx integration
+
+`nginx-telego` installs:
+
+```text
+/etc/nginx/conf.d/telego.conf
+/etc/nginx/snippets/telego.locations
 ```
 
-#### Шаг 3: Установка пакетов на роутере
+`telego.conf` is safe in the Nginx `http {}` context and provides the `map` and `upstream` definitions required by the WEB proxy.
 
-```bash
-# SSH подключение к роутеру
-ssh root@192.168.88.1
+The public TLS `server {}` configuration must include:
 
-# Установка пакетов (порядок важен!)
-apt-get update
-apt-get install /tmp/telego_*.apk
-apt-get install /tmp/nginx-telego_*.apk
-apt-get install /tmp/luci-app-telego_*.apk
+```nginx
+include /etc/nginx/snippets/telego.locations;
 ```
 
-#### Шаг 4: Применение конфигурации и перезапуск
+The snippet keeps the private telEgo WEB listener on HTTP/1.1, forwards WebSocket upgrade headers and handles the upstream fallback statuses `418` and `419`. The package intentionally does not hard-code the public certificate or an ordinary website because those are deployment-specific.
 
-```bash
-cfg -a /etc/config/telego
-/etc/init.d/telego enable
-/etc/init.d/telego start
-/etc/init.d/nginx restart
-```
+The upstream telEgo WEB contract uses a private WEB listener on `127.0.0.1:8080`. The TLS splice endpoint and certificate source are separate Nginx listeners.
 
----
+## Upstream synchronization
 
-## ⚙️ Настройка и использование
+`telego-src` points to an exact upstream commit. Updating telEgo means changing the submodule pointer, reviewing the OpenWrt patch against the new source, updating package versions/releases and passing the complete CI build before publication.
 
-### Доступ к интерфейсу
+## License
 
-После установки перейдите в веб-интерфейс OpenWrt:
-
-```
-Система → telEgo → Конфигурация
-```
-
-### Основные разделы конфигурации
-
-#### 1️⃣ Общие настройки (General Settings)
-
-| Параметр | Описание | Значения |
-|----------|----------|----------|
-| **Use Middle-End Proxy** | Маршрутизация через сервера Telegram | ✅ / ❌ |
-| **TLS Mode (ee)** | Стандартный TLS режим | ✅ / ❌ |
-| **FakeTLS** | Имитация TLS для обхода DPI | ✅ / ❌ |
-| **Secure Mode (dd)** | Обфускация трафика (Obfuscated2) | ✅ / ❌ |
-| **TLS Domain** | Домен для маскировки FakeTLS | `google.com` (по умолчанию) |
-
-#### 2️⃣ Конфигурация сервера (Server Configuration)
-
-| Параметр | Описание | Значения |
-|----------|----------|----------|
-| **Port** | Порт MTProxy | `443` (рекомендуется) |
-
-#### 3️⃣ WEB Proxy конфигурация
-
-| Параметр | Описание | Значения |
-|----------|----------|----------|
-| **Enable WEB Proxy** | Включить WEB Proxy | ✅ / ❌ |
-| **Carrier Mode** | Режим транспорта | `https`, `websocket`, `websocket-lanes`, `https-lanes` |
-| **Bind Address** | Адрес привязки | `127.0.0.1:8080` (по умолчанию) |
-| **Hostname** | Домен для WEB Proxy | Ваш домен (например, `proxy.example.com`) |
-
-#### 4️⃣ Управление секретами (Secrets Configuration)
-
-Каждый пользователь должен иметь уникальный секрет:
-
-```
-┌──────────────┬────────────────────────┬─────────┐
-│ Username     │ Secret (32 hex chars)   │ Actions │
-├──────────────┼────────────────────────┼─────────┤
-│ user1        │ a1b2c3d4e5f6...         │ [Delete]│
-│ user2        │ f6e5d4c3b2a1...         │ [Delete]│
-└──────────────┴────────────────────────┴─────────┘
-```
-
-**Генерация секрета:** Нажмите кнопку "Generate" для создания случайного 32-символьного hex секрета.
-
-### Примеры подключения Telegram
-
-#### MTProxy подключение:
-
-```
-Тип: MTProxy
-Адрес: athlon.twilightparadox.com (или IP)
-Порт: 443
-Секрет: <ваш_секрет>
-Режим шифрования: TLS / FakeTLS / Secure
-```
-
-#### WEB Proxy подключение:
-
-```
-Тип: HTTP/HTTPS Proxy
-Адрес: https://athlon.twilightparadox.com
-Порт: 80/443
-Логин: <username>
-Пароль: <secret>
-```
-
----
-
-## 🔧 Дополнительные скрипты
-
-### Генерация секрета из командной строки
-
-```bash
-./scripts/generate-secret.sh
-# Вывод: a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4
-```
-
-### Установка на роутер (автоматизированная)
-
-```bash
-./scripts/install-on-router.sh <router_ip> <username> <password>
-```
-
----
-
-## 📊 Статистика и мониторинг
-
-После запуска сервиса доступна страница статуса:
-
-```
-Система → telEgo → Статус
-```
-
-Отображается информация:
-- ✅ **Service Status** — Состояние сервиса (Running/Stopped)
-- 📈 **Active Connections** — Количество активных соединений
-- 📊 **Total Traffic** — Общий трафик
-
----
-
-## 🔐 Безопасность и рекомендации
-
-### ⚠️ Важные замечания:
-
-1. **Порт 443** — Рекомендуется использовать порт 443 для маскировки под HTTPS трафик
-2. **DDNS** — Настройте DDNS для доступа по доменному имени
-3. **Firewall** — Откройте необходимые порты в firewall роутера:
-   ```bash
-   uci add firewall zone_wan_mashup='packet_accept'
-   uci set firewall.zone_wan_mashup_dest_port_1='443'
-   uci commit firewall
-   /etc/init.d/firewall restart
-   ```
-4. **Secrets** — Храните секреты в надёжном месте, они нужны для подключения клиентов
-
----
-
-## 📚 Документация
-
-| Документ | Описание |
-|----------|----------|
-| [API.md](docs/API.md) | Описание API и HTTP endpoints |
-| [BUILD.md](docs/BUILD.md) | Подробная инструкция сборки |
-| [CONFIGURATION.md](docs/CONFIGURATION.md) | Полное руководство настройки |
-| [INSTALL.md](docs/INSTALL.md) | Инструкция установки пакетов |
-
----
-
-## 🤝 Вклад в проект
-
-Мы приветствуем pull requests! Пожалуйста:
-1. Форкните репозиторий
-2. Создайте ветку для фичи (`git checkout -b feature/amazing-feature`)
-3. Закоммитьте изменения (`git commit -m 'Add amazing feature'`)
-4. Отправьте в ветку (`git push origin feature/amazing-feature`)
-5. Создайте Pull Request
-
----
-
-## 📄 Лицензия
-
-Этот проект распространяется под лицензией **MIT**. См. файл [LICENSE](LICENSE) для деталей.
-
----
-
-## 🔗 Ссылки
-
-- 🌐 **Официальный репозиторий:** https://github.com/Ra1nek/telEgo-openwrt
-- 📱 **Telegram API Documentation:** https://core.telegram.org/meta
-- 📖 **OpenWrt LuCI Docs:** https://openwrt.org/docs/guide-user/luci/luci.essentials
-- 🔧 **Scratch-net/telego (исходный проект):** https://github.com/Scratch-net/telego
-
----
-
-<div align="center">
-
-**telEgo — Ваш Telegram Proxy на роутере OpenWrt** ⚡
-
-*Создано с ❤️ для сообщества OpenWrt*
-
-</div>
+This fork is distributed under Apache License 2.0. The upstream Scratch-net/telego source is also Apache-2.0 and retains its own copyright and license notices in the `telego-src` submodule.
