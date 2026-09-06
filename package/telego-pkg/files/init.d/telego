@@ -1,109 +1,233 @@
 #!/bin/sh /etc/rc.common
 
-# =============================================================================
-# telEgo Init Script - OpenWrt ProCD Service Management (SECURITY HARDENED)
-# Supports SIGHUP hot-reload for configuration changes without restart
-# Implements capability-based privilege dropping per security best practices
-# =============================================================================
 START=95
 STOP=20
-SERVICE_USE_PROCD=1
-SERVICE_PIDFILE=/var/run/telego.pid
-CONFIG_FILE=/etc/config/telego
-DEFAULT_CONFIG=/etc/config/telego.default
+USE_PROCD=1
 
-# -----------------------------------------------------------------------------
+PROG=/usr/bin/telego
+UCI_CONFIG=telego
+UCI_FILE=/etc/config/telego
+RUNTIME_CONFIG=/var/etc/telego.toml
+CAPS=/etc/capabilities/telego.json
+
+# Quote a UCI scalar as a TOML basic string.
+toml_quote() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
+}
+
+uci_get_default() {
+	local section="$1"
+	local option="$2"
+	local default="$3"
+	local value
+	value="$(uci -q get "${UCI_CONFIG}.${section}.${option}" 2>/dev/null)"
+	[ -n "$value" ] && printf '%s' "$value" || printf '%s' "$default"
+}
+
+uci_bool() {
+	case "$(uci_get_default "$1" "$2" "$3")" in
+		1|true|yes|on) printf 'true' ;;
+		*) printf 'false' ;;
+	esac
+}
+
+write_toml_string() {
+	local key="$1"
+	local value="$2"
+	printf '%s = "%s"\n' "$key" "$(toml_quote "$value")"
+}
+
+write_toml_int() {
+	local key="$1"
+	local value="$2"
+	case "$value" in
+		''|*[!0-9-]*) value=0 ;;
+	esac
+	printf '%s = %s\n' "$key" "$value"
+}
+
+write_toml_bool() {
+	local key="$1"
+	printf '%s = %s\n' "$key" "$(uci_bool "$2" "$3" "$4")"
+}
+
+generate_config() {
+	local tmp="${RUNTIME_CONFIG}.$$"
+	local value
+
+	mkdir -p /var/etc || return 1
+	umask 077
+
+	{
+		echo '# Generated from /etc/config/telego. Do not edit.'
+		echo
+		echo '[general]'
+		write_toml_string 'bind-to' "$(uci_get_default general bind_to '0.0.0.0:443')"
+		write_toml_string 'log-level' "$(uci_get_default general log_level 'info')"
+		write_toml_bool 'proxy-protocol' general proxy_protocol 0
+		write_toml_int 'max-connections-per-ip' "$(uci_get_default general max_connections_per_ip '100')"
+		write_toml_int 'max-ips-per-user' "$(uci_get_default general max_ips_per_user '10')"
+		write_toml_string 'ip-block-timeout' "$(uci_get_default general ip_block_timeout '5m')"
+		write_toml_string 'handshake-timeout' "$(uci_get_default general handshake_timeout '5s')"
+		value="$(uci_get_default general clock_sync_url '')"
+		[ -n "$value" ] && write_toml_string 'clock-sync-url' "$value"
+
+		echo
+		echo '[tls-fronting]'
+		write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
+		write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
+		value="$(uci_get_default tls_fronting cert_host '')"; [ -n "$value" ] && write_toml_string 'cert-host' "$value"
+		value="$(uci_get_default tls_fronting cert_port '0')"; [ "$value" != 0 ] && write_toml_int 'cert-port' "$value"
+		value="$(uci_get_default tls_fronting fake_cert_size '0')"; [ "$value" != 0 ] && write_toml_int 'fake-cert-size' "$value"
+		value="$(uci_get_default tls_fronting splice_host '')"; [ -n "$value" ] && write_toml_string 'splice-host' "$value"
+		value="$(uci_get_default tls_fronting splice_port '0')"; [ "$value" != 0 ] && write_toml_int 'splice-port' "$value"
+		write_toml_int 'splice-proxy-protocol' "$(uci_get_default tls_fronting splice_proxy_protocol '0')"
+		write_toml_string 'splice-idle-timeout' "$(uci_get_default tls_fronting splice_idle_timeout '30s')"
+		write_toml_bool 'enable-drs' tls_fronting enable_drs 1
+		write_toml_bool 'enable-split-tls' tls_fronting enable_split_tls 1
+		printf 'mask-sni-safelist = ['
+		uci -q get "${UCI_CONFIG}.tls_fronting.mask_sni_safelist" >/dev/null 2>&1 && {
+			local first=1 item
+			config_load "$UCI_CONFIG"
+			config_list_foreach tls_fronting mask_sni_safelist _emit_toml_list_item
+		}
+		printf ']\n'
+
+		echo
+		echo '[performance]'
+		write_toml_int 'tcp-buffer-kb' "$(uci_get_default performance tcp_buffer_kb '128')"
+		write_toml_int 'num-event-loops' "$(uci_get_default performance num_event_loops '0')"
+		write_toml_string 'prefer-ip' "$(uci_get_default performance prefer_ip 'prefer-ipv4')"
+		write_toml_string 'idle-timeout' "$(uci_get_default performance idle_timeout '5m')"
+		write_toml_int 'max-write-buffer-mb' "$(uci_get_default performance max_write_buffer_mb '0')"
+		write_toml_string 'client-silence-close' "$(uci_get_default performance client_silence_close '0s')"
+
+		echo
+		echo '[upstream]'
+		write_toml_string 'socks5' "$(uci_get_default upstream socks5 '')"
+
+		echo
+		echo '[metrics]'
+		write_toml_string 'bind-to' "$(uci_get_default metrics bind_to '127.0.0.1:9090')"
+		write_toml_string 'path' "$(uci_get_default metrics path '/metrics')"
+
+		echo
+		echo '[web-proxy]'
+		write_toml_bool 'enabled' web_proxy enabled 0
+		write_toml_string 'carrier' "$(uci_get_default web_proxy carrier 'https-lanes')"
+		write_toml_string 'bind-to' "$(uci_get_default web_proxy bind_to '127.0.0.1:8443')"
+		write_toml_string 'hostname' "$(uci_get_default web_proxy hostname '')"
+		write_toml_string 'backend' "$(uci_get_default web_proxy backend '')"
+		write_toml_int 'num-event-loops' "$(uci_get_default web_proxy num_event_loops '0')"
+		printf 'trusted-proxy-cidrs = ['
+		config_load "$UCI_CONFIG"
+		config_list_foreach web_proxy trusted_proxy_cidrs _emit_toml_list_item
+		printf ']\n'
+
+		echo
+		echo '[middle-end]'
+		write_toml_bool 'enabled' middle_end enabled 0
+		write_toml_string 'proxy-tag' "$(uci_get_default middle_end proxy_tag '')"
+		write_toml_string 'socks5' "$(uci_get_default middle_end socks5 '')"
+		write_toml_string 'socks5-username' "$(uci_get_default middle_end socks5_username '')"
+		write_toml_string 'socks5-password' "$(uci_get_default middle_end socks5_password '')"
+		write_toml_string 'artifact-proxy' "$(uci_get_default middle_end artifact_proxy '')"
+		write_toml_string 'nat-ip' "$(uci_get_default middle_end nat_ip '')"
+		write_toml_int 'max-connections' "$(uci_get_default middle_end max_connections '0')"
+		write_toml_int 'queue-budget-mb' "$(uci_get_default middle_end queue_budget_mb '0')"
+
+		echo
+		echo '[secrets]'
+		config_load "$UCI_CONFIG"
+		config_foreach _emit_secret secret
+	} > "$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+
+	chmod 0600 "$tmp"
+	mv -f "$tmp" "$RUNTIME_CONFIG"
+}
+
+_emit_toml_list_item() {
+	local value="$1"
+	[ -n "$value" ] || return 0
+	printf '%s"%s"' "${first:+,}" "$(toml_quote "$value")"
+	first=1
+}
+
+_emit_secret() {
+	local section="$1"
+	local name secret
+	name="$(uci_get_default "$section" name "$section")"
+	secret="$(uci_get_default "$section" secret '')"
+	[ -n "$secret" ] || return 0
+	printf '"%s" = "%s"\n' "$(toml_quote "$name")" "$(toml_quote "$secret")"
+}
+
+validate_config() {
+	[ -s "$RUNTIME_CONFIG" ] || return 1
+	# The Go daemon is the authoritative TOML validator. Do not start a service
+	# with a partially generated configuration.
+	"$PROG" check --config "$RUNTIME_CONFIG" >/dev/null 2>&1
+}
+
 service_triggers() {
-	procd_add_reload_trigger "$CONFIG_FILE"
+	procd_add_reload_trigger "$UCI_CONFIG"
 }
 
-get_config_file() {
-	if [ -f "$CONFIG_FILE" ]; then
-		echo "$CONFIG_FILE"
-	elif [ -f "$DEFAULT_CONFIG" ]; then
-		cp "$DEFAULT_CONFIG" "$CONFIG_FILE" 2>/dev/null || true
-		echo "$CONFIG_FILE"
-	else
-		echo "$DEFAULT_CONFIG"
+start_service() {
+	local enabled
+	config_load "$UCI_CONFIG"
+	config_get_bool enabled general enabled 0
+	[ "$enabled" -eq 1 ] || return 0
+
+	generate_config || {
+		echo 'telego: failed to generate TOML configuration' >&2
+		return 1
+	}
+
+	validate_config || {
+		echo 'telego: generated TOML configuration failed validation' >&2
+		return 1
+	}
+
+	[ -x "$PROG" ] || {
+		echo "telego: $PROG not found" >&2
+		return 1
+	}
+
+	procd_open_instance
+	procd_set_param command "$PROG" run --config "$RUNTIME_CONFIG"
+	procd_set_param user telego
+	procd_set_param group telego
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param file "$RUNTIME_CONFIG"
+	procd_set_param reload_signal HUP
+
+	if [ -x /sbin/ujail ] && [ -r "$CAPS" ]; then
+		procd_add_jail telego ronly log
+		procd_add_jail_mount /etc/ssl/certs/ca-certificates.crt /etc/resolv.conf
+		procd_add_jail_mount_rw /var/etc
+		procd_set_param capabilities "$CAPS"
+		procd_set_param no_new_privs 1
 	fi
-}
 
-# SECURITY: Create dedicated telego user/group if not exists (privilege separation)
-create_service_user() {
-	if ! grep -q "^telego:" /etc/passwd 2>/dev/null; then
-		useradd -r -s /usr/sbin/nologin -M telego 2>/dev/null || true
-	fi
-}
-
-cmd_start_service() {
-	local config_file=$(get_config_file)
-	
-	# Ensure config directory exists
-	mkdir -p "$(dirname "$config_file")" 2>/dev/null || true
-	
-	# SECURITY: Create dedicated user for privilege separation
-	create_service_user
-	
-	procd_open_instance telego
-		procd_set_param path /usr/bin/telego
-		procd_set_param command run --config "$config_file"
-		
-		# SECURITY: Drop privileges to dedicated 'telego' user after binding
-		# Binary starts as root (via setcap), then drops to 'telego' for security
-		procd_set_param user telego
-		procd_set_param group telego
-		
-		procd_set_param respawn true
-		procd_set_param respawn_threshold 5
-		procd_set_param pidfile "/var/run/telego.pid"
-		procd_set_param stdout 1
-		procd_set_param stderr 1
-		procd_set_param reload_signal HUP
-		
-		# Health check - verify service is responding
-		procd_set_param command_check "pgrep -f 'telego run' > /dev/null"
 	procd_close_instance
 }
 
-cmd_stop_service() {
-	local pid=$(cat /var/run/telego.pid 2>/dev/null)
-	if [ -n "$pid" ] && ps -p "$pid" > /dev/null 2>&1; then
-		kill "$pid" 2>/dev/null || true
-	fi
+reload_service() {
+	generate_config || return 1
+	validate_config || return 1
+	procd_send_signal telego HUP
 }
 
-cmd_reload_service() {
-	local pid=$(cat /var/run/telego.pid 2>/dev/null)
-	if [ -n "$pid" ] && ps -p "$pid" > /dev/null 2>&1; then
-		kill -HUP "$pid" 2>/dev/null || true
-		echo "Telego configuration reloaded (PID: $pid)"
-		return 0
-	else
-		echo "Telego is not running, cannot reload"
-		return 1
-	fi
+stop_service() {
+	procd_kill telego
 }
 
-cmd_status() {
-	local pid=$(cat /var/run/telego.pid 2>/dev/null)
-	if [ -n "$pid" ] && ps -p "$pid" > /dev/null 2>&1; then
-		echo "Running (PID: $pid)"
-		return 0
-	else
-		echo "Stopped"
-		return 1
-	fi
+status_service() {
+	service_status "$PROG"
 }
-
-cmd_status_json() {
-	local pid=$(cat /var/run/telego.pid 2>/dev/null)
-	if [ -n "$pid" ] && ps -p "$pid" > /dev/null 2>&1; then
-		echo '{"running": true, "pid": '$pid'}'
-		return 0
-	else
-		echo '{"running": false}'
-		return 1
-	fi
-}
-
-export_service_functions()
