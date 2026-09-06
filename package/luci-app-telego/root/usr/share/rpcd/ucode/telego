@@ -1,0 +1,134 @@
+'use strict';
+
+import { open, popen } from 'fs';
+
+function readfile(path) {
+	const file = open(path, 'r');
+	if (!file)
+		return '';
+
+	let data = file.read('all') || '';
+	file.close();
+	return data;
+}
+
+function service_running() {
+	const ubus = connect();
+	const result = ubus?.call('service', 'list', { name: 'telego' });
+
+	try {
+		const instances = result?.telego?.instances || {};
+		for (const name in instances) {
+			if (instances[name]?.running === true)
+				return true;
+		}
+	}
+	catch (e) {}
+
+	return false;
+}
+
+function service_pid() {
+	const ubus = connect();
+	const result = ubus?.call('service', 'list', { name: 'telego' });
+
+	try {
+		const instances = result?.telego?.instances || {};
+		for (const name in instances) {
+			const pid = instances[name]?.pid;
+			if (pid != null)
+				return +pid;
+		}
+	}
+	catch (e) {}
+
+	return 0;
+}
+
+function parse_number(value) {
+	const number = +value;
+	return isNaN(number) || !isFinite(number) || number < 0 ? 0 : number;
+}
+
+function read_metrics() {
+	const result = {
+		connections: 0,
+		ips_active: 0,
+		ips_tracked: 0,
+		ips_blocked: 0,
+		rx_bytes: 0,
+		tx_bytes: 0
+	};
+
+	const proc = popen([
+		'/usr/bin/uclient-fetch',
+		'-q',
+		'-O',
+		'-',
+		'http://127.0.0.1:9090/metrics'
+	], 'r');
+
+	if (!proc)
+		return result;
+
+	for (let line = proc.read('line'); length(line); line = proc.read('line')) {
+		line = rtrim(line, '\r\n');
+		if (!length(line) || line[0] === '#')
+			continue;
+
+		const m = match(line, /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?[ \t]+([-+0-9.eE]+)$/);
+		if (!m)
+			continue;
+
+		const name = m[1];
+		const value = parse_number(m[2]);
+
+		switch (name) {
+		case 'telego_connections_active':
+			result.connections += value;
+			break;
+		case 'telego_ips_active':
+			result.ips_active += value;
+			break;
+		case 'telego_ips_tracked':
+			result.ips_tracked += value;
+			break;
+		case 'telego_ips_blocked':
+			result.ips_blocked += value;
+			break;
+		case 'telego_traffic_in_bytes_total':
+			result.rx_bytes += value;
+			break;
+		case 'telego_traffic_out_bytes_total':
+			result.tx_bytes += value;
+			break;
+		}
+	}
+
+	proc.close();
+	return result;
+}
+
+const methods = {
+	status: {
+		call: function () {
+			const uptime = readfile('/proc/uptime');
+			const uptime_match = match(uptime, /^([0-9]+(?:\.[0-9]+)?)/);
+			const metrics = read_metrics();
+
+			return {
+				running: service_running(),
+				pid: service_pid(),
+				uptime: uptime_match ? Math.floor(+uptime_match[1]) : 0,
+				connections: Math.floor(metrics.connections),
+				ips_active: Math.floor(metrics.ips_active),
+				ips_tracked: Math.floor(metrics.ips_tracked),
+				ips_blocked: Math.floor(metrics.ips_blocked),
+				rx_bytes: Math.floor(metrics.rx_bytes),
+				tx_bytes: Math.floor(metrics.tx_bytes)
+			};
+		}
+	}
+};
+
+return { 'telego': methods };
