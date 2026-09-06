@@ -1,18 +1,83 @@
-# telego nginx locations configuration
-# Reverse proxy and TLS fronting for telEgo proxy integration
+# telEgo WEB Proxy locations.
+#
+# This file MUST be included inside the public TLS `server {}` block, for example:
+#
+#   include /etc/nginx/snippets/telego.locations;
+#
+# The public TLS server remains responsible for the real certificate. The
+# private upstream is plain HTTP/1.1 on 127.0.0.1:8080.
 
-# Main web proxy location
 location / {
-    proxy_pass http://127.0.0.1:8080;
-    proxy_http_version 1.1;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+	proxy_pass http://telego_web;
+	proxy_http_version 1.1;
+
+	# WEB long-polling and WebSocket carriers need buffering on ingress but no
+	# response buffering in order to preserve streaming semantics.
+	proxy_request_buffering on;
+	proxy_buffering off;
+	proxy_read_timeout 40s;
+	proxy_send_timeout 40s;
+
+	proxy_intercept_errors on;
+	recursive_error_pages off;
+
+	proxy_set_header Host $http_host;
+	proxy_set_header X-Forwarded-For $remote_addr;
+	proxy_set_header X-Forwarded-Proto https;
+	proxy_set_header Forwarded "";
+
+	proxy_set_header Upgrade $http_upgrade;
+	proxy_set_header Connection $telego_connection_upgrade;
+
+	# telEgo returns 418 for ordinary website traffic and 419 for an
+	# unauthenticated carrier-shaped request. The site administrator provides
+	# the actual public-site handlers in the surrounding server block.
+	error_page 418 = @telego_ordinary;
+	error_page 419 = @telego_sanitized;
 }
 
-# MTProxy protocol handler
-location /mtproto {
-    internal;
-    proxy_pass http://127.0.0.1:8443/mtproto;
+location @telego_ordinary {
+	internal;
+
+	# Replace 127.0.0.1:8090 with the existing ordinary website listener.
+	proxy_pass http://127.0.0.1:8090;
+	proxy_http_version 1.1;
+
+	proxy_set_header Host $http_host;
+	proxy_set_header X-Forwarded-For $remote_addr;
+	proxy_set_header X-Forwarded-Proto https;
+	proxy_set_header Upgrade $http_upgrade;
+	proxy_set_header Connection $telego_connection_upgrade;
+}
+
+location @telego_sanitized {
+	internal;
+
+	# Never forward carrier credentials to the ordinary website.
+	proxy_pass http://127.0.0.1:8090$uri;
+	proxy_http_version 1.1;
+	proxy_method GET;
+	proxy_pass_request_body off;
+
+	proxy_set_header Host $http_host;
+	proxy_set_header Content-Length "";
+	proxy_set_header Content-Type "";
+	proxy_set_header Transfer-Encoding "";
+
+	proxy_set_header Authorization "";
+	proxy_set_header Cookie "";
+	proxy_set_header X-Up-Seq "";
+	proxy_set_header X-Down-Cursor "";
+	proxy_set_header X-Session-Token "";
+	proxy_set_header X-Carrier-Mode "";
+	proxy_set_header X-Up-Ack "";
+	proxy_set_header X-Lane-ID "";
+	proxy_set_header Sec-WebSocket-Key "";
+	proxy_set_header Sec-WebSocket-Protocol "";
+	proxy_set_header Sec-WebSocket-Version "";
+	proxy_set_header Sec-WebSocket-Extensions "";
+	proxy_set_header X-Forwarded-For "";
+	proxy_set_header Forwarded "";
+	proxy_set_header Upgrade "";
+	proxy_set_header Connection "";
 }
