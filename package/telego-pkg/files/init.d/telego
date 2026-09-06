@@ -9,8 +9,9 @@ UCI_CONFIG=telego
 RUNTIME_CONFIG=/var/etc/telego.toml
 CAPS=/etc/capabilities/telego.json
 
-toml_quote() {
-	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g'
+ toml_quote() {
+	printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/	/\\t/g; s//\\r/g; s/
+/\\n/g'
 }
 
 uci_get_default() {
@@ -78,10 +79,10 @@ generate_config() {
 		write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
 		write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
 		value="$(uci_get_default tls_fronting cert_host '')"; [ -n "$value" ] && write_toml_string 'cert-host' "$value"
-		value="$(uci_get_default tls_fronting cert_port '0')"; [ "$value" != 0 ] && write_toml_int 'cert-port' "$value"
+		value="$(uci_get_default tls_fronting cert_port '')"; [ -n "$value" ] && write_toml_int 'cert-port' "$value"
 		value="$(uci_get_default tls_fronting fake_cert_size '0')"; [ "$value" != 0 ] && write_toml_int 'fake-cert-size' "$value"
 		value="$(uci_get_default tls_fronting splice_host '')"; [ -n "$value" ] && write_toml_string 'splice-host' "$value"
-		value="$(uci_get_default tls_fronting splice_port '0')"; [ "$value" != 0 ] && write_toml_int 'splice-port' "$value"
+		value="$(uci_get_default tls_fronting splice_port '')"; [ -n "$value" ] && write_toml_int 'splice-port' "$value"
 		write_toml_int 'splice-proxy-protocol' "$(uci_get_default tls_fronting splice_proxy_protocol '0')"
 		write_toml_string 'splice-idle-timeout' "$(uci_get_default tls_fronting splice_idle_timeout '30s')"
 		write_toml_bool 'enable-drs' tls_fronting enable_drs 1
@@ -128,7 +129,9 @@ generate_config() {
 		config_foreach _emit_secret secret
 	} > "$tmp" || { rm -f "$tmp"; return 1; }
 
-	chmod 0600 "$tmp" && mv -f "$tmp" "$RUNTIME_CONFIG"
+	chown telego:telego "$tmp" || { rm -f "$tmp"; return 1; }
+	chmod 0600 "$tmp" || { rm -f "$tmp"; return 1; }
+	mv -f "$tmp" "$RUNTIME_CONFIG"
 }
 
 service_triggers() {
@@ -140,6 +143,11 @@ start_service() {
 	config_load "$UCI_CONFIG"
 	config_get_bool enabled general enabled 0
 	[ "$enabled" -eq 1 ] || return 0
+
+	command -v id >/dev/null 2>&1 && id telego >/dev/null 2>&1 || {
+		echo 'telego: user telego does not exist' >&2
+		return 1
+	}
 
 	generate_config || {
 		echo 'telego: failed to generate TOML configuration' >&2
