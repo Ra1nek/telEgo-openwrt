@@ -15,15 +15,15 @@ define Package/nginx-telego
 endef
 
 define Package/nginx-telego/description
-  Automated reverse-proxy, TLS fronting, and secure masking rule helper binding Nginx to the telego Go backend daemon.
+  Reverse-proxy and TLS-fronting configuration assets for telEgo.
 endef
 
 define Build/Compile
-	# Nothing to compile, configuration assets only
 endef
 
 define Package/nginx-telego/install
 	$(INSTALL_DIR) $(1)/etc/nginx/conf.d
+	$(INSTALL_DATA) ./files/conf.d/telego.conf $(1)/etc/nginx/conf.d/telego.conf
 	$(INSTALL_DATA) ./files/telego.locations $(1)/etc/nginx/conf.d/telego.locations
 endef
 
