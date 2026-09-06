@@ -69,7 +69,7 @@ jobs:
       - name: Build signed APK feed
         uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: x86_64
+          ARCH: x86_64-25.12.5
           FEED_DIR: ${{ github.workspace }}
           FEEDNAME: telego
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
