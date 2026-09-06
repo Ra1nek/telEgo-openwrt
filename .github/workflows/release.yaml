@@ -33,6 +33,9 @@ jobs:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
 
+      - name: Verify LuCI i18n
+        run: python3 .github/scripts/check-luci-i18n.py
+
       - name: Verify Go source
         working-directory: telego-src
         run: |
@@ -42,6 +45,8 @@ jobs:
           go test ./...
 
       - name: Build Go binary
+        env:
+          CGO_ENABLED: '0'
         run: |
           set -euo pipefail
           mkdir -p package/telego-pkg/files/usr/bin
