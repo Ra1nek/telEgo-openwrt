@@ -4,15 +4,9 @@ on:
   push:
     tags:
       - 'v*'
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version, without leading v'
-        required: true
-        default: '0.6.0'
 
 env:
-  TELEGO_VERSION: '0.6.0'
+  GO_VERSION: '1.27'
 
 permissions:
   contents: write
@@ -27,10 +21,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          PKG_VERSION="$(sed -n 's/^PKG_VERSION:=//p' package/telego-pkg/Makefile)"
+          test -n "$PKG_VERSION"
+          test "$VERSION" = "$PKG_VERSION" || {
+            echo "Release tag ${GITHUB_REF_NAME} does not match PKG_VERSION=${PKG_VERSION}" >&2
+            exit 1
+          }
+          echo "TELEGO_VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - name: Setup Go
         uses: actions/setup-go@v7
         with:
-          go-version: '1.27'
+          go-version: ${{ env.GO_VERSION }}
           cache-dependency-path: telego-src/go.sum
 
       - name: Verify LuCI i18n
@@ -50,10 +57,11 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p package/telego-pkg/files/usr/bin
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           go build \
             -buildmode=pie \
             -trimpath \
-            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA}" \
+            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=${BUILD_DATE}" \
             -o package/telego-pkg/files/usr/bin/telego \
             ./telego-src/cmd/telego
           chmod 0755 package/telego-pkg/files/usr/bin/telego
@@ -79,20 +87,10 @@ jobs:
           tar -C bin/packages -czf release-assets/telEgo-x86_64-apk-feed.tar.gz .
           sha256sum release-assets/* > release-assets/SHA256SUMS
 
-      - name: Determine release tag
-        id: release
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
-          else
-            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
+          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           gh release create "$TAG" release-assets/* \
