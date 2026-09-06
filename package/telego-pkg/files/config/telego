@@ -1,4 +1,5 @@
 config general 'general'
+	option enabled '0'
 	option bind_to '0.0.0.0:443'
 	option log_level 'info'
 	option proxy_protocol '0'
@@ -19,7 +20,6 @@ config tls_fronting 'tls_fronting'
 	option splice_idle_timeout '30s'
 	option enable_drs '1'
 	option enable_split_tls '1'
-	list mask_sni_safelist ''
 
 config web_proxy 'web_proxy'
 	option enabled '0'
