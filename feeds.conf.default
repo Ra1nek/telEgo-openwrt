@@ -1,4 +1,2 @@
 # Local feed configuration for telEgo OpenWrt packages
-src-link telego-pkg ./package/telego-pkg
-src-link luci-app-telego ./package/luci-app-telego
-src-link nginx-telego ./package/nginx-telego
+src-link telego ./package
