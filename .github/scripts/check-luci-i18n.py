@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import ast
 import re
 from pathlib import Path
 
@@ -7,12 +8,18 @@ JS_FILES = sorted((ROOT / 'package/luci-app-telego/htdocs/resources/view/telego'
 PO_FILE = ROOT / 'package/luci-app-telego/po/ru/telego.po'
 
 msgids = set()
-pattern = re.compile(r"_\(\s*(['\"])((?:\\.|(?!\1).)*)\1\s*\)")
+pattern = re.compile(r"_\(\s*((['\"])(?:\\.|(?!\2).)*\2)\s*\)")
 
 for path in JS_FILES:
     text = path.read_text(encoding='utf-8')
     for match in pattern.finditer(text):
-        value = bytes(match.group(2), 'utf-8').decode('unicode_escape')
+        literal = match.group(1)
+        try:
+            value = ast.literal_eval(literal)
+        except (SyntaxError, ValueError) as exc:
+            raise SystemExit(f'Unable to parse JavaScript string literal in {path}: {literal!r}: {exc}')
+        if not isinstance(value, str):
+            raise SystemExit(f'Expected string msgid in {path}: {literal!r}')
         msgids.add(value)
 
 po = PO_FILE.read_text(encoding='utf-8')
