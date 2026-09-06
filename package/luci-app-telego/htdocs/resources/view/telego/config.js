@@ -82,21 +82,28 @@ return view.extend({
 
 		o = s.option(form.Value, 'cert_host', _('Certificate Host'), _('Optional certificate fetch override.'));
 		o.datatype = 'hostname';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'cert_port', _('Certificate Port'));
 		o.datatype = 'port';
+		o.rmempty = true;
+		o.default = '';
 
 		o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
 		o.datatype = 'uinteger';
+		o.default = '0';
 
 		o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
 		o.datatype = 'hostname';
 
 		o = s.option(form.Value, 'splice_host', _('Splice Host'));
 		o.datatype = 'hostname';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'splice_port', _('Splice Port'));
 		o.datatype = 'port';
+		o.rmempty = true;
+		o.default = '';
 
 		o = s.option(form.ListValue, 'splice_proxy_protocol', _('Splice PROXY Protocol'));
 		o.value('0', _('Disabled'));
@@ -132,9 +139,11 @@ return view.extend({
 
 		o = s.option(form.Value, 'hostname', _('WEB Proxy Hostname'));
 		o.datatype = 'hostname';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'backend', _('WEB Proxy Backend'));
 		o.datatype = 'string';
+		o.rmempty = true;
 
 		o = s.option(form.DynamicList, 'trusted_proxy_cidrs', _('Trusted Proxy CIDRs'));
 		o.datatype = 'cidr';
@@ -156,25 +165,32 @@ return view.extend({
 
 		o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'), _('Route Middle-End traffic through SOCKS5.'));
 		o.datatype = 'string';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'socks5_username', _('SOCKS5 Username'));
 		o.datatype = 'string';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'socks5_password', _('SOCKS5 Password'));
 		o.password = true;
 		o.datatype = 'string';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'artifact_proxy', _('Artifact Proxy'));
 		o.datatype = 'string';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'nat_ip', _('STUN NAT IP'), _('Custom external IP used for STUN discovery behind NAT.'));
 		o.datatype = 'ipaddr';
+		o.rmempty = true;
 
 		o = s.option(form.Value, 'max_connections', _('Middle-End Max Connections'));
 		o.datatype = 'uinteger';
+		o.default = '0';
 
 		o = s.option(form.Value, 'queue_budget_mb', _('Middle-End Queue Budget (MB)'));
 		o.datatype = 'uinteger';
+		o.default = '0';
 
 		s = m.section(form.TypedSection, 'performance', _('Performance'));
 		s.anonymous = true;
@@ -201,6 +217,7 @@ return view.extend({
 
 		o = s.option(form.Value, 'max_write_buffer_mb', _('Max Write Buffer (MB)'));
 		o.datatype = 'uinteger';
+		o.default = '0';
 
 		o = s.option(form.Value, 'client_silence_close', _('Client Silence Close'));
 		o.datatype = 'string';
@@ -211,6 +228,7 @@ return view.extend({
 		s.addremove = false;
 		o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'));
 		o.datatype = 'string';
+		o.rmempty = true;
 
 		s = m.section(form.TypedSection, 'metrics', _('Metrics'));
 		s.anonymous = true;
