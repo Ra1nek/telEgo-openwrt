@@ -1,16 +1,11 @@
--- RPCD ACL for luci-app-telego
 {
-    "luci-app-telego": {
-        "description": "Grant access to telEgo configuration",
-        "read": {
-            "file": [
-                "telego"
-            ]
-        },
-        "write": {
-            "file": [
-                "telego"
-            ]
-        }
+  "luci-app-telego": {
+    "description": "Grant access to telEgo configuration",
+    "read": {
+      "file": ["/etc/config/telego", "/var/etc/telego.toml"]
+    },
+    "write": {
+      "file": ["/etc/config/telego"]
     }
+  }
 }
