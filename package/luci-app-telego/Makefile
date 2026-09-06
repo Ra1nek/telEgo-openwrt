@@ -19,7 +19,7 @@ define Package/luci-app-telego
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI support for telEgo (Telegram MTProxy + WEB Proxy)
-  DEPENDS:=+telego +nginx +libustream-openssl +ca-bundle +luci-base +luci-compat
+  DEPENDS:=+luci-base +telego
 endef
 
 define Package/luci-app-telego/description
