@@ -9,6 +9,10 @@ PKG_RELEASE:=1
 PKG_ARCH:=$(LINUX_KERNEL)
 PKG_INSTALL:=1
 
+# Host Go bypass - use GitHub Actions pre-installed Go 1.27 instead of compiling golang-bootstrap
+GO_HOST_BUILD:=1
+export GO_CACHE_DIR=$(HOME)/.cache/go-build
+
 # Bundle Go source code directly in src/ subdirectory
 # No download needed - source is bundled with the package
 PKG_BUILD_DIR:=@$(BUILD_DIR)/$(PKG_NAME)-$(PKG_VERSION)
@@ -24,7 +28,7 @@ define Package/telego
   SUBMENU:=Proxy
   TITLE:=Telegram MTProxy + WEB Proxy server with Middle-End support
   URL:=https://github.com/Scratch-net/telego
-  DEPENDS:=+ca-bundle +libopenssl +golang
+  DEPENDS:=+ca-bundle +libopenssl +libc
 endef
 
 define Package/telego/description
@@ -46,22 +50,15 @@ define Build/Prepare
 endef
 
 # =============================================================================
-# Build Configuration - Cross-compile Go binary directly
+# Build Configuration - Cross-compile Go binary directly using host Go
 # =============================================================================
 GO_MOD_FILE:=src/go.mod
 GO_BINARY:=telego
 
 define Package/telego/build
-	# Create build directory and copy source
-	mkdir -p $(PKG_BUILD_DIR)
-	cp -r $(PKG_BUILD_DIR)/. $(PKG_BUILD_DIR)/ 2>/dev/null || true
-	cd $(PKG_BUILD_DIR)/src && \
-	$(TARGET_CC) -o $(PKG_BUILD_DIR)/$(GO_BINARY) \
-		-buildmode=pie \
-		-ldflags="-s -w -extldflags '\$(TARGET_LDFLAGS)'" \
-		-tags="os_userland linux" \
-		./cmd/telego 2>/dev/null || \
-	$(STAGING_DIR_HOST)/lib/go-$(GOHOST_VERSION)/bin/go build \
+	# Use host Go binary from GitHub Actions pre-installed location
+	export PATH:=/opt/hostedtoolcache/go/$(shell ls /opt/hostedtoolcache/go/ | head -1)/bin:$(PATH)
+	go build \
 		-buildmode=pie \
 		-ldflags="-s -w" \
 		-o $(PKG_BUILD_DIR)/$(GO_BINARY) \
