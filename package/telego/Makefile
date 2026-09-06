@@ -35,13 +35,13 @@ define Package/telego/description
 endef
 
 # =============================================================================
-# Build/Prepare - Copy local source files to build directory
+# Build/Prepare - Copy local source files and compile with host Go
 # =============================================================================
 define Build/Prepare
-	mkdir -p \$(PKG_BUILD_DIR)
-	cp -r ./src/* \$(PKG_BUILD_DIR)/
-	cd \$(PKG_BUILD_DIR) && \
-		export PATH:=/opt/hostedtoolcache/go/\$(shell ls /opt/hostedtoolcache/go/ | head -1)/bin:\$(PATH) && \
+	mkdir -p $(PKG_BUILD_DIR)
+	cp -r ./src/* $(PKG_BUILD_DIR)/
+	cd $(PKG_BUILD_DIR) && \
+		export PATH:=/opt/hostedtoolcache/go/$(shell ls /opt/hostedtoolcache/go/ | head -1)/bin:$(PATH) && \
 		go build -buildmode=pie -ldflags="-s -w" -o telego ./cmd/telego
 endef
 
