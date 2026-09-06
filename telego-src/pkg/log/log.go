@@ -2,27 +2,66 @@
 package log
 
 import (
+	"io"
 	"os"
+	"regexp"
 	"sync/atomic"
 	"time"
 
 	"github.com/rs/zerolog"
 )
 
-// logger holds a pointer to the global logger for thread-safe access.
-// We use atomic.Pointer instead of atomic.Value for type safety and to avoid
-// the pointer-method-on-value issue with zerolog.Logger.
+var sensitiveLogField = regexp.MustCompile(`(?i)("(?:secret|ee_link|dd_link|tg_link|https_link)"\s*:\s*"[^"]*"|\b(?:secret|ee_link|dd_link|tg_link|https_link)=\S+)`)
+
+// redactingWriter prevents credential-bearing link fields from reaching system logs.
+type redactingWriter struct {
+	out io.Writer
+}
+
+func (w redactingWriter) Write(p []byte) (int, error) {
+	redacted := sensitiveLogField.ReplaceAll(p, func(match []byte) []byte {
+		text := string(match)
+		if len(text) == 0 {
+			return match
+		}
+		if text[0] == '"' {
+			keyEnd := 0
+			for i, ch := range text {
+				if ch == ':' {
+					keyEnd = i
+					break
+				}
+			}
+			if keyEnd > 0 {
+				return []byte(text[:keyEnd+1] + `"[REDACTED]"`)
+			}
+		}
+		if eq := stringIndexByte(text, '='); eq >= 0 {
+			return []byte(text[:eq+1] + "[REDACTED]")
+		}
+		return []byte("[REDACTED]")
+	})
+	return w.out.Write(redacted)
+}
+
+func stringIndexByte(s string, target byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == target {
+			return i
+		}
+	}
+	return -1
+}
+
 var logger atomic.Pointer[zerolog.Logger]
 
 func init() {
-	// Default to info level with console output
-	l := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: time.RFC3339}).
+	l := zerolog.New(zerolog.ConsoleWriter{Out: redactingWriter{out: os.Stderr}, TimeFormat: time.RFC3339}).
 		With().Timestamp().Logger().
 		Level(zerolog.InfoLevel)
 	logger.Store(&l)
 }
 
-// getLogger returns the current logger instance.
 func getLogger() *zerolog.Logger {
 	return logger.Load()
 }
@@ -54,11 +93,10 @@ func SetLevel(level string) {
 // SetJSON switches to JSON output format.
 func SetJSON() {
 	l := getLogger()
-	newL := zerolog.New(os.Stderr).With().Timestamp().Logger().Level(l.GetLevel())
+	newL := zerolog.New(redactingWriter{out: os.Stderr}).With().Timestamp().Logger().Level(l.GetLevel())
 	logger.Store(&newL)
 }
 
-// Convenience functions
 func Trace() *zerolog.Event { return getLogger().Trace() }
 func Debug() *zerolog.Event { return getLogger().Debug() }
 func Info() *zerolog.Event  { return getLogger().Info() }
