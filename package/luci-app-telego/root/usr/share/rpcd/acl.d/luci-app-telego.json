@@ -1,11 +1,17 @@
 {
   "luci-app-telego": {
-    "description": "Grant access to telEgo configuration",
+    "description": "Grant access to telEgo configuration and service status",
     "read": {
-      "file": ["/etc/config/telego", "/var/etc/telego.toml"]
+      "uci": ["telego"],
+      "ubus": {
+        "service": ["list"]
+      },
+      "file": {
+        "/var/etc/telego.toml": ["read"]
+      }
     },
     "write": {
-      "file": ["/etc/config/telego"]
+      "uci": ["telego"]
     }
   }
 }
