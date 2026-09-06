@@ -14,11 +14,9 @@ define Package/telego-pkg
 endef
 
 define Build/Prepare
-	# Handled out-of-tree by host workspace runner
 endef
 
 define Build/Compile
-	# Pre-compiled binary is already injected into files/usr/bin/telego
 endef
 
 define Package/telego-pkg/install
@@ -26,6 +24,8 @@ define Package/telego-pkg/install
 	$(INSTALL_BIN) ./files/usr/bin/telego $(1)/usr/bin/telego
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/init.d/telego $(1)/etc/init.d/telego
+	$(INSTALL_DIR) $(1)/etc/config
+	$(INSTALL_CONF) ./files/config/telego $(1)/etc/config/telego
 endef
 
 $(eval $(call BuildPackage,telego-pkg))
