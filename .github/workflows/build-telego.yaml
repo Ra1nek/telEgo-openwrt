@@ -41,13 +41,14 @@ jobs:
       - name: Verify Go source
         working-directory: telego-src
         run: |
-          gofmt -l . | tee /tmp/gofmt-files
-          test ! -s /tmp/gofmt-files
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
           go vet ./...
           go test ./...
 
       - name: Build Go Binary
         run: |
+          set -euo pipefail
           mkdir -p package/telego-pkg/files/usr/bin
           go build \
             -buildmode=pie \
@@ -75,7 +76,7 @@ jobs:
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
 
       - name: Store APK feed
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: telEgo-openwrt-apk-feed
           path: bin/packages/**
