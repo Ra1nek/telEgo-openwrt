@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -14,12 +14,12 @@ define Package/luci-app-telego
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI Web Interface for telEgo
-  DEPENDS:=+luci-base +telego-pkg +rpcd-mod-ucode +ucode-mod-fs
+  DEPENDS:=+luci-base +telego-pkg +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-ubus +uclient-fetch
   PKGARCH:=all
 endef
 
 define Package/luci-app-telego/description
-LuCI JavaScript interface for telEgo MTProxy and native WEB proxy.
+LuCI JavaScript interface for telEgo MTProxy, WEB Proxy and live telemetry.
 endef
 
 define Package/luci-app-telego/install
@@ -43,7 +43,6 @@ define Package/luci-app-telego/install
 	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/telego \
 		$(1)/usr/share/rpcd/ucode/telego
 endef
-
 
 define Package/luci-i18n-telego-ru
   SECTION:=luci
