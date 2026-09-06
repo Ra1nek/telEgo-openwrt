@@ -1,109 +1,104 @@
-name: Release telEgo Packages
+name: Release telEgo APK Feed
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       version:
-        description: 'Release version'
+        description: 'Release version, without leading v'
         required: true
-        default: '1.0.0'
+        default: '0.6.0'
 
 env:
-  TELEGO_VERSION: "0.6.0"
-  LUCI_VERSION: "1.0.0"
+  TELEGO_VERSION: '0.6.0'
+
+permissions:
+  contents: write
 
 jobs:
-  build-all-packages:
+  build-release:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      
+
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version: '1.27'
-      
-      - name: Download OpenWrt SDK 25.12.4
+          cache-dependency-path: telego-src/go.sum
+
+      - name: Verify Go source
+        working-directory: telego-src
         run: |
-          echo "Downloading OpenWrt SDK..."
-          SDK_URL="https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-sdk-25.12.4-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
-          wget -q "$SDK_URL" --progress=bar:force
-          tar --zstd -xf openwrt-sdk-*.tar.zst
-          mv openwrt-sdk-* openwrt-sdk
-      
-      - name: Register Local Feed
+          set -euo pipefail
+          test -z "$(gofmt -l .)"
+          go vet ./...
+          go test ./...
+
+      - name: Build Go binary
         run: |
-          cd openwrt-sdk
-          echo "src-local file ../package" >> feeds.conf.default
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a
-      
-      - name: Build telEgo Core Package
-        working-directory: openwrt-sdk
+          set -euo pipefail
+          mkdir -p package/telego-pkg/files/usr/bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA}" \
+            -o package/telego-pkg/files/usr/bin/telego \
+            ./telego-src/cmd/telego
+          chmod 0755 package/telego-pkg/files/usr/bin/telego
+
+      - name: Build signed APK feed
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
+        env:
+          ARCH: x86_64
+          FEED_DIR: ${{ github.workspace }}
+          FEEDNAME: telego
+          PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
+          INDEX: 1
+          PRIVATE_KEY: ${{ secrets.OPENWRT_APK_PRIVATE_KEY }}
+          V: s
+
+      - name: Validate release feed
         run: |
-          echo "=== Building telEgo Core Package ==="
-          make package/telego/clean V=s
-          make package/telego/compile V=s
-          ls -lh bin/packages/*/*/telego_*.apk || true
-      
-      - name: Build LuCI Application Packages
-        working-directory: openwrt-sdk
+          set -euo pipefail
+          test -n "$(find bin/packages -type f -name '*.apk' -print -quit)"
+          test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
+          mkdir -p release-assets
+          find bin/packages -type f -name '*.apk' -exec cp {} release-assets/ \;
+          tar -C bin/packages -czf release-assets/telEgo-x86_64-apk-feed.tar.gz .
+          sha256sum release-assets/* > release-assets/SHA256SUMS
+
+      - name: Determine release tag
+        id: release
+        shell: bash
         run: |
-          echo "=== Building LuCI Application Packages ==="
-          make package/luci-app-telego/clean V=s
-          make package/luci-app-telego/compile V=s
-          ls -lh bin/packages/*/*/luci-*.apk || true
-      
-      - name: Build Nginx Configuration Package
-        working-directory: openwrt-sdk
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=v${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
         run: |
-          echo "=== Building Nginx Configuration Package ==="
-          make package/nginx-telego/clean V=s
-          make package/nginx-telego/compile V=s
-          ls -lh bin/packages/*/*/nginx-*.apk || true
-      
-      - name: Collect All Built Packages
-        run: |
-          echo "=== Collecting All Built Packages ==="
-          mkdir -p packages
-          find openwrt-sdk/bin/packages -name "*.apk" -exec cp {} packages/ \;
-          ls -lh packages/*.apk
-      
-      - name: Upload Release Artifacts
-        uses: softprops/action-gh-release@v1
+          set -euo pipefail
+          gh release create "$TAG" release-assets/* \
+            --verify-tag \
+            --generate-notes \
+            --title "telEgo ${TAG#v}" \
+            --latest
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
         with:
-          files: |
-            packages/telego_*.apk
-            packages/luci-app-telego_*.apk
-            packages/nginx-telego_*.apk
-          body: |
-            ## Release Notes
-            
-            ### Packages Included:
-            - `telego_${{ env.TELEGO_VERSION }}_x86_64.apk` - telEgo MTProxy + WEB Proxy server
-            - `luci-app-telego_${{ env.LUCI_VERSION }}_noarch.apk` - LuCI web interface (EN/RU)
-            - `nginx-telego_${{ env.TELEGO_VERSION }}_x86_64.apk` - Nginx TLS fronting configuration
-            
-            ### Installation:
-            ```bash
-            # Download packages
-            wget https://github.com/Ra1nek/telEgo-openwrt/releases/download/v${{ github.event.release.tag_name }}/telego_*.apk
-            wget https://github.com/Ra1nek/telEgo-openwrt/releases/download/v${{ github.event.release.tag_name }}/luci-app-telego_*.apk
-            
-            # Install on OpenWrt
-            apk add --allow-untrusted telego_*.apk
-            apk add --allow-untrusted luci-app-telego_*.apk
-            ```
-      
-      - name: Upload Build Artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-packages
-          path: packages/*.apk
-          retention-days: 30
+          name: telEgo-x86_64-apk-feed
+          path: release-assets/**
+          if-no-files-found: error
