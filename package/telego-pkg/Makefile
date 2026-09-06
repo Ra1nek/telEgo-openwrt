@@ -26,6 +26,16 @@ define Package/telego-pkg/install
 	$(INSTALL_BIN) ./files/init.d/telego $(1)/etc/init.d/telego
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./files/config/telego $(1)/etc/config/telego
+	$(INSTALL_DIR) $(1)/etc/capabilities
+	$(INSTALL_DATA) ./files/capabilities/telego.json $(1)/etc/capabilities/telego.json
+endef
+
+define Package/telego-pkg/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] && exit 0
+addgroup -S telego 2>/dev/null || true
+adduser -S -D -H -s /sbin/nologin -G telego telego 2>/dev/null || true
+exit 0
 endef
 
 $(eval $(call BuildPackage,telego-pkg))
