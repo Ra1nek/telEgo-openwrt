@@ -1,5 +1,4 @@
 # Local feed configuration for telEgo OpenWrt packages
-# OpenWrt SDK will automatically mount this as a local feed via gh-action-sdk
-src-link telego ./package/telego
+src-link telego-pkg ./package/telego-pkg
 src-link luci-app-telego ./package/luci-app-telego
 src-link nginx-telego ./package/nginx-telego
