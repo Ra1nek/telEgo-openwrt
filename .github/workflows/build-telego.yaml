@@ -8,6 +8,7 @@ on:
       - 'telego-src/**'
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
+      - '.github/scripts/check-luci-i18n.py'
   pull_request:
     branches: [main]
     paths:
@@ -15,6 +16,7 @@ on:
       - 'telego-src/**'
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
+      - '.github/scripts/check-luci-i18n.py'
   workflow_dispatch:
 
 env:
@@ -37,6 +39,9 @@ jobs:
         with:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
+
+      - name: Verify LuCI i18n
+        run: python3 .github/scripts/check-luci-i18n.py
 
       - name: Verify Go source
         working-directory: telego-src
