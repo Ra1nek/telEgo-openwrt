@@ -6,7 +6,6 @@ USE_PROCD=1
 
 PROG=/usr/bin/telego
 UCI_CONFIG=telego
-UCI_FILE=/etc/config/telego
 RUNTIME_CONFIG=/var/etc/telego.toml
 CAPS=/etc/capabilities/telego.json
 
@@ -149,7 +148,7 @@ start_service() {
 	[ -s "$RUNTIME_CONFIG" ] || return 1
 	[ -x "$PROG" ] || { echo "telego: $PROG not found" >&2; return 1; }
 
-	procd_open_instance
+	procd_open_instance telego
 	procd_set_param command "$PROG" run --config "$RUNTIME_CONFIG"
 	procd_set_param user telego
 	procd_set_param group telego
@@ -160,9 +159,12 @@ start_service() {
 	procd_set_param reload_signal HUP
 
 	if [ -x /sbin/ujail ] && [ -r "$CAPS" ]; then
-		procd_add_jail telego ronly log requirejail
-		procd_add_jail_mount /etc/ssl/certs/ca-certificates.crt /etc/resolv.conf
+		procd_add_jail telego log
+		procd_add_jail_mount /etc/ssl/certs/ca-certificates.crt
+		procd_add_jail_mount /etc/resolv.conf
+		procd_add_jail_mount /etc/hosts
 		procd_add_jail_mount_rw /var/etc
+		procd_add_jail_mount_rw /tmp
 		procd_set_param capabilities "$CAPS"
 		procd_set_param no_new_privs 1
 	fi
