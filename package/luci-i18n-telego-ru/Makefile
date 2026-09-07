@@ -16,6 +16,7 @@ define Package/luci-i18n-telego-ru
   TITLE:=Russian translation for luci-app-telego
   DEPENDS:=+luci-app-telego
   HIDDEN:=1
+  DEFAULT:=LUCI_LANG_ru||(ALL&&m)
   PKGARCH:=all
 endef
 
