@@ -20,6 +20,11 @@ Nginx upstream and server-location snippets for telEgo native WEB Proxy.
 Requires nginx-ssl at runtime.
 endef
 
+# This package only installs configuration snippets; it has no source tree
+# and therefore must not invoke OpenWrt's default `make` build step.
+define Build/Compile
+endef
+
 define Package/nginx-telego/install
 	$(INSTALL_DIR) $(1)/etc/nginx/conf.d
 	$(INSTALL_DATA) ./files/conf.d/telego.conf \
