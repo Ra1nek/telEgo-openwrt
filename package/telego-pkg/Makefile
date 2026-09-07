@@ -11,7 +11,7 @@ define Package/telego-pkg
   CATEGORY:=Network
   TITLE:=telEgo high-performance Telegram proxy core daemon
   DEPENDS:=+ca-bundle
-  EXTRA_DEPENDS:=procd-ujail
+  EXTRA_DEPENDS:=procd-ujail >=2026.03.13~58eb263d-r1
   PKGARCH:=x86_64
 endef
 
