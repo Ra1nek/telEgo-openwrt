@@ -11,7 +11,6 @@ on:
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
       - '.github/scripts/**'
-      - '.github/openwrt-sdk.config'
   pull_request:
     branches: [main]
     paths:
@@ -22,7 +21,6 @@ on:
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
       - '.github/scripts/**'
-      - '.github/openwrt-sdk.config'
   workflow_dispatch:
 
 permissions:
@@ -77,11 +75,12 @@ jobs:
             -buildmode=pie \
             -trimpath \
             -buildvcs=false \
-            -ldflags="-s -w -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -ldflags="-s -w -I /lib/ld-musl-x86_64.so.1 -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o ../package/telego-pkg/files/usr/bin/telego \
             ./cmd/telego
           chmod 0755 ../package/telego-pkg/files/usr/bin/telego
           file ../package/telego-pkg/files/usr/bin/telego
+          readelf -l ../package/telego-pkg/files/usr/bin/telego | grep -F '/lib/ld-musl-x86_64.so.1'
 
       - name: Build OpenWrt APK Packages
         uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
@@ -92,8 +91,6 @@ jobs:
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
           INDEX: 1
           V: s
-          NO_DEFAULT_FEEDS: 1
-          KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
 
       - name: Verify APK feed
         shell: bash
