@@ -77,7 +77,6 @@ jobs:
           INDEX: 1
           PRIVATE_KEY: ${{ secrets.OPENWRT_APK_PRIVATE_KEY }}
           V: s
-          NO_DEFAULT_FEEDS: 1
           KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
 
       - name: Validate release feed
