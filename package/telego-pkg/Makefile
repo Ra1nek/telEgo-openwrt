@@ -19,6 +19,13 @@ define Package/telego-pkg/description
 Production telEgo proxy daemon packaged for OpenWrt 25.12+ x86_64.
 endef
 
+# The telego binary is built by CI with the pinned upstream Go toolchain
+# and copied into files/usr/bin before the OpenWrt package step. There is
+# intentionally no source-tree Makefile to build here.
+define Build/Compile
+	true
+endef
+
 define Package/telego-pkg/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./files/usr/bin/telego $(1)/usr/bin/telego
