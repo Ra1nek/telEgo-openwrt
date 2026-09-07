@@ -11,6 +11,7 @@ on:
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
       - '.github/scripts/**'
+      - '.github/openwrt-sdk.config'
   pull_request:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
       - '.github/scripts/**'
+      - '.github/openwrt-sdk.config'
   workflow_dispatch:
 
 permissions:
@@ -90,6 +92,7 @@ jobs:
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
           INDEX: 1
           V: s
+          KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
 
       - name: Verify APK feed
         shell: bash
