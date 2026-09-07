@@ -1,2 +1,2 @@
-# Local feed configuration for telEgo OpenWrt packages
-src-link telego ./package
+# Package feeds are supplied by the build environment.
+# openwrt/gh-action-sdk appends the repository as the 'telego' feed.
