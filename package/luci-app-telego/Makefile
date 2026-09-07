@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -18,6 +18,11 @@ endef
 
 define Package/luci-app-telego/description
 LuCI JavaScript interface for telEgo MTProxy, WEB Proxy and live telemetry.
+endef
+
+# This package only installs LuCI files and has no source tree to compile.
+define Build/Compile
+	true
 endef
 
 define Package/luci-app-telego/install
