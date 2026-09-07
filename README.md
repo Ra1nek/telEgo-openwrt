@@ -76,13 +76,14 @@ Release builds are tag-driven. A `vX.Y.Z` tag must match `PKG_VERSION` before th
 
 OpenWrt 25.12+ uses `apk`.
 
-Install downloaded packages with:
+Follow the [installation guide](docs/INSTALL.md) to obtain a matching set and
+configure trust in the publisher's APK signing key. From the directory containing
+only the four selected packages, install them together:
 
 ```sh
-apk add /tmp/telego-pkg_*.apk
-apk add /tmp/luci-app-telego_*.apk
-apk add /tmp/luci-i18n-telego-ru_*.apk
-apk add /tmp/nginx-telego_*.apk
+apk update
+apk add ./telego-pkg-*.apk ./luci-app-telego-*.apk ./luci-i18n-telego-ru-*.apk ./nginx-telego-*.apk
+/etc/init.d/rpcd restart
 ```
 
 The package post-install creates the unprivileged `telego` service account. The procd service runs the daemon as that user and grants only `CAP_NET_BIND_SERVICE`.
@@ -95,6 +96,13 @@ The application provides one JavaScript LuCI page with two top-level tabs:
 - **Status** — live service state, PID, daemon uptime, active connections, active IPs and traffic counters through the local rpcd telemetry provider.
 
 Secrets are generated client-side with `crypto.getRandomValues()` and validated as exactly 32 hexadecimal characters before UCI is committed.
+
+WEB Proxy's hostname is required only while WEB Proxy is enabled. Configuration
+remains accessible if the telemetry backend is unavailable.
+
+Save & Apply uses procd to restart the daemon when its generated configuration
+changes, including changes to secrets and listeners. Existing connections are
+interrupted. Disabling the main service stops it; enabling it starts it again.
 
 ## UCI -> TOML
 

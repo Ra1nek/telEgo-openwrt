@@ -27,7 +27,7 @@
 ### What Makes telEgo Special?
 - ✅ **Dual Protocol Support**: MTProxy + WEB Proxy in one package
 - ✅ **LuCI Web Interface**: Full configuration via OpenWrt web UI
-- ✅ **Hot Reload**: SIGHUP signal for config changes without restart
+- ✅ **Configuration Apply**: procd restarts the daemon for changed settings, including secrets
 - ✅ **Multi-Architecture**: x86_64, arm, mips support
 - ✅ **Production Ready**: Prometheus metrics, TLS masking, obfuscation
 
@@ -124,7 +124,7 @@ telEgo-openwrt/
 │   └── pkg/{config,log,metrics,gproxy,webproxy}/
 ├── telego-pkg/                     # Go binary package
 │   ├── Makefile                    # golang-package.mk based build
-│   └── files/init.d/telego         # Init script with SIGHUP hot-reload
+│   └── files/init.d/telego         # procd-managed configuration apply
 ├── luci-app-telego/                # LuCI application
 │   ├── Makefile                    # Package definition
 │   ├── root/usr/share/luci/menu.d/telego.menu.json  # Menu
@@ -184,17 +184,16 @@ make package/luci-app-telego/compile
 ```
 
 ### Option 3: Install APKs on Router
-```bash
-# Upload .apk files to router via SCP/SFTP
-scp telego-pkg/ipk/*.apk root@router-ip:/tmp/
-scp luci-app-telego/ipk/*.apk root@router-ip:/tmp/
+Follow the [installation guide](docs/INSTALL.md) for OpenWrt 25.12.5 x86_64.
+It covers downloading the four matching APKs, trusting the signing key and
+installing with `apk`. For an extracted workflow artifact, use:
 
-# On router:
-cd /tmp
-opkg install *.ipk
-/etc/init.d/telego enable
-/etc/init.d/telego start
+```bash
+bash scripts/install-on-router.sh router-ip ./x86_64/telego
 ```
+
+Development artifacts require either a trusted public key or an explicit
+`--allow-untrusted` opt-in as described in the guide.
 
 ---
 
@@ -205,7 +204,7 @@ opkg install *.ipk
 2. Configure MTProxy or WEB Proxy settings
 3. Generate user secrets via the interface
 4. Click **Save & Apply**
-5. Service auto-reloads with new configuration
+5. procd restarts the service for changed settings; existing connections close
 
 ### Telegram Connection Examples
 #### MTProxy Connection:
@@ -234,7 +233,7 @@ Password: <secret>
 # Stop service
 /etc/init.d/telego stop
 
-# Hot reload configuration (SIGHUP)
+# Apply configuration (restart on changes, including secrets and listeners)
 /etc/init.d/telego reload
 
 # Check status

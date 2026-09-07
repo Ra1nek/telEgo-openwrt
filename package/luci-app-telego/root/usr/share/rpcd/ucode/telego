@@ -2,6 +2,7 @@
 
 import { cursor } from 'uci';
 import { open, popen } from 'fs';
+import { connect } from 'ubus';
 
 function readfile(path) {
 	const file = open(path, 'r');
@@ -14,13 +15,15 @@ function readfile(path) {
 }
 
 function service_info() {
-	const ubus = connect();
-	const result = ubus?.call('service', 'list', { name: 'telego' });
 	const info = { running: false, pid: 0 };
+	const ubus = connect();
+	if (!ubus)
+		return info;
 
 	try {
+		const result = ubus.call('service', 'list', { name: 'telego' });
 		const instances = result?.telego?.instances || {};
-		for (const name in instances) {
+		for (let name in instances) {
 			const instance = instances[name];
 			if (instance?.running === true) {
 				info.running = true;
@@ -30,6 +33,7 @@ function service_info() {
 		}
 	}
 	catch (e) {}
+	ubus.disconnect();
 
 	return info;
 }
@@ -39,7 +43,7 @@ function process_uptime(pid) {
 		return 0;
 
 	const uptime = readfile('/proc/uptime');
-	const uptime_match = match(uptime, /^([0-9]+(?:\.[0-9]+)?)/);
+	const uptime_match = match(uptime, /^([0-9]+(\.[0-9]+)?)/);
 	if (!uptime_match)
 		return 0;
 
@@ -53,12 +57,12 @@ function process_uptime(pid) {
 		return 0;
 
 	const start_ticks = +fields[19];
-	if (!isFinite(start_ticks) || start_ticks < 0)
+	if (!(start_ticks >= 0 && start_ticks <= 9007199254740991))
 		return 0;
 
 	/* Linux clock tick is normally 100 Hz on OpenWrt. */
 	const hz = 100;
-	return Math.max(0, Math.floor(+uptime_match[1] - start_ticks / hz));
+	return max(0, int(+uptime_match[1] - start_ticks / hz));
 }
 
 function metrics_endpoint() {
@@ -69,11 +73,15 @@ function metrics_endpoint() {
 	const path = uci.get('telego', 'metrics', 'path') || '/metrics';
 
 	/* RPC must never fetch an arbitrary administrator-supplied endpoint. */
-	if (!/^127\.0\.0\.1:[1-9][0-9]{0,4}$/.test(bind) &&
-		!/^\[::1\]:[1-9][0-9]{0,4}$/.test(bind))
+	const bind_match = match(bind, /^(127\.0\.0\.1|\[::1\]):[1-9][0-9]{0,4}$/);
+	if (!bind_match || bind_match[0] != bind)
 		return null;
 
-	if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/.test(path))
+	if (+substr(bind, rindex(bind, ':') + 1) > 65535)
+		return null;
+
+	const path_match = match(path, /^\/[A-Za-z0-9._~!$&'()*+,;=:@%\/-]*$/);
+	if (!path_match || path_match[0] != path)
 		return null;
 
 	return 'http://' + bind + path;
@@ -81,7 +89,8 @@ function metrics_endpoint() {
 
 function parse_number(value) {
 	const number = +value;
-	return isNaN(number) || !isFinite(number) || number < 0 ? 0 : number;
+	// Bounds reject NaN/infinity and preserve exact integer values in LuCI.
+	return number >= 0 && number <= 9007199254740991 ? number : 0;
 }
 
 function read_metrics() {
@@ -98,28 +107,25 @@ function read_metrics() {
 	if (!endpoint)
 		return result;
 
-	const proc = popen([
-		'/usr/bin/uclient-fetch',
-		'-q',
-		'-O',
-		'-',
-		endpoint
-	], 'r');
+	// OpenWrt's pinned ucode accepts a shell command, not an argv array.
+	// Quote the entire URL, including any literal apostrophes in its path.
+	const quoted = "'" + replace(endpoint, /'/g, function() { return "'\\''"; }) + "'";
+	const proc = popen('/usr/bin/uclient-fetch -q -T 2 -O - ' + quoted, 'r');
 
 	if (!proc)
 		return result;
 
 	for (let line = proc.read('line'); length(line); line = proc.read('line')) {
 		line = rtrim(line, '\r\n');
-		if (!length(line) || line[0] === '#')
+		if (!length(line) || substr(line, 0, 1) === '#')
 			continue;
 
-		const m = match(line, /^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{[^}]*\})?[ \t]+([-+0-9.eE]+)$/);
+		const m = match(line, /^([a-zA-Z_:][a-zA-Z0-9_:]*)(\{[^}]*\})?[ \t]+([-+0-9.eE]+)$/);
 		if (!m)
 			continue;
 
 		const name = m[1];
-		const value = parse_number(m[2]);
+		const value = parse_number(m[3]);
 
 		switch (name) {
 		case 'telego_connections_active':
@@ -157,12 +163,12 @@ const methods = {
 				running: service.running,
 				pid: service.pid,
 				uptime: process_uptime(service.pid),
-				connections: Math.floor(metrics.connections),
-				ips_active: Math.floor(metrics.ips_active),
-				ips_tracked: Math.floor(metrics.ips_tracked),
-				ips_blocked: Math.floor(metrics.ips_blocked),
-				rx_bytes: Math.floor(metrics.rx_bytes),
-				tx_bytes: Math.floor(metrics.tx_bytes)
+				connections: int(metrics.connections),
+				ips_active: int(metrics.ips_active),
+				ips_tracked: int(metrics.ips_tracked),
+				ips_blocked: int(metrics.ips_blocked),
+				rx_bytes: int(metrics.rx_bytes),
+				tx_bytes: int(metrics.tx_bytes)
 			};
 		}
 	}

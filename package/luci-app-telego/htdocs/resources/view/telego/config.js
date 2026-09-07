@@ -123,7 +123,8 @@ function buildStatusView() {
 	]);
 }
 
-function updateStatus(status) {
+function updateStatus(status, root) {
+	root = root || document;
 	const values = {
 		state: serviceState(status),
 		pid: status && status.pid ? status.pid : _('—'),
@@ -136,18 +137,18 @@ function updateStatus(status) {
 	};
 
 	Object.keys(values).forEach(function (key) {
-		const node = document.getElementById('telego-status-' + key);
+		const node = root.querySelector('#telego-status-' + key);
 		if (node)
 			node.textContent = String(values[key]);
 	});
 
-	const error = document.getElementById('telego-status-error');
+	const error = root.querySelector('#telego-status-error');
 	if (error)
 		error.textContent = '';
 }
 
-function updateStatusError(errorText) {
-	const node = document.getElementById('telego-status-error');
+function updateStatusError(errorText, root) {
+	const node = (root || document).querySelector('#telego-status-error');
 	if (node)
 		node.textContent = errorText || _('Unable to read telEgo status.');
 }
@@ -327,6 +328,8 @@ function makeConfigMap() {
 		_('Hostname'),
 		_('Hostname covered by the public TLS certificate.')
 	);
+	o.depends('enabled', '1');
+	o.retain = true;
 	o.datatype = 'hostname';
 	o.rmempty = false;
 
@@ -447,12 +450,10 @@ return view.extend({
 	render: function () {
 		return Promise.all([
 			makeConfigMap(),
-			callTelegoStatus()
+			L.resolveDefault(callTelegoStatus(), null)
 		]).then(function (data) {
 			const configNode = data[0];
 			const statusNode = buildStatusView();
-
-			updateStatus(data[1]);
 
 			L.Poll.add(function () {
 				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
@@ -494,7 +495,7 @@ return view.extend({
 				}
 			}, _('Status'));
 
-			return E('div', { 'class': 'telego-view' }, [
+			const root = E('div', { 'class': 'telego-view' }, [
 				E('div', { 'class': 'telego-tabs' }, [
 					configTab,
 					statusTab
@@ -502,6 +503,15 @@ return view.extend({
 				configPane,
 				statusPane
 			]);
+
+			// The view is not attached to document yet. Populate the first status
+			// using its own root; later polling can use the mounted document.
+			if (data[1])
+				updateStatus(data[1], root);
+			else
+				updateStatusError(_('Unable to read telEgo status.'), root);
+
+			return root;
 		});
 	}
 });

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk

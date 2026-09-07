@@ -11,6 +11,8 @@ on:
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
       - '.github/scripts/**'
+      - '.github/tests/**'
+      - 'scripts/install-on-router.sh'
       - '.github/openwrt-sdk.config'
   pull_request:
     branches: [main]
@@ -22,6 +24,8 @@ on:
       - 'feeds.conf.default'
       - '.github/workflows/build-telego.yaml'
       - '.github/scripts/**'
+      - '.github/tests/**'
+      - 'scripts/install-on-router.sh'
       - '.github/openwrt-sdk.config'
   workflow_dispatch:
 
@@ -29,6 +33,15 @@ permissions:
   contents: read
 
 jobs:
+  integration-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install host test dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev
+      - name: Check OpenWrt integration
+        run: bash .github/scripts/test-openwrt-integration.sh
+
   build-all-packages:
     runs-on: ubuntu-latest
     steps:

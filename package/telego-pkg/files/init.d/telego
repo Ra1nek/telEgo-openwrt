@@ -238,7 +238,6 @@ start_service() {
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_set_param file "$RUNTIME_CONFIG"
-	procd_set_param reload_signal HUP
 
 	# The Go binary is deliberately built as a static PIE. ujail's read-only
 	# dependency scanner expects a PT_DYNAMIC section, so do not request ronly.
@@ -255,10 +254,10 @@ start_service() {
 	procd_close_instance
 }
 
-reload_service() {
-	generate_config || return 1
-	procd_send_signal telego HUP
-}
+# Use rc.common's default procd reload: rebuild the instance definition.
+# A changed runtime-config checksum restarts the process (secrets and listeners
+# are not hot-reloadable). An enabled=0 configuration removes the instance;
+# enabled=1 creates it even when the service was previously stopped.
 
 stop_service() {
 	procd_kill telego
