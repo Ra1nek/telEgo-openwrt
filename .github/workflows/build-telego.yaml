@@ -100,7 +100,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$(find bin/packages -type f -name '*.apk' -print -quit)"
+          expected=(
+            telego-pkg
+            nginx-telego
+            luci-app-telego
+            luci-i18n-telego-ru
+          )
+          for pkg in "${expected[@]}"; do
+            if ! find bin/packages -type f -name "${pkg}-*.apk" -print -quit | grep -q .; then
+              echo "::error::Missing expected APK: ${pkg}"
+              exit 1
+            fi
+          done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
 
       - name: Store APK feed
