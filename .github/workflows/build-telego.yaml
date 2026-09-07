@@ -93,7 +93,6 @@ jobs:
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
           INDEX: 1
           V: s
-          NO_DEFAULT_FEEDS: 1
           KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
 
       - name: Verify APK feed
