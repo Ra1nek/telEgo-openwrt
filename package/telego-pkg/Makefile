@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=telego-pkg
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,7 +11,7 @@ define Package/telego-pkg
   CATEGORY:=Network
   TITLE:=telEgo high-performance Telegram proxy core daemon
   DEPENDS:=+libc +ca-bundle
-  EXTRA_DEPENDS:=procd-ujail (>= 2026.03.13~58eb263d-r1)
+  EXTRA_DEPENDS:=procd-ujail >=2026.03.13~58eb263d-r1
   PKGARCH:=x86_64
 endef
 
