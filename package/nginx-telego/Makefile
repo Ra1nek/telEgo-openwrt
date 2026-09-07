@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,11 +11,13 @@ define Package/nginx-telego
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Nginx integration for telEgo WEB Proxy
-  DEPENDS:=+nginx-ssl +telego-pkg
+  DEPENDS:=+telego-pkg
+  EXTRA_DEPENDS:=nginx-ssl (>=1.0)
 endef
 
 define Package/nginx-telego/description
 Nginx upstream and server-location snippets for telEgo native WEB Proxy.
+Requires nginx-ssl at runtime.
 endef
 
 define Package/nginx-telego/install
