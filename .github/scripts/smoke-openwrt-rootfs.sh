@@ -22,11 +22,24 @@ done
 
 workdir=$(mktemp -d)
 rootfs=$workdir/rootfs
+mounts=()
 cleanup() {
+  local i
+  for ((i=${#mounts[@]} - 1; i >= 0; i--)); do
+    sudo umount -l -- "${mounts[$i]}" 2>/dev/null || true
+  done
   sudo rm -rf -- "$workdir"
 }
 trap cleanup EXIT
 mkdir -p "$rootfs"
+
+mount_into_chroot() {
+  local source=$1
+  local target=$rootfs$1
+  sudo mkdir -p "$target"
+  sudo mount --bind "$source" "$target"
+  mounts+=("$target")
+}
 
 curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
   "$OPENWRT_ROOTFS_URL" -o "$workdir/rootfs.tar.gz"
@@ -40,6 +53,13 @@ done
 
 # OpenWrt's /etc/resolv.conf points into /tmp. Give apk working DNS inside chroot.
 sudo cp /etc/resolv.conf "$rootfs/tmp/resolv.conf"
+
+# The targz rootfs is a filesystem payload, not a booted system. Bind the host
+# kernel pseudo-filesystems so OpenWrt TLS, package hooks and runtime probes have
+# the devices/interfaces they normally get during boot (notably /dev/urandom).
+mount_into_chroot /dev
+mount_into_chroot /proc
+mount_into_chroot /sys
 
 sudo chroot "$rootfs" /bin/sh -eu <<'CHROOT'
 export HOME=/root
