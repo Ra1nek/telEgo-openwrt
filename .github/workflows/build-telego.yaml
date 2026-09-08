@@ -99,10 +99,12 @@ jobs:
           file ../package/telego-pkg/files/usr/bin/telego
           readelf -l ../package/telego-pkg/files/usr/bin/telego | grep -F '/lib/ld-musl-x86_64.so.1'
 
+      # Build against the oldest supported stable APK release. Later 25.12.x
+      # releases are compatibility targets, not separate package builds.
       - name: Build OpenWrt APK Packages
         uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: x86_64-25.12.5
+          ARCH: x86_64-25.12.0
           FEED_DIR: ${{ github.workspace }}
           FEEDNAME: telego
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
@@ -128,21 +130,39 @@ jobs:
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
 
-      - name: Smoke test APKs in OpenWrt 25.12.4 rootfs
+      - name: Smoke test APKs across all stable OpenWrt 25.12.x releases
         shell: bash
-        env:
-          OPENWRT_VERSION: 25.12.4
-          OPENWRT_ROOTFS_URL: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-25.12.4-x86-64-rootfs.tar.gz
-          OPENWRT_ROOTFS_SHA256: 0b80f307a5383a0c2c08712c500a4351f7b7cad0a6c2963e02a74db4e6831bf4
-        run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+        run: |
+          set -euo pipefail
 
-      - name: Smoke test APKs in OpenWrt 25.12.5 rootfs
-        shell: bash
-        env:
-          OPENWRT_VERSION: 25.12.5
-          OPENWRT_ROOTFS_URL: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-25.12.5-x86-64-generic-targz-rootfs.tar.gz
-          OPENWRT_ROOTFS_SHA256: 4f191a9684949b15db02bb1ccdacaa8192ffb4598ce92e70b5337ca50df7912a
-        run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+          versions="$({ python3 - <<'PY'
+          import re
+          import urllib.request
+
+          url = 'https://downloads.openwrt.org/releases/'
+          with urllib.request.urlopen(url, timeout=30) as response:
+              html = response.read().decode('utf-8', errors='replace')
+
+          versions = sorted(
+              set(re.findall(r'href=["\'](25\.12\.\d+)/["\']', html)),
+              key=lambda value: tuple(map(int, value.split('.'))),
+          )
+          if not versions or versions[0] != '25.12.0':
+              raise SystemExit('Could not discover stable OpenWrt 25.12.x releases')
+          print('\n'.join(versions))
+          PY
+          } )"
+
+          echo 'OpenWrt compatibility matrix:'
+          printf '  %s\n' $versions
+
+          while IFS= read -r version; do
+            [ -n "$version" ] || continue
+            echo "::group::OpenWrt ${version} runtime smoke"
+            OPENWRT_VERSION="$version" \
+              bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+            echo '::endgroup::'
+          done <<< "$versions"
 
       - name: Store APK feed
         uses: actions/upload-artifact@v7
