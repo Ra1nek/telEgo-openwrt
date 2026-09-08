@@ -128,6 +128,10 @@ jobs:
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
 
+      - name: Smoke test APKs in OpenWrt rootfs
+        shell: bash
+        run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+
       - name: Store APK feed
         uses: actions/upload-artifact@v7
         with:
