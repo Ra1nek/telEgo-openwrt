@@ -34,7 +34,7 @@
 | Пакетный менеджер | `apk` |
 | Базовый telEgo | закреплённый субмодуль<br>`v0.6.1` |
 | Go в CI | `1.27` |
-| LuCI | JavaScript + UCI<br>+ ucode/rpcd |
+| LuCI | JavaScript + UCI + ucode/rpcd |
 | Управление службой | procd + обязательный ujail |
 | WEB Proxy | приватный HTTP-listener<br>+ завершение реального TLS через Nginx |
 | Middle-End | по 4 постоянных соединения gnet<br>на каждый подписанный DC<br>в активном поколении |
