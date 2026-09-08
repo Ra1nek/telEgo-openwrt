@@ -21,6 +21,7 @@ COMMAND_DEFINE = re.compile(
     r"|Package/[^/]+/(?:install|preinst|postinst|prerm|postrm)"
     r")$"
 )
+LUCI_MK_INCLUDE = "include $(TOPDIR)/feeds/luci/luci.mk"
 
 
 def error(path: Path, line: int, message: str) -> str:
@@ -38,12 +39,16 @@ def check_makefile(path: Path) -> list[str]:
 
     stack: list[tuple[str, int, bool]] = []
     build_package_calls = 0
+    uses_luci_mk = False
 
     for number, raw in enumerate(lines, start=1):
         stripped = raw.strip()
 
         if raw.rstrip(" \t") != raw:
             problems.append(error(path, number, "trailing whitespace"))
+
+        if stripped == LUCI_MK_INCLUDE:
+            uses_luci_mk = True
 
         if raw.startswith((" ", "\t")) and stripped.startswith("define "):
             problems.append(error(path, number, "'define' must start at column 1"))
@@ -86,8 +91,14 @@ def check_makefile(path: Path) -> list[str]:
     for name, start, _ in stack:
         problems.append(error(path, start, f"define {name!r} is missing endef"))
 
-    if build_package_calls == 0:
-        problems.append(error(path, 1, "missing $(eval $(call BuildPackage,...))"))
+    if build_package_calls == 0 and not uses_luci_mk:
+        problems.append(
+            error(
+                path,
+                1,
+                "missing $(eval $(call BuildPackage,...)) or canonical LuCI luci.mk include",
+            )
+        )
 
     return problems
 
