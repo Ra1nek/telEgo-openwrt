@@ -128,8 +128,20 @@ jobs:
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
 
-      - name: Smoke test APKs in OpenWrt rootfs
+      - name: Smoke test APKs in OpenWrt 25.12.4 rootfs
         shell: bash
+        env:
+          OPENWRT_VERSION: 25.12.4
+          OPENWRT_ROOTFS_URL: https://downloads.openwrt.org/releases/25.12.4/targets/x86/64/openwrt-25.12.4-x86-64-rootfs.tar.gz
+          OPENWRT_ROOTFS_SHA256: 0b80f307a5383a0c2c08712c500a4351f7b7cad0a6c2963e02a74db4e6831bf4
+        run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+
+      - name: Smoke test APKs in OpenWrt 25.12.5 rootfs
+        shell: bash
+        env:
+          OPENWRT_VERSION: 25.12.5
+          OPENWRT_ROOTFS_URL: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64/openwrt-25.12.5-x86-64-generic-targz-rootfs.tar.gz
+          OPENWRT_ROOTFS_SHA256: 4f191a9684949b15db02bb1ccdacaa8192ffb4598ce92e70b5337ca50df7912a
         run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
 
       - name: Store APK feed
