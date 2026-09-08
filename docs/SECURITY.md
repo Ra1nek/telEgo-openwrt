@@ -1,6 +1,6 @@
 # Модель безопасности
 
-[**Русский**](SECURITY.md) · [English](SECURITY_EN.md)
+[**Русский**](https://github.com/Ra1nek/telEgo-openwrt/blob/develop/docs/SECURITY.md) · [English](https://github.com/Ra1nek/telEgo-openwrt/blob/develop/docs/SECURITY_EN.md)
 
 Этот документ описывает security boundaries, реализованные OpenWrt integration, а также network-hardening mechanisms, унаследованные от pinned core `Scratch-net/telego`. Это не утверждение, что protocol, deployment, router или network path полностью лишены риска.
 
