@@ -60,7 +60,7 @@ assert_installed() {
   done
 
   test -x /usr/bin/telego
-  /usr/bin/telego version >/tmp/telego-version.txt
+  /usr/bin/telego version >/tmp/telego-version.txt 2>&1
   test -s /tmp/telego-version.txt
 
   test -x /etc/init.d/telego
