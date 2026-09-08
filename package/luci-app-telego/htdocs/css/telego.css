@@ -1,0 +1,347 @@
+/**
+ * telEgo LuCI Application Stylesheet
+ * Provides consistent styling for the Telegram MTProxy + WEB Proxy configuration interface.
+ * Follows OpenWrt/LuCI design conventions and visual style guidelines.
+ * @author Ra1nek
+ * @version 1.0.0
+ * @license MIT
+ */
+/* ==========================================================================
+ROOT VARIABLES - OpenWrt Color Scheme
+=========================================================================== */
+:root {
+	/* Primary Colors */
+	--telego-primary-color: #2e7da6;
+	--telego-primary-hover: #1a5c7a;
+	--telego-success-color: #4caf50;
+	--telego-error-color: #f44336;
+	--telego-warning-color: #ff9800;
+
+	/* Background Colors */
+	--telego-bg-primary: #ffffff;
+	--telego-bg-secondary: #f5f5f5;
+	--telego-bg-hover: #e8e8e8;
+
+	/* Text Colors */
+	--telego-text-primary: #333333;
+	--telego-text-secondary: #666666;
+	--telego-text-muted: #999999;
+
+	/* Border Colors */
+	--telego-border-color: #cccccc;
+	--telego-border-light: #e0e0e0;
+
+	/* Spacing */
+	--telego-spacing-xs: 4px;
+	--telego-spacing-sm: 8px;
+	--telego-spacing-md: 16px;
+	--telego-spacing-lg: 24px;
+	--telego-spacing-xl: 32px;
+
+	/* Border Radius */
+	--telego-radius-sm: 3px;
+	--telego-radius-md: 4px;
+	--telego-radius-lg: 6px;
+}
+/* ==========================================================================
+STATUS PAGE STYLES
+=========================================================================== */
+/* Status page header */
+telego-status h1 {
+	font-size: 1.8em;
+	font-weight: 600;
+	color: var(--telego-primary-color);
+	margin-bottom: var(--telego-spacing-lg);
+	padding-bottom: var(--telego-spacing-sm);
+	border-bottom: 2px solid var(--telego-border-light);
+}
+/* Status indicator styles */
+telego-status .status-indicator {
+	font-size: 1.2em;
+	margin-bottom: var(--telego-spacing-md);
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	border-radius: var(--telego-radius-md);
+}
+telego-status .status-running {
+	color: var(--telego-success-color);
+	background-color: rgba(76, 175, 80, 0.1);
+	display: inline-flex;
+	align-items: center;
+	gap: var(--telego-spacing-xs);
+}
+telego-status .status-stopped {
+	color: var(--telego-error-color);
+	background-color: rgba(244, 67, 54, 0.1);
+	display: inline-flex;
+	align-items: center;
+	gap: var(--telego-spacing-xs);
+}
+/* Statistics table */
+telego-status .stats-table {
+	width: 100%;
+	margin-top: var(--telego-spacing-md);
+	border-collapse: collapse;
+	background-color: var(--telego-bg-primary);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+telego-status .stats-table th {
+	background-color: var(--telego-primary-color);
+	color: white;
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	text-align: left;
+	font-weight: 600;
+}
+telego-status .stats-table td {
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	border-bottom: 1px solid var(--telego-border-light);
+	color: var(--telego-text-primary);
+}
+telego-status .stats-table tr:hover td {
+	background-color: var(--telego-bg-hover);
+}
+/* ==========================================================================
+CONFIGURATION FORM STYLES
+=========================================================================== */
+/* General section styling */
+.telego-config .cbi-section {
+	margin-bottom: var(--telego-spacing-lg);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-md);
+	padding: var(--telego-spacing-md);
+}
+.telego-config .cbi-section legend {
+	font-size: 1.1em;
+	font-weight: 600;
+	color: var(--telego-primary-color);
+	padding: var(--telego-spacing-xs) var(--telego-spacing-sm);
+}
+/* Form field styling */
+.telego-config .cbi-value-field {
+	display: flex;
+	align-items: center;
+	margin-bottom: var(--telego-spacing-sm);
+}
+.telego-config .cbi-value-title {
+	font-weight: 500;
+	color: var(--telego-text-primary);
+	min-width: 180px;
+}
+/* Input field styling */
+.telego-config input[type="text"],
+.telego-config input[type="password"],
+.telego-config input[type="number"],
+.telego-config select,
+.telego-config textarea {
+	padding: var(--telego-spacing-xs) var(--telego-spacing-sm);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-sm);
+	font-size: 0.95em;
+	transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.telego-config input[type="text"]:focus,
+.telego-config input[type="password"]:focus,
+.telego-config select:focus,
+.telego-config textarea:focus {
+	outline: none;
+	border-color: var(--telego-primary-color);
+	box-shadow: 0 0 0 2px rgba(46, 125, 166, 0.2);
+}
+/* Flag/Checkbox styling */
+.telego-config .cbi-value-flag {
+	display: flex;
+	align-items: center;
+	gap: var(--telego-spacing-xs);
+}
+.telego-config input[type="checkbox"] {
+	width: 18px;
+	height: 18px;
+	cursor: pointer;
+}
+/* ==========================================================================
+SECRETS TABLE STYLES
+=========================================================================== */
+/* Secret row table header */
+.secret-row th {
+	background-color: var(--telego-primary-color);
+	color: white;
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	text-align: left;
+	font-weight: 600;
+}
+/* Secret row table body */
+.secret-row td {
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	vertical-align: middle;
+	border-bottom: 1px solid var(--telego-border-light);
+}
+.secret-row tr:hover td {
+	background-color: var(--telego-bg-hover);
+}
+/* Secret input fields */
+.secret-row input[type="text"] {
+	width: 200px;
+	padding: var(--telego-spacing-xs) var(--telego-spacing-sm);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-sm);
+	font-family: 'Courier New', monospace;
+	font-size: 0.9em;
+}
+.secret-row input[type="text"]:focus {
+	outline: none;
+	border-color: var(--telego-primary-color);
+	box-shadow: 0 0 0 2px rgba(46, 125, 166, 0.2);
+}
+/* Generate secret button */
+.secret-row .generate-btn {
+	background-color: var(--telego-primary-color);
+	color: white;
+	border: none;
+	padding: var(--telego-spacing-xs) var(--telego-spacing-sm);
+	border-radius: var(--telego-radius-sm);
+	cursor: pointer;
+	font-size: 0.85em;
+	transition: background-color 0.2s ease;
+}
+.secret-row .generate-btn:hover {
+	background-color: var(--telego-primary-hover);
+}
+/* Delete button */
+.secret-row .delete-btn {
+	background-color: var(--telego-error-color);
+	color: white;
+	border: none;
+	padding: var(--telego-spacing-xs) var(--telego-spacing-sm);
+	border-radius: var(--telego-radius-sm);
+	cursor: pointer;
+	font-size: 0.85em;
+	transition: background-color 0.2s ease;
+}
+.secret-row .delete-btn:hover {
+	background-color: #d32f2f;
+}
+/* ==========================================================================
+WEB PROXY SECTION STYLES
+=========================================================================== */
+.web-proxy-section {
+	border-left: 4px solid var(--telego-primary-color);
+	padding-left: var(--telego-spacing-md);
+	margin-top: var(--telego-spacing-md);
+}
+.web-proxy-section .carrier-mode-selector {
+	display: flex;
+	gap: var(--telego-spacing-sm);
+	flex-wrap: wrap;
+}
+.web-proxy-section .carrier-option {
+	position: relative;
+}
+.web-proxy-section .carrier-option input[type="radio"] {
+	position: absolute;
+	opacity: 0;
+}
+.web-proxy-section .carrier-option label {
+	display: inline-flex;
+	align-items: center;
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-md);
+	cursor: pointer;
+	transition: all 0.2s ease;
+}
+.web-proxy-section .carrier-option input[type="radio"]:checked + label {
+	background-color: var(--telego-primary-color);
+	color: white;
+	border-color: var(--telego-primary-color);
+}
+/* ==========================================================================
+BUTTON STYLES
+=========================================================================== */
+/* Save button */
+.telego-config .btn-save {
+	background-color: var(--telego-success-color);
+	color: white;
+	border: none;
+	padding: var(--telego-spacing-sm) var(--telego-spacing-lg);
+	border-radius: var(--telego-radius-md);
+	cursor: pointer;
+	font-size: 1em;
+	font-weight: 500;
+	transition: background-color 0.2s ease, transform 0.1s ease;
+}
+.telego-config .btn-save:hover {
+	background-color: #3d8b40;
+	transform: translateY(-1px);
+}
+/* Apply button */
+.telego-config .btn-apply {
+	background-color: var(--telego-primary-color);
+	color: white;
+	border: none;
+	padding: var(--telego-spacing-sm) var(--telego-spacing-lg);
+	border-radius: var(--telego-radius-md);
+	cursor: pointer;
+	font-size: 1em;
+	font-weight: 500;
+	transition: background-color 0.2s ease, transform 0.1s ease;
+}
+.telego-config .btn-apply:hover {
+	background-color: var(--telego-primary-hover);
+	transform: translateY(-1px);
+}
+/* ==========================================================================
+NOTIFICATION/ALERT STYLES
+=========================================================================== */
+.telego-alert {
+	padding: var(--telego-spacing-md);
+	margin-bottom: var(--telego-spacing-lg);
+	border-radius: var(--telego-radius-md);
+	display: flex;
+	align-items: center;
+	gap: var(--telego-spacing-sm);
+}
+.telego-alert-success {
+	background-color: rgba(76, 175, 80, 0.1);
+	border-left: 4px solid var(--telego-success-color);
+	color: #2e7d32;
+}
+.telego-alert-error {
+	background-color: rgba(244, 67, 54, 0.1);
+	border-left: 4px solid var(--telego-error-color);
+	color: #c62828;
+}
+.telego-alert-warning {
+	background-color: rgba(255, 152, 0, 0.1);
+	border-left: 4px solid var(--telego-warning-color);
+	color: #ef6c00;
+}
+/* ==========================================================================
+RESPONSIVE DESIGN
+=========================================================================== */
+@media screen and (max-width: 768px) {
+	.telego-config .cbi-value-field {
+		flex-direction: column;
+		align-items: flex-start;
+	}
+	.telego-config .cbi-value-title {
+		min-width: auto;
+		margin-bottom: var(--telego-spacing-xs);
+	}
+	.secret-row input[type="text"] {
+		width: 100%;
+	}
+	telego-status h1 {
+		font-size: 1.5em;
+	}
+}
+/* ==========================================================================
+PRINT STYLES
+=========================================================================== */
+@media print {
+	.telego-config button,
+	.secret-row button {
+		display: none;
+	}
+	telego-status .stats-table {
+		page-break-inside: avoid;
+	}
+}

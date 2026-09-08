@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: Documentation / Документация
+    url: https://github.com/Ra1nek/telEgo-openwrt/tree/develop/docs
+    about: Read installation, configuration, architecture, troubleshooting, and security documentation before opening an issue.
+
+  - name: Security guidance / Безопасность
+    url: https://github.com/Ra1nek/telEgo-openwrt/blob/develop/docs/SECURITY.md
+    about: Review the security model and disclosure guidance. Never publish secrets, private keys, proxy credentials, or sensitive production data in a public issue.

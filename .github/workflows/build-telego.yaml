@@ -1,0 +1,173 @@
+name: Build telEgo Packages
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'package/**'
+      - 'telego-src'
+      - '.gitmodules'
+      - 'patches/**'
+      - 'feeds.conf.default'
+      - '.github/workflows/build-telego.yaml'
+      - '.github/scripts/**'
+      - '.github/tests/**'
+      - 'scripts/install-on-router.sh'
+      - 'install.sh'
+      - '.github/openwrt-sdk.config'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'package/**'
+      - 'telego-src'
+      - '.gitmodules'
+      - 'patches/**'
+      - 'feeds.conf.default'
+      - '.github/workflows/build-telego.yaml'
+      - '.github/scripts/**'
+      - '.github/tests/**'
+      - 'scripts/install-on-router.sh'
+      - 'install.sh'
+      - '.github/openwrt-sdk.config'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integration-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install host test dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev busybox
+      - name: Check OpenWrt integration
+        run: bash .github/scripts/test-openwrt-integration.sh
+
+  build-all-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Determine version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^PKG_VERSION:=//p' package/telego-pkg/Makefile | head -n1)"
+          test -n "$version"
+          echo "TELEGO_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: telego-src/go.sum
+
+      - name: Apply OpenWrt source patch
+        run: python3 .github/scripts/apply-upstream-patches.py
+
+      - name: Verify LuCI i18n
+        run: python3 .github/scripts/check-luci-i18n.py
+
+      - name: Verify Go source
+        working-directory: telego-src
+        run: |
+          set -euo pipefail
+          gofmt -w ./cmd/telego/main.go
+          go vet ./...
+          go test ./...
+
+      - name: Build Go Binary
+        working-directory: telego-src
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p ../package/telego-pkg/files/usr/bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -buildvcs=false \
+            -ldflags="-s -w -I /lib/ld-musl-x86_64.so.1 -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o ../package/telego-pkg/files/usr/bin/telego \
+            ./cmd/telego
+          chmod 0755 ../package/telego-pkg/files/usr/bin/telego
+          file ../package/telego-pkg/files/usr/bin/telego
+          readelf -l ../package/telego-pkg/files/usr/bin/telego | grep -F '/lib/ld-musl-x86_64.so.1'
+
+      - name: Build OpenWrt APK Packages
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
+        env:
+          ARCH: x86_64-25.12.5
+          FEED_DIR: ${{ github.workspace }}
+          FEEDNAME: telego
+          PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
+          INDEX: 1
+          V: s
+          KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
+
+      - name: Verify APK feed
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=(
+            telego-pkg
+            nginx-telego
+            luci-app-telego
+            luci-i18n-telego-ru
+          )
+          for pkg in "${expected[@]}"; do
+            if ! find bin/packages -type f -name "${pkg}-*.apk" -print -quit | grep -q .; then
+              echo "::error::Missing expected APK: ${pkg}"
+              exit 1
+            fi
+          done
+          test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
+
+      - name: Store APK feed
+        uses: actions/upload-artifact@v7
+        with:
+          name: telEgo-openwrt-apk-feed
+          path: bin/packages/**
+          if-no-files-found: error
+
+  publish-preview:
+    needs: [integration-checks, build-all-packages]
+    if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    concurrency:
+      group: telego-develop-preview
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+      - name: Publish installer packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # An older concurrent build must not replace a newer channel build.
+          head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/develop" --jq .object.sha)
+          if [[ "$head" != "$GITHUB_SHA" ]]; then
+            echo 'A newer develop commit exists; skipping preview publication.'
+            exit 0
+          fi
+          gh run download "$GITHUB_RUN_ID" --name telEgo-openwrt-apk-feed --dir downloaded-feed
+          python3 .github/scripts/prepare-install-assets.py downloaded-feed preview-assets
+          printf 'Development preview, not a stable release.\n\nSource commit: %s\nBuild: https://github.com/%s/actions/runs/%s\n\nInstall instructions: https://github.com/%s/blob/develop/docs/INSTALL.md\n' \
+            "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" > preview-notes.md
+          if ! gh release view develop-latest >/dev/null 2>&1; then
+            gh release create develop-latest --target "$GITHUB_SHA" --prerelease --latest=false \
+              --title 'telEgo develop preview' --notes-file preview-notes.md
+          fi
+          gh release upload develop-latest preview-assets/*.apk --clobber
+          # Publish the manifest last. A racing client fails its checksum check.
+          gh release upload develop-latest preview-assets/telego-install.sha256 --clobber
+          gh release edit develop-latest --prerelease --latest=false --notes-file preview-notes.md

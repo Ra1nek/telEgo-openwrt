@@ -1,0 +1,48 @@
+name: Lint and Static Quality
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: LuCI / Makefiles / shell
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Lint LuCI JavaScript with ESLint
+        run: >-
+          npx --yes eslint@10.10.0
+          --config .github/eslint.config.mjs
+          --max-warnings=0
+          package/luci-app-telego/htdocs/resources/view/telego/*.js
+
+      - name: Run LuCI behavior smoke test
+        run: node .github/tests/luci-config.cjs
+
+      - name: Validate OpenWrt Makefiles
+        run: python3 .github/scripts/check-openwrt-makefiles.py
+
+      - name: Check installer shell syntax
+        run: |
+          sh -n install.sh
+          bash -n scripts/install-on-router.sh

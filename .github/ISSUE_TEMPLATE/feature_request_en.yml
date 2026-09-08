@@ -1,0 +1,66 @@
+name: "🇬🇧 ✨ Feature request"
+description: "Suggest a new feature or improvement to the UI, transport, installation, or operations"
+title: "[Feature]: "
+labels: []
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user problem and the result you would like to achieve. You do not need to design the internal implementation up front — technical details can be discussed later.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "Which part of the project does this affect?"
+      options:
+        - "MTProxy / FakeTLS"
+        - "Telegram Middle-End"
+        - "WEB Proxy / transport"
+        - "LuCI / UX"
+        - "UCI / procd / runtime"
+        - "Nginx integration"
+        - "Telemetry / observability"
+        - "Install / upgrade / uninstall"
+        - "APK / build / release"
+        - "Documentation"
+        - "Other"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "What problem would this solve?"
+      description: "Describe the current situation in simple terms: what is inconvenient, missing, or still requires manual work?"
+      placeholder: "Today I have to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "What would you like to change?"
+      description: "Describe the desired behavior or feature from the user's point of view."
+      placeholder: "I would like telEgo to ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_flow
+    attributes:
+      label: "How should this work for the user?"
+      description: "If the proposal affects LuCI, the installer, or CLI, describe the expected flow."
+      placeholder: "Example: LuCI gets a new option ..., then the user selects ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Additional context"
+      description: "Upstream references, similar implementations, diagrams, screenshots, or other useful material."
+      placeholder: "Optional"
+    validations:
+      required: false

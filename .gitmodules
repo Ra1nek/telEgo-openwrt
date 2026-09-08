@@ -1,0 +1,3 @@
+[submodule "telego-src"]
+	path = telego-src
+	url = https://github.com/Scratch-net/telego.git

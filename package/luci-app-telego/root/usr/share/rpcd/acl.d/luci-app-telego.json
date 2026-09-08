@@ -1,0 +1,15 @@
+{
+  "luci-app-telego": {
+    "description": "Grant access to telEgo configuration and service telemetry",
+    "read": {
+      "uci": ["telego"],
+      "ubus": {
+        "service": ["list"],
+        "telego": ["status"]
+      }
+    },
+    "write": {
+      "uci": ["telego"]
+    }
+  }
+}

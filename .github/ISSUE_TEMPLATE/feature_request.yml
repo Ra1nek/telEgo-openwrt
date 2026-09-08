@@ -1,0 +1,66 @@
+name: "🇷🇺 ✨ Предложить улучшение"
+description: "Предложить новую функцию, улучшение интерфейса, транспорта, установки или эксплуатации"
+title: "[Feature]: "
+labels: []
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Опишите пользовательскую проблему и желаемый результат. Не нужно заранее проектировать внутреннюю реализацию — технические детали можно обсудить позже.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: "К какой части проекта относится предложение?"
+      options:
+        - "MTProxy / FakeTLS"
+        - "Telegram Middle-End"
+        - "WEB Proxy / transport"
+        - "LuCI / UX"
+        - "UCI / procd / runtime"
+        - "Nginx integration"
+        - "Телеметрия / observability"
+        - "Установка / обновление / удаление"
+        - "APK / сборка / релизы"
+        - "Документация"
+        - "Другое"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: "Какую проблему это решит?"
+      description: "Опишите текущую ситуацию простыми словами: что неудобно, чего не хватает или что приходится делать вручную."
+      placeholder: "Сейчас мне приходится ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: "Что вы предлагаете?"
+      description: "Опишите желаемое поведение или функцию. Достаточно результата с точки зрения пользователя."
+      placeholder: "Хотелось бы, чтобы telEgo ..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: user_flow
+    attributes:
+      label: "Как это должно выглядеть для пользователя?"
+      description: "Если предложение касается LuCI, установщика или CLI, опишите предполагаемый сценарий."
+      placeholder: "Например: в LuCI появляется новый пункт ..., после выбора ..."
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: "Дополнительная информация"
+      description: "Ссылки на upstream, похожие реализации, схемы, скриншоты или другие полезные материалы."
+      placeholder: "Необязательно"
+    validations:
+      required: false

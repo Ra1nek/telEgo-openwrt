@@ -1,0 +1,126 @@
+name: Release telEgo APK Feed
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Check OpenWrt integration
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev busybox
+          bash .github/scripts/test-openwrt-integration.sh
+
+      - name: Validate release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          pkg_version="$(sed -n 's/^PKG_VERSION:=//p' package/telego-pkg/Makefile | head -n1)"
+          test -n "$pkg_version"
+          test "$version" = "$pkg_version"
+          echo "TELEGO_VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: '1.27'
+          cache-dependency-path: telego-src/go.sum
+
+      - name: Apply OpenWrt source patch
+        run: python3 .github/scripts/apply-upstream-patches.py
+
+      - name: Verify LuCI i18n
+        run: python3 .github/scripts/check-luci-i18n.py
+
+      - name: Verify Go source
+        working-directory: telego-src
+        run: |
+          set -euo pipefail
+          gofmt -w ./cmd/telego/main.go
+          go vet ./...
+          go test ./...
+
+      - name: Build Go binary
+        working-directory: telego-src
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          mkdir -p ../package/telego-pkg/files/usr/bin
+          go build \
+            -buildmode=pie \
+            -trimpath \
+            -buildvcs=false \
+            -ldflags="-s -w -I /lib/ld-musl-x86_64.so.1 -X main.version=${TELEGO_VERSION} -X main.commit=${GITHUB_SHA} -X main.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o ../package/telego-pkg/files/usr/bin/telego \
+            ./cmd/telego
+          chmod 0755 ../package/telego-pkg/files/usr/bin/telego
+          file ../package/telego-pkg/files/usr/bin/telego
+          readelf -l ../package/telego-pkg/files/usr/bin/telego | grep -F '/lib/ld-musl-x86_64.so.1'
+
+      - name: Build signed APK feed
+        uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
+        env:
+          ARCH: x86_64-25.12.5
+          FEED_DIR: ${{ github.workspace }}
+          FEEDNAME: telego
+          PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
+          INDEX: 1
+          PRIVATE_KEY: ${{ secrets.OPENWRT_APK_PRIVATE_KEY }}
+          V: s
+          KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
+
+      - name: Validate release feed
+        run: |
+          set -euo pipefail
+          expected=(
+            telego-pkg
+            nginx-telego
+            luci-app-telego
+            luci-i18n-telego-ru
+          )
+          for pkg in "${expected[@]}"; do
+            if ! find bin/packages -type f -name "${pkg}-*.apk" -print -quit | grep -q .; then
+              echo "::error::Missing expected APK: ${pkg}"
+              exit 1
+            fi
+          done
+          test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
+          mkdir -p release-assets
+          python3 .github/scripts/prepare-install-assets.py bin/packages release-assets
+          tar -C bin/packages -czf release-assets/telEgo-x86_64-apk-feed.tar.gz .
+          (cd release-assets && sha256sum *.apk *.tar.gz telego-install.sha256 > SHA256SUMS)
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release create "$TAG" release-assets/* \
+            --verify-tag \
+            --generate-notes \
+            --title "telEgo ${TAG#v}" \
+            --latest
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: telEgo-x86_64-apk-feed
+          path: release-assets/**
+          if-no-files-found: error

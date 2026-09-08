@@ -1,0 +1,18 @@
+# Project-local Codex guardrails focused on context efficiency.
+# Keep quality/model selection in the user's global settings; these limits only
+# bound project instructions/tool output and prevent unnecessary subagent fan-out.
+
+# The default upstream budget is 32 KiB across the project AGENTS.md chain.
+# This repository intentionally keeps its instruction map small.
+project_doc_max_bytes = 12288
+
+# Prevent one verbose command, test run, or CI log from consuming a large share
+# of the model context. Use targeted follow-up reads when the truncated output
+# contains a relevant error boundary.
+tool_output_token_limit = 4000
+
+[agents]
+# This is a small, well-partitioned repository. Disable automatic subagent
+# fan-out by default to avoid multiplying context/token usage. A user can
+# override this for a genuinely parallel repository-wide investigation.
+enabled = false

@@ -1,0 +1,2 @@
+# Package feeds are supplied by the build environment.
+# openwrt/gh-action-sdk appends the repository as the 'telego' feed.
