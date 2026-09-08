@@ -4,8 +4,20 @@ set -euo pipefail
 FEED_ROOT=${1:-bin/packages}
 OPENWRT_VERSION=${OPENWRT_VERSION:-25.12.5}
 OPENWRT_ARCH=${OPENWRT_ARCH:-x86_64}
-OPENWRT_ROOTFS_SHA256=${OPENWRT_ROOTFS_SHA256:-4f191a9684949b15db02bb1ccdacaa8192ffb4598ce92e70b5337ca50df7912a}
-OPENWRT_ROOTFS_URL=${OPENWRT_ROOTFS_URL:-https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/x86/64/openwrt-${OPENWRT_VERSION}-x86-64-generic-targz-rootfs.tar.gz}
+OPENWRT_TARGET=${OPENWRT_TARGET:-x86/64}
+OPENWRT_ROOTFS_FILENAME=${OPENWRT_ROOTFS_FILENAME:-openwrt-${OPENWRT_VERSION}-x86-64-rootfs.tar.gz}
+OPENWRT_RELEASE_BASE=${OPENWRT_RELEASE_BASE:-https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/${OPENWRT_TARGET}}
+OPENWRT_ROOTFS_URL=${OPENWRT_ROOTFS_URL:-${OPENWRT_RELEASE_BASE}/${OPENWRT_ROOTFS_FILENAME}}
+OPENWRT_SHA256SUMS_URL=${OPENWRT_SHA256SUMS_URL:-${OPENWRT_RELEASE_BASE}/sha256sums}
+OPENWRT_ROOTFS_SHA256=${OPENWRT_ROOTFS_SHA256:-}
+
+case "$OPENWRT_VERSION" in
+  25.12.*) ;;
+  *)
+    printf 'Unsupported smoke-test release: %s (expected 25.12.x)\n' "$OPENWRT_VERSION" >&2
+    exit 1
+    ;;
+esac
 
 TELEGO_FEED=${FEED_ROOT}/${OPENWRT_ARCH}/telego
 EXPECTED=(telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru)
@@ -41,9 +53,34 @@ mount_into_chroot() {
   mounts+=("$target")
 }
 
+resolve_rootfs_sha256() {
+  if [[ -n "$OPENWRT_ROOTFS_SHA256" ]]; then
+    printf '%s' "$OPENWRT_ROOTFS_SHA256"
+    return 0
+  fi
+
+  curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
+    "$OPENWRT_SHA256SUMS_URL" -o "$workdir/sha256sums"
+
+  local hash
+  hash=$(awk -v filename="$OPENWRT_ROOTFS_FILENAME" '
+    $2 == filename || $2 == "*" filename { print $1 }
+  ' "$workdir/sha256sums")
+
+  if [[ ! "$hash" =~ ^[0-9a-fA-F]{64}$ ]]; then
+    printf 'Could not resolve a unique SHA-256 for %s from %s\n' \
+      "$OPENWRT_ROOTFS_FILENAME" "$OPENWRT_SHA256SUMS_URL" >&2
+    exit 1
+  fi
+
+  printf '%s' "$hash"
+}
+
+printf 'Smoke testing telEgo APKs on OpenWrt %s (%s).\n' "$OPENWRT_VERSION" "$OPENWRT_ARCH"
 curl --fail --location --silent --show-error --retry 3 --retry-delay 2 \
   "$OPENWRT_ROOTFS_URL" -o "$workdir/rootfs.tar.gz"
-printf '%s  %s\n' "$OPENWRT_ROOTFS_SHA256" "$workdir/rootfs.tar.gz" | sha256sum -c -
+rootfs_sha256=$(resolve_rootfs_sha256)
+printf '%s  %s\n' "$rootfs_sha256" "$workdir/rootfs.tar.gz" | sha256sum -c -
 sudo tar -xzf "$workdir/rootfs.tar.gz" -C "$rootfs"
 
 sudo mkdir -p "$rootfs/tmp/telego-apks"
@@ -54,9 +91,9 @@ done
 # OpenWrt's /etc/resolv.conf points into /tmp. Give apk working DNS inside chroot.
 sudo cp /etc/resolv.conf "$rootfs/tmp/resolv.conf"
 
-# The targz rootfs is a filesystem payload, not a booted system. Bind the host
-# kernel pseudo-filesystems so OpenWrt TLS, package hooks and runtime probes have
-# the devices/interfaces they normally get during boot (notably /dev/urandom).
+# A release rootfs is a filesystem payload, not a booted system. Bind the host
+# kernel pseudo-filesystems so TLS, apk hooks and runtime probes have the
+# devices/interfaces they normally get during boot (notably /dev/urandom).
 mount_into_chroot /dev
 mount_into_chroot /proc
 mount_into_chroot /sys
