@@ -5,7 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 JS_FILES = sorted((ROOT / 'package/luci-app-telego/htdocs/resources/view/telego').glob('*.js'))
-PO_FILE = ROOT / 'package/luci-app-telego/po/ru/telego.po'
+PO_FILE = ROOT / 'package/luci-i18n-telego-ru/po/ru/telego.po'
 
 
 def parse_js_msgids(text: str, path: Path) -> set[str]:
