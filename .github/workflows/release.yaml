@@ -18,6 +18,17 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
+      - name: Verify release commit belongs to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --force origin 'refs/heads/main:refs/remotes/origin/main'
+          release_commit="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+          if ! git merge-base --is-ancestor "$release_commit" refs/remotes/origin/main; then
+            echo "::error::Release tag ${GITHUB_REF_NAME} does not point to a commit reachable from main."
+            exit 1
+          fi
+
       - name: Check OpenWrt integration
         run: |
           sudo apt-get update
