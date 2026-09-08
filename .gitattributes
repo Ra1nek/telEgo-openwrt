@@ -2,4 +2,4 @@
 *.sh text eol=lf
 *.js text eol=lf
 *.po text eol=lf
-Makefile binary
+Makefile text eol=lf
