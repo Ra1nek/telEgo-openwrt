@@ -29,16 +29,16 @@
 
 | | Текущее состояние |
 |---|---|
-| OpenWrt | `25.12.x`; целевая версия CI — `25.12.5` |
+| OpenWrt | `25.12.x`<br>целевая версия CI — `25.12.5` |
 | Архитектура | `x86_64` |
 | Пакетный менеджер | `apk` |
-| Базовый telEgo | закреплённый субмодуль, `v0.6.1` |
+| Базовый telEgo | закреплённый субмодуль<br>`v0.6.1` |
 | Go в CI | `1.27` |
-| LuCI | JavaScript + UCI + ucode/rpcd |
+| LuCI | JavaScript + UCI<br>+ ucode/rpcd |
 | Управление службой | procd + обязательный ujail |
-| WEB Proxy | приватный HTTP-listener + завершение реального TLS через Nginx |
-| Middle-End | по 4 постоянных соединения gnet на каждый подписанный DC в активном поколении |
-| Метрики | совместимая с Prometheus конечная точка; по умолчанию доступна только через loopback |
+| WEB Proxy | приватный HTTP-listener<br>+ завершение реального TLS через Nginx |
+| Middle-End | по 4 постоянных соединения gnet<br>на каждый подписанный DC<br>в активном поколении |
+| Метрики | совместимая с Prometheus конечная точка<br>по умолчанию доступна только через loopback |
 | Лицензия | Apache-2.0 |
 
 ## Почему этот стек отличается от обычного MTProxy
@@ -48,19 +48,19 @@
 | Возможность | Типичная схема MTProxy | **telEgo OpenWrt** |
 |---|---|---|
 | Обработка трафика | демон + внешняя обвязка | единое ядро Go/gnet |
-| `ee` FakeTLS + `dd` raw | зависит от реализации | автоматическое распознавание на одном listener |
-| Снижение сетевого отпечатка | часто отсутствует | DRS, Split-TLS, запись сертификата с согласованным профилем |
-| Согласование PQ key-share | обычно отсутствует | matching `X25519MLKEM768` key-share, если его предложил клиент |
-| Обработка probe-подключений | зависит от реализации | mask/splice + опциональный SNI-following safelist |
-| Telegram Middle-End | поддерживается не всегда | постоянные пулы, Link Repair, Link Refresh |
-| WEB Proxy | отдельный сервис или отсутствует | встроенный WEB frontend |
-| Lanes | обычно отсутствуют | HTTPS Lanes / WebSocket Lanes |
-| Интерфейс OpenWrt | сторонний или отсутствует | нативный LuCI на JavaScript |
-| Конфигурация | файл редактируется вручную | UCI → атомарно создаваемый runtime TOML |
-| Права процесса | нередко root | `telego:telego` + ujail + `no_new_privs` |
+| `ee` FakeTLS + `dd` raw | зависит от реализации | автоматическое распознавание<br>на одном listener |
+| Снижение сетевого отпечатка | часто отсутствует | DRS, Split-TLS,<br>запись сертификата с согласованным профилем |
+| Согласование PQ key-share | обычно отсутствует | matching `X25519MLKEM768` key-share,<br>если его предложил клиент |
+| Обработка probe-подключений | зависит от реализации | mask/splice + опциональный<br>SNI-following safelist |
+| Telegram Middle-End | поддерживается не всегда | постоянные пулы,<br>Link Repair, Link Refresh |
+| WEB Proxy | отдельный сервис<br>или отсутствует | встроенный WEB frontend |
+| Lanes | обычно отсутствуют | HTTPS Lanes<br>WebSocket Lanes |
+| Интерфейс OpenWrt | сторонний<br>или отсутствует | нативный LuCI<br>на JavaScript |
+| Конфигурация | файл редактируется вручную | UCI → атомарно создаваемый<br>runtime TOML |
+| Права процесса | нередко root | `telego:telego` + ujail<br>+ `no_new_privs` |
 | Порт 443 без root | зависит от конфигурации | только `CAP_NET_BIND_SERVICE` |
 | Телеметрия | журналы | rpcd/ubus + Prometheus |
-| Поставка | скрипты/IPK/ручная сборка | нативный APK feed для OpenWrt 25.12 |
+| Поставка | скрипты/IPK<br>ручная сборка | нативный APK feed<br>для OpenWrt 25.12 |
 
 ## Архитектура
 
@@ -82,10 +82,10 @@ flowchart LR
 
 | Пакет | Архитектура | Назначение |
 |---|---:|---|
-| `telego-pkg` | x86_64 | `/usr/bin/telego`, UCI, служба procd/ujail, профиль Linux capabilities |
-| `luci-app-telego` | all | интерфейс LuCI на JavaScript и read-only backend телеметрии rpcd |
+| `telego-pkg` | x86_64 | `/usr/bin/telego`, UCI,<br>служба procd/ujail,<br>профиль Linux capabilities |
+| `luci-app-telego` | all | интерфейс LuCI на JavaScript<br>и read-only backend телеметрии rpcd |
 | `luci-i18n-telego-ru` | all | русский перевод LuCI |
-| `nginx-telego` | all | директивы Nginx для `http {}` и готовый location-snippet WEB Proxy |
+| `nginx-telego` | all | директивы Nginx для `http {}`<br>и готовый location-snippet WEB Proxy |
 
 # Быстрая установка
 
@@ -235,10 +235,10 @@ WEB Proxy поддерживает:
 
 | Carrier | Модель |
 |---|---|
-| `https` | последовательные HTTP-запросы + long polling |
-| `https-lanes` | отдельная HTTPS lane для каждого потока Telegram |
+| `https` | последовательные HTTP-запросы<br>+ long polling |
+| `https-lanes` | отдельная HTTPS lane<br>для каждого потока Telegram |
 | `websocket` | один мультиплексированный WebSocket |
-| `websocket-lanes` | отдельный WebSocket для каждого активного потока |
+| `websocket-lanes` | отдельный WebSocket<br>для каждого активного потока |
 
 Внутренний fallback-статус `418` сохраняет обычный запрос к сайту. Статус `419` используется для запроса, похожего на carrier-трафик, но не прошедшего аутентификацию; перед передачей такого запроса обычному сайту Nginx удаляет служебные данные carrier.
 
@@ -278,14 +278,14 @@ APK для целевого устройства собираются в GitHub 
 
 | Что проверяем | Где реализовано |
 |---|---|
-| CI, сборка и выпуск | `.github/workflows/build-telego.yaml`, `.github/workflows/release.yaml` |
+| CI, сборка и выпуск | `.github/workflows/build-telego.yaml`<br>`.github/workflows/release.yaml` |
 | Зависимости пакетов | `package/*/Makefile` |
 | UCI → runtime TOML | `package/telego-pkg/files/init.d/telego` |
 | Значения UCI по умолчанию | `package/telego-pkg/files/config/telego` |
 | Поля LuCI | `package/luci-app-telego/htdocs/resources/view/telego/config.js` |
 | Локальная телеметрия | `package/luci-app-telego/root/usr/share/rpcd/ucode/telego` |
 | Интеграция Nginx | `package/nginx-telego/files/` |
-| Исходный Go-код upstream | закреплённый субмодуль `telego-src/` |
+| Исходный Go-код upstream | закреплённый субмодуль<br>`telego-src/` |
 
 ## Лицензия
 
