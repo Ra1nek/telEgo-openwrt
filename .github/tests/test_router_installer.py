@@ -88,6 +88,18 @@ fi
         return subprocess.run([*self.shell, str(self.script), "--yes", *args],
                               env=dict(self.env, **env), capture_output=True, text=True)
 
+    def assert_only_read_only_apk_inspection(self):
+        """Before trust/checksum validation, apk may only inspect installed packages."""
+        if not self.log.exists():
+            return
+        commands = [line for line in self.log.read_text().splitlines() if line]
+        self.assertTrue(commands, "command log exists but is empty")
+        for command in commands:
+            self.assertTrue(
+                command.startswith("apk info -e "),
+                f"unexpected apk mutation before validation: {command}",
+            )
+
     def test_complete_web_set_without_translation_and_config_preserved(self):
         result = self.run_script("--no-ru", "--allow-untrusted")
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -115,21 +127,21 @@ fi
     def test_preview_requires_explicit_trust(self):
         result = self.run_script("--lang", "en")
         self.assertNotEqual(result.returncode, 0)
-        self.assertFalse(self.log.exists())
+        self.assert_only_read_only_apk_inspection()
 
     def test_signed_release_does_not_bypass_trust(self):
         result = self.run_script("--release", "v0.6.1", "--no-ru")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("--allow-untrusted", self.log.read_text())
 
-    def test_bad_checksum_or_duplicate_manifest_prevents_apk(self):
+    def test_bad_checksum_or_duplicate_manifest_prevents_apk_mutation(self):
         (self.feed / "telego-pkg-0.6.1-r1.apk").write_text("tampered")
         self.assertNotEqual(self.run_script("--allow-untrusted").returncode, 0)
-        self.assertFalse(self.log.exists())
+        self.assert_only_read_only_apk_inspection()
         self.make_manifest()
         self.manifest.write_text(self.manifest.read_text() * 2)
         self.assertNotEqual(self.run_script("--allow-untrusted").returncode, 0)
-        self.assertFalse(self.log.exists())
+        self.assert_only_read_only_apk_inspection()
 
     def test_failures_do_not_report_success_and_preserve_config(self):
         for failure in ("FETCH_FAIL", "SIMULATE_FAIL", "INSTALL_FAIL"):
