@@ -98,9 +98,14 @@ mount_into_chroot /dev
 mount_into_chroot /proc
 mount_into_chroot /sys
 
-sudo chroot "$rootfs" /bin/sh -eu <<'CHROOT'
+# Do not use `sh -u` here. OpenWrt's own /lib/functions.sh intentionally reads
+# unset variables such as IPKG_INSTROOT and treats them as empty. A booted
+# OpenWrt also has volatile runtime directories under /var; the tar rootfs does
+# not, so create the lock directory before package hooks are executed.
+sudo chroot "$rootfs" /bin/sh -e <<'CHROOT'
 export HOME=/root
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mkdir -p /var/lock
 
 install_telego() {
   apk update
