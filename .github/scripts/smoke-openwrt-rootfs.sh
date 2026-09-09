@@ -124,7 +124,7 @@ python3 -m http.server 18080 --bind 127.0.0.1 --directory "$preview_dir" \
   >"$workdir/preview-http.log" 2>&1 &
 server_pid=$!
 for _ in {1..20}; do
-  if curl --fail --silent --show-error http://127.0.0.1:18080/telego-install.sha256 >/dev/null; then
+  if curl --fail --silent http://127.0.0.1:18080/telego-install.sha256 >/dev/null 2>&1; then
     break
   fi
   sleep 0.1
@@ -225,13 +225,13 @@ echo legacy
 EOF
 chmod 0755 /tmp/legacy-telego/usr/bin/telego
 apk mkpkg \
-  -I name:telego-pkg \
-  -I version:0.6.0-r1 \
-  -I arch:x86_64 \
-  -I description:'telEgo installer upgrade fixture' \
-  -I license:MIT \
-  -F /tmp/legacy-telego \
-  -o /tmp/telego-pkg-0.6.0-r1.apk
+  --info name:telego-pkg \
+  --info version:0.6.0-r1 \
+  --info arch:x86_64 \
+  --info description:'telEgo installer upgrade fixture' \
+  --info license:MIT \
+  --files /tmp/legacy-telego \
+  --output /tmp/telego-pkg-0.6.0-r1.apk
 apk add --allow-untrusted /tmp/telego-pkg-0.6.0-r1.apk
 legacy_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
 
