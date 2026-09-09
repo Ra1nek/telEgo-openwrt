@@ -2,7 +2,7 @@
 set -euo pipefail
 
 FEED_ROOT=${1:-bin/packages}
-LEGACY_APK=${2:-${FEED_ROOT}/upgrade-fixture/telego-pkg-0.6.0-r1.apk}
+LEGACY_APK=${2:-${FEED_ROOT}/upgrade-fixture/telego-upgrade-fixture-0.6.0-r1.apk}
 OPENWRT_VERSION=${OPENWRT_VERSION:-25.12.5}
 OPENWRT_ARCH=${OPENWRT_ARCH:-x86_64}
 OPENWRT_TARGET=${OPENWRT_TARGET:-x86/64}
@@ -32,6 +32,11 @@ for pkg in "${EXPECTED[@]}"; do
   fi
   APKS+=("${matches[0]}")
 done
+
+if [[ ! -f "$LEGACY_APK" ]]; then
+  printf 'Missing required installer upgrade fixture: %s\n' "$LEGACY_APK" >&2
+  exit 1
+fi
 
 workdir=$(mktemp -d)
 rootfs=$workdir/rootfs
@@ -90,18 +95,23 @@ rootfs_sha256=$(resolve_rootfs_sha256)
 printf '%s  %s\n' "$rootfs_sha256" "$workdir/rootfs.tar.gz" | sha256sum -c -
 sudo tar -xzf "$workdir/rootfs.tar.gz" -C "$rootfs"
 
+# A tar rootfs is not a booted OpenWrt system. Make the extracted root a real
+# mount point and provide OpenWrt's normal tmpfs-backed /tmp before copying any
+# test assets there. BusyBox df resolves path arguments through the mount table,
+# so this is required to exercise the installer's real free-space preflight.
+sudo mount --bind "$rootfs" "$rootfs"
+mounts+=("$rootfs")
+sudo mount -t tmpfs -o size=128m,nosuid,nodev,mode=1777 tmpfs "$rootfs/tmp"
+mounts+=("$rootfs/tmp")
+
 sudo mkdir -p "$rootfs/tmp/telego-apks"
 for apk in "${APKS[@]}"; do
   sudo cp -- "$apk" "$rootfs/tmp/telego-apks/"
   cp -- "$apk" "$preview_dir/"
 done
 
-if [[ -f "$LEGACY_APK" ]]; then
-  sudo cp -- "$LEGACY_APK" "$rootfs/tmp/telego-pkg-legacy.apk"
-  printf 'Legacy installer upgrade fixture: %s\n' "$LEGACY_APK"
-else
-  printf 'Legacy installer upgrade fixture not provided; old-to-new installer test will be skipped.\n'
-fi
+sudo cp -- "$LEGACY_APK" "$rootfs/tmp/telego-pkg-legacy.apk"
+printf 'Legacy installer upgrade fixture: %s\n' "$LEGACY_APK"
 
 (
   cd "$preview_dir"
@@ -158,6 +168,10 @@ sudo chroot "$rootfs" /bin/sh -e <<'CHROOT'
 export HOME=/root
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 mkdir -p /var/lock
+
+# Fail early with mount diagnostics if the chroot stops resembling a booted
+# OpenWrt filesystem. The installer itself must keep its real df-based preflight.
+df -Pk / /tmp >/dev/null
 
 install_telego() {
   apk add --allow-untrusted \
@@ -216,29 +230,27 @@ apk update
 # True old -> new installer smoke. The legacy APK is built on the CI host using
 # the same SDK host apk-tools as OpenWrt packaging. The target apk is minimal and
 # intentionally cannot create packages itself.
-if [ -f /tmp/telego-pkg-legacy.apk ]; then
-  apk add --allow-untrusted /tmp/telego-pkg-legacy.apk
-  legacy_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+apk add --allow-untrusted /tmp/telego-pkg-legacy.apk
+legacy_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
 
-  /bin/sh /tmp/telego-install.sh --lang en --yes --allow-untrusted --no-color
-  apk info -e telego-pkg >/dev/null
-  for pkg in nginx-telego luci-app-telego luci-i18n-telego-ru; do
-    if apk info -e "$pkg" >/dev/null 2>&1; then
-      echo "Noninteractive core-only upgrade unexpectedly installed: $pkg" >&2
-      exit 1
-    fi
-  done
-  new_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
-  test "$new_config_hash" = "$legacy_config_hash"
-  grep -q "option bind_to '127.0.0.1:1443'" /etc/config/telego
-  /usr/bin/telego version >/tmp/upgraded-version.txt 2>&1
-  test -s /tmp/upgraded-version.txt
-  ! grep -qx legacy /tmp/upgraded-version.txt
+/bin/sh /tmp/telego-install.sh --lang en --yes --allow-untrusted --no-color
+apk info -e telego-pkg >/dev/null
+for pkg in nginx-telego luci-app-telego luci-i18n-telego-ru; do
+  if apk info -e "$pkg" >/dev/null 2>&1; then
+    echo "Noninteractive core-only upgrade unexpectedly installed: $pkg" >&2
+    exit 1
+  fi
+done
+new_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+test "$new_config_hash" = "$legacy_config_hash"
+grep -q "option bind_to '127.0.0.1:1443'" /etc/config/telego
+/usr/bin/telego version >/tmp/upgraded-version.txt 2>&1
+test -s /tmp/upgraded-version.txt
+! grep -qx legacy /tmp/upgraded-version.txt
 
-  # Reset the legacy fixture before testing a clean full installation.
-  apk del telego-pkg
-  rm -f /etc/config/telego /var/etc/telego.toml
-fi
+# Reset the legacy fixture before testing a clean full installation.
+apk del telego-pkg
+rm -f /etc/config/telego /var/etc/telego.toml
 
 install_telego
 assert_installed
