@@ -162,7 +162,7 @@ jobs:
             fi
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
-          test -s bin/packages/upgrade-fixture/telego-pkg-0.6.0-r1.apk
+          test -s bin/packages/upgrade-fixture/telego-upgrade-fixture-0.6.0-r1.apk
 
       - name: Discover stable OpenWrt compatibility matrix
         id: openwrt_matrix
