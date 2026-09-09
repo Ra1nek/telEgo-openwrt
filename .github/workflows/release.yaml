@@ -6,17 +6,22 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
+
+env:
+  OPENWRT_SERIES: '25.12'
+  OPENWRT_MIN_RELEASE: '25.12.0'
 
 jobs:
-  build-release:
+  release-policy:
     runs-on: ubuntu-latest
+    outputs:
+      telego_version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
-          submodules: recursive
 
       - name: Verify release commit belongs to main
         shell: bash
@@ -29,13 +34,8 @@ jobs:
             exit 1
           fi
 
-      - name: Check OpenWrt integration
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev busybox
-          bash .github/scripts/test-openwrt-integration.sh
-
       - name: Validate release version
+        id: version
         shell: bash
         run: |
           set -euo pipefail
@@ -43,8 +43,43 @@ jobs:
           version="${tag#v}"
           pkg_version="$(sed -n 's/^PKG_VERSION:=//p' package/telego-pkg/Makefile | head -n1)"
           test -n "$pkg_version"
-          test "$version" = "$pkg_version"
-          echo "TELEGO_VERSION=$version" >> "$GITHUB_ENV"
+          if [[ "$version" != "$pkg_version" ]]; then
+            echo "::error::Tag version ${version} does not match package version ${pkg_version}."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  integration-checks:
+    needs: release-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Restore host ucode cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/telego/ucode
+          key: ${{ runner.os }}-${{ runner.arch }}-telego-ucode-${{ hashFiles('.github/scripts/test-openwrt-integration.sh') }}
+
+      - name: Install host test dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev busybox
+
+      - name: Check OpenWrt integration
+        run: bash .github/scripts/test-openwrt-integration.sh
+
+  build-release:
+    needs: release-policy
+    runs-on: ubuntu-latest
+    outputs:
+      openwrt_matrix: ${{ steps.openwrt_matrix.outputs.matrix }}
+    env:
+      TELEGO_VERSION: ${{ needs.release-policy.outputs.telego_version }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          submodules: recursive
 
       - name: Setup Go
         uses: actions/setup-go@v7
@@ -60,9 +95,15 @@ jobs:
 
       - name: Verify Go source
         working-directory: telego-src
+        shell: bash
         run: |
           set -euo pipefail
-          gofmt -w ./cmd/telego/main.go
+          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          if [ -n "$unformatted" ]; then
+            echo "::error::Go source is not gofmt-clean:"
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
           go vet ./...
           go test ./...
 
@@ -84,12 +125,12 @@ jobs:
           file ../package/telego-pkg/files/usr/bin/telego
           readelf -l ../package/telego-pkg/files/usr/bin/telego | grep -F '/lib/ld-musl-x86_64.so.1'
 
-      # Build release packages against the oldest supported stable APK release.
-      # Later 25.12.x releases are compatibility targets, not separate builds.
+      # Release artifacts are rebuilt from the tag against the oldest supported
+      # stable APK release. We never publish an artifact copied from an older CI run.
       - name: Build signed APK feed
         uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: x86_64-25.12.0
+          ARCH: x86_64-${{ env.OPENWRT_MIN_RELEASE }}
           FEED_DIR: ${{ github.workspace }}
           FEEDNAME: telego
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
@@ -99,6 +140,7 @@ jobs:
           KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
 
       - name: Validate release feed
+        shell: bash
         run: |
           set -euo pipefail
           expected=(
@@ -114,44 +156,75 @@ jobs:
             fi
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
-          mkdir -p release-assets
-          python3 .github/scripts/prepare-install-assets.py bin/packages release-assets
-          tar -C bin/packages -czf release-assets/telEgo-x86_64-apk-feed.tar.gz .
-          (cd release-assets && sha256sum *.apk *.tar.gz telego-install.sha256 > SHA256SUMS)
 
-      - name: Smoke test release APKs across all stable OpenWrt 25.12.x releases
+      - name: Discover stable OpenWrt compatibility matrix
+        id: openwrt_matrix
         shell: bash
         run: |
           set -euo pipefail
+          matrix="$(python3 .github/scripts/openwrt-release-matrix.py \
+            --series "$OPENWRT_SERIES" \
+            --minimum "$OPENWRT_MIN_RELEASE")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Compatibility matrix: $matrix"
 
-          versions="$({ python3 - <<'PY'
-          import re
-          import urllib.request
+      - name: Store signed APK feed
+        uses: actions/upload-artifact@v7
+        with:
+          name: telEgo-signed-apk-feed
+          path: bin/packages
+          if-no-files-found: error
+          retention-days: 1
 
-          url = 'https://downloads.openwrt.org/releases/'
-          with urllib.request.urlopen(url, timeout=30) as response:
-              html = response.read().decode('utf-8', errors='replace')
+  smoke-release:
+    name: Release smoke OpenWrt ${{ matrix.version }}
+    needs: build-release
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJSON(needs.build-release.outputs.openwrt_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
 
-          versions = sorted(
-              set(re.findall(r'href=["\'](25\.12\.\d+)/["\']', html)),
-              key=lambda value: tuple(map(int, value.split('.'))),
+      - name: Download signed APK feed
+        uses: actions/download-artifact@v7
+        with:
+          name: telEgo-signed-apk-feed
+          path: bin/packages
+
+      - name: Smoke test signed release APKs
+        env:
+          OPENWRT_VERSION: ${{ matrix.version }}
+        run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+
+  publish-release:
+    needs: [release-policy, integration-checks, build-release, smoke-release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      TELEGO_VERSION: ${{ needs.release-policy.outputs.telego_version }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download signed APK feed
+        uses: actions/download-artifact@v7
+        with:
+          name: telEgo-signed-apk-feed
+          path: bin/packages
+
+      - name: Prepare release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          python3 .github/scripts/prepare-install-assets.py bin/packages release-assets
+          tar -C bin/packages -czf release-assets/telEgo-x86_64-apk-feed.tar.gz .
+          (
+            cd release-assets
+            sha256sum *.apk *.tar.gz telego-install.sha256 > SHA256SUMS
           )
-          if not versions or versions[0] != '25.12.0':
-              raise SystemExit('Could not discover stable OpenWrt 25.12.x releases')
-          print('\n'.join(versions))
-          PY
-          } )"
-
-          echo 'OpenWrt release compatibility matrix:'
-          printf '  %s\n' $versions
-
-          while IFS= read -r version; do
-            [ -n "$version" ] || continue
-            echo "::group::OpenWrt ${version} release runtime smoke"
-            OPENWRT_VERSION="$version" \
-              bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
-            echo '::endgroup::'
-          done <<< "$versions"
 
       - name: Publish GitHub Release
         env:
@@ -162,12 +235,12 @@ jobs:
           gh release create "$TAG" release-assets/* \
             --verify-tag \
             --generate-notes \
-            --title "telEgo ${TAG#v}" \
+            --title "telEgo ${TELEGO_VERSION}" \
             --latest
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v7
         with:
           name: telEgo-x86_64-apk-feed
-          path: release-assets/**
+          path: release-assets
           if-no-files-found: error
