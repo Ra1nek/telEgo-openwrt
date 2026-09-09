@@ -34,6 +34,10 @@ on:
 permissions:
   contents: read
 
+env:
+  OPENWRT_SERIES: '25.12'
+  OPENWRT_MIN_RELEASE: '25.12.0'
+
 # Development and PR runs are disposable once a newer commit for the same ref
 # exists. Keep main runs immutable so every integrated commit gets a complete CI
 # result and remains auditable.
@@ -46,13 +50,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - name: Install host test dependencies
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev busybox
+
+      - name: Restore host ucode cache
+        id: ucode_cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.cache/telego/ucode
+          key: ${{ runner.os }}-${{ runner.arch }}-telego-ucode-${{ hashFiles('.github/scripts/test-openwrt-integration.sh') }}
+
+      - name: Install host ucode build dependencies
+        if: steps.ucode_cache.outputs.cache-hit != 'true'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake pkg-config libjson-c-dev
+
       - name: Check OpenWrt integration
         run: bash .github/scripts/test-openwrt-integration.sh
 
   build-all-packages:
     runs-on: ubuntu-latest
+    outputs:
+      openwrt_matrix: ${{ steps.openwrt_matrix.outputs.matrix }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
@@ -82,9 +98,15 @@ jobs:
 
       - name: Verify Go source
         working-directory: telego-src
+        shell: bash
         run: |
           set -euo pipefail
-          gofmt -w ./cmd/telego/main.go
+          unformatted="$(gofmt -l ./cmd/telego/main.go)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::OpenWrt-patched Go source is not gofmt-clean:"
+            printf '%s\n' "$unformatted"
+            exit 1
+          fi
           go vet ./...
           go test ./...
 
@@ -111,7 +133,7 @@ jobs:
       - name: Build OpenWrt APK Packages
         uses: openwrt/gh-action-sdk@f5813d30eeef3534b58ac7e79c5d8842b6035434
         env:
-          ARCH: x86_64-25.12.0
+          ARCH: x86_64-${{ env.OPENWRT_MIN_RELEASE }}
           FEED_DIR: ${{ github.workspace }}
           FEEDNAME: telego
           PACKAGES: 'telego-pkg nginx-telego luci-app-telego luci-i18n-telego-ru'
@@ -137,60 +159,65 @@ jobs:
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
 
-      - name: Smoke test APKs across all stable OpenWrt 25.12.x releases
+      - name: Discover stable OpenWrt compatibility matrix
+        id: openwrt_matrix
         shell: bash
         run: |
           set -euo pipefail
-
-          versions="$({ python3 - <<'PY'
-          import re
-          import urllib.request
-
-          url = 'https://downloads.openwrt.org/releases/'
-          with urllib.request.urlopen(url, timeout=30) as response:
-              html = response.read().decode('utf-8', errors='replace')
-
-          versions = sorted(
-              set(re.findall(r'href=["\'](25\.12\.\d+)/["\']', html)),
-              key=lambda value: tuple(map(int, value.split('.'))),
-          )
-          if not versions or versions[0] != '25.12.0':
-              raise SystemExit('Could not discover stable OpenWrt 25.12.x releases')
-          print('\n'.join(versions))
-          PY
-          } )"
-
-          echo 'OpenWrt compatibility matrix:'
-          printf '  %s\n' $versions
-
-          while IFS= read -r version; do
-            [ -n "$version" ] || continue
-            echo "::group::OpenWrt ${version} runtime smoke"
-            OPENWRT_VERSION="$version" \
-              bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
-            echo '::endgroup::'
-          done <<< "$versions"
+          matrix="$(python3 .github/scripts/openwrt-release-matrix.py \
+            --series "$OPENWRT_SERIES" \
+            --minimum "$OPENWRT_MIN_RELEASE")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "Compatibility matrix: $matrix"
 
       - name: Store APK feed
         uses: actions/upload-artifact@v7
         with:
           name: telEgo-openwrt-apk-feed
-          path: bin/packages/**
+          path: bin/packages
           if-no-files-found: error
           retention-days: 7
 
+  smoke-openwrt:
+    name: Smoke OpenWrt ${{ matrix.version }}
+    needs: build-all-packages
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix: ${{ fromJSON(needs.build-all-packages.outputs.openwrt_matrix) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Download APK feed
+        uses: actions/download-artifact@v7
+        with:
+          name: telEgo-openwrt-apk-feed
+          path: bin/packages
+
+      - name: Smoke test APK install/runtime/lifecycle
+        env:
+          OPENWRT_VERSION: ${{ matrix.version }}
+        run: bash .github/scripts/smoke-openwrt-rootfs.sh bin/packages
+
   publish-preview:
-    needs: [integration-checks, build-all-packages]
+    needs: [integration-checks, build-all-packages, smoke-openwrt]
     if: github.ref == 'refs/heads/develop' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write
-      actions: read
     concurrency:
       group: telego-develop-preview
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
+
+      - name: Download APK feed
+        uses: actions/download-artifact@v7
+        with:
+          name: telEgo-openwrt-apk-feed
+          path: downloaded-feed
+
       - name: Publish installer packages
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,7 +230,6 @@ jobs:
             echo 'A newer develop commit exists; skipping preview publication.'
             exit 0
           fi
-          gh run download "$GITHUB_RUN_ID" --name telEgo-openwrt-apk-feed --dir downloaded-feed
           python3 .github/scripts/prepare-install-assets.py downloaded-feed preview-assets
           printf 'Development preview, not a stable release.\n\nSource commit: %s\nBuild: https://github.com/%s/actions/runs/%s\n\nInstall instructions: https://github.com/%s/blob/develop/docs/INSTALL.md\n' \
             "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" > preview-notes.md

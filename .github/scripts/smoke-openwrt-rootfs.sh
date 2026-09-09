@@ -108,7 +108,6 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 mkdir -p /var/lock
 
 install_telego() {
-  apk update
   apk add --allow-untrusted \
     /tmp/telego-apks/telego-pkg-*.apk \
     /tmp/telego-apks/nginx-telego-*.apk \
@@ -158,6 +157,9 @@ assert_installed() {
   test -s /etc/nginx/snippets/telego.locations
 }
 
+# Refresh the official package indexes once. The remove/reinstall lifecycle
+# check reuses the same indexes instead of repeating network work.
+apk update
 install_telego
 assert_installed
 
