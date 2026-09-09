@@ -34,6 +34,13 @@ on:
 permissions:
   contents: read
 
+# Development and PR runs are disposable once a newer commit for the same ref
+# exists. Keep main runs immutable so every integrated commit gets a complete CI
+# result and remains auditable.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
 jobs:
   integration-checks:
     runs-on: ubuntu-latest
@@ -170,6 +177,7 @@ jobs:
           name: telEgo-openwrt-apk-feed
           path: bin/packages/**
           if-no-files-found: error
+          retention-days: 7
 
   publish-preview:
     needs: [integration-checks, build-all-packages]
