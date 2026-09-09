@@ -2,7 +2,7 @@
 set -euo pipefail
 
 OUTPUT_DIR=${1:-upgrade-fixture}
-OUTPUT_NAME=telego-pkg-0.6.0-r1.apk
+OUTPUT_NAME=telego-upgrade-fixture-0.6.0-r1.apk
 
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
@@ -22,7 +22,7 @@ docker run --rm \
 
     apk_host=/builder/staging_dir/host/bin/apk
     fixture_root=/tmp/telego-upgrade-fixture
-    output=/fixture-out/telego-pkg-0.6.0-r1.apk
+    output=/fixture-out/telego-upgrade-fixture-0.6.0-r1.apk
 
     test -x "$apk_host"
     rm -rf "$fixture_root"
