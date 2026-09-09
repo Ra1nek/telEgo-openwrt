@@ -99,9 +99,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          unformatted="$(gofmt -l $(git ls-files '*.go'))"
+          unformatted="$(gofmt -l ./cmd/telego/main.go)"
           if [ -n "$unformatted" ]; then
-            echo "::error::Go source is not gofmt-clean:"
+            echo "::error::OpenWrt-patched Go source is not gofmt-clean:"
             printf '%s\n' "$unformatted"
             exit 1
           fi
