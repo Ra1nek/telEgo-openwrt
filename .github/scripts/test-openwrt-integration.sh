@@ -13,15 +13,25 @@ bash .github/tests/service-definition.sh
 python3 .github/tests/test_installer.py
 python3 .github/scripts/check-luci-i18n.py
 
-# Match the ucode revision shipped by the target OpenWrt SDK.
-# Set UCODE to an existing matching interpreter to avoid building a host tool.
+# Match the ucode revision shipped by the target OpenWrt SDK. Keep a host-built
+# copy in the user cache so normal CI runs do not clone and rebuild ucode every
+# time. Set UCODE explicitly to bypass this cache and use another interpreter.
+UCODE_REVISION=85922056ef7abeace3cca3ab28bc1ac2d88e31b1
+UCODE_CACHE_ROOT="${UCODE_CACHE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/telego/ucode}"
+
 if [[ -z ${UCODE:-} ]]; then
-	test_dir=$(mktemp -d)
-	trap 'rm -rf -- "$test_dir"' EXIT
-	git clone --quiet https://github.com/jow-/ucode.git "$test_dir/ucode"
-	git -C "$test_dir/ucode" checkout --quiet --detach 85922056ef7abeace3cca3ab28bc1ac2d88e31b1
-	cmake -S "$test_dir/ucode" -B "$test_dir/build" -DCMAKE_C_FLAGS=-Wno-error=discarded-qualifiers
-	cmake --build "$test_dir/build" --target ucode -j2
-	UCODE="$test_dir/build/ucode"
+	UCODE="$UCODE_CACHE_ROOT/$UCODE_REVISION/ucode"
+
+	if [[ ! -x "$UCODE" ]]; then
+		test_dir=$(mktemp -d)
+		trap 'rm -rf -- "$test_dir"' EXIT
+		git clone --quiet https://github.com/jow-/ucode.git "$test_dir/ucode"
+		git -C "$test_dir/ucode" checkout --quiet --detach "$UCODE_REVISION"
+		cmake -S "$test_dir/ucode" -B "$test_dir/build" -DCMAKE_C_FLAGS=-Wno-error=discarded-qualifiers
+		cmake --build "$test_dir/build" --target ucode -j2
+		mkdir -p "$(dirname "$UCODE")"
+		install -m 0755 "$test_dir/build/ucode" "$UCODE"
+	fi
 fi
+
 "$UCODE" .github/tests/rpcd-status.uc
