@@ -2,6 +2,7 @@
 set -euo pipefail
 
 FEED_ROOT=${1:-bin/packages}
+LEGACY_APK=${2:-${FEED_ROOT}/upgrade-fixture/telego-pkg-0.6.0-r1.apk}
 OPENWRT_VERSION=${OPENWRT_VERSION:-25.12.5}
 OPENWRT_ARCH=${OPENWRT_ARCH:-x86_64}
 OPENWRT_TARGET=${OPENWRT_TARGET:-x86/64}
@@ -94,6 +95,14 @@ for apk in "${APKS[@]}"; do
   sudo cp -- "$apk" "$rootfs/tmp/telego-apks/"
   cp -- "$apk" "$preview_dir/"
 done
+
+if [[ -f "$LEGACY_APK" ]]; then
+  sudo cp -- "$LEGACY_APK" "$rootfs/tmp/telego-pkg-legacy.apk"
+  printf 'Legacy installer upgrade fixture: %s\n' "$LEGACY_APK"
+else
+  printf 'Legacy installer upgrade fixture not provided; old-to-new installer test will be skipped.\n'
+fi
+
 (
   cd "$preview_dir"
   sha256sum ./*.apk | sed 's#  \./#  #' > telego-install.sha256
@@ -201,58 +210,36 @@ assert_installed() {
 }
 
 # Refresh the official package indexes once. Installer invocations below refresh
-# them again by design, but this first refresh supports the synthetic old package
-# and the direct lifecycle checks.
+# them again by design; direct lifecycle checks reuse the same indexes.
 apk update
 
-# True old -> new installer smoke. Build a minimal older telego-pkg with a user
-# configuration, then upgrade it through install.sh. --yes must preserve the
-# installed component set instead of silently adding LuCI/Nginx.
-mkdir -p /tmp/legacy-telego/etc/config /tmp/legacy-telego/usr/bin
-cat >/tmp/legacy-telego/etc/config/telego <<'EOF'
-config general 'general'
-	option enabled '0'
-	option bind_to '127.0.0.1:1443'
-	option log_level 'debug'
+# True old -> new installer smoke. The legacy APK is built on the CI host using
+# the same SDK host apk-tools as OpenWrt packaging. The target apk is minimal and
+# intentionally cannot create packages itself.
+if [ -f /tmp/telego-pkg-legacy.apk ]; then
+  apk add --allow-untrusted /tmp/telego-pkg-legacy.apk
+  legacy_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
 
-config secret 'legacy'
-	option name 'legacy'
-	option secret '0123456789abcdef0123456789abcdef'
-EOF
-cat >/tmp/legacy-telego/usr/bin/telego <<'EOF'
-#!/bin/sh
-echo legacy
-EOF
-chmod 0755 /tmp/legacy-telego/usr/bin/telego
-apk mkpkg \
-  --info name:telego-pkg \
-  --info version:0.6.0-r1 \
-  --info arch:x86_64 \
-  --info description:'telEgo installer upgrade fixture' \
-  --info license:MIT \
-  --files /tmp/legacy-telego \
-  --output /tmp/telego-pkg-0.6.0-r1.apk
-apk add --allow-untrusted /tmp/telego-pkg-0.6.0-r1.apk
-legacy_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+  /bin/sh /tmp/telego-install.sh --lang en --yes --allow-untrusted --no-color
+  apk info -e telego-pkg >/dev/null
+  for pkg in nginx-telego luci-app-telego luci-i18n-telego-ru; do
+    if apk info -e "$pkg" >/dev/null 2>&1; then
+      echo "Noninteractive core-only upgrade unexpectedly installed: $pkg" >&2
+      exit 1
+    fi
+  done
+  new_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+  test "$new_config_hash" = "$legacy_config_hash"
+  grep -q "option bind_to '127.0.0.1:1443'" /etc/config/telego
+  /usr/bin/telego version >/tmp/upgraded-version.txt 2>&1
+  test -s /tmp/upgraded-version.txt
+  ! grep -qx legacy /tmp/upgraded-version.txt
 
-/bin/sh /tmp/telego-install.sh --lang en --yes --allow-untrusted --no-color
-apk info -e telego-pkg >/dev/null
-for pkg in nginx-telego luci-app-telego luci-i18n-telego-ru; do
-  if apk info -e "$pkg" >/dev/null 2>&1; then
-    echo "Noninteractive core-only upgrade unexpectedly installed: $pkg" >&2
-    exit 1
-  fi
-done
-new_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
-test "$new_config_hash" = "$legacy_config_hash"
-grep -q "option bind_to '127.0.0.1:1443'" /etc/config/telego
-/usr/bin/telego version >/tmp/upgraded-version.txt 2>&1
-test -s /tmp/upgraded-version.txt
-! grep -qx legacy /tmp/upgraded-version.txt
+  # Reset the legacy fixture before testing a clean full installation.
+  apk del telego-pkg
+  rm -f /etc/config/telego /var/etc/telego.toml
+fi
 
-# Reset the synthetic fixture before testing a clean full installation.
-apk del telego-pkg
-rm -f /etc/config/telego /var/etc/telego.toml
 install_telego
 assert_installed
 
