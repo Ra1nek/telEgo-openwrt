@@ -40,6 +40,13 @@ if declare -F reload_service >/dev/null; then
 	exit 1
 fi
 
+# With USE_PROCD=1 rc.common owns instance termination. A custom stop_service
+# that calls procd_kill causes a second kill and makes stop/restart fail noisily.
+if declare -F stop_service >/dev/null; then
+	echo 'Unexpected custom stop handler' >&2
+	exit 1
+fi
+
 fixture_enabled=0
 fixture_secret=old-secret
 definition

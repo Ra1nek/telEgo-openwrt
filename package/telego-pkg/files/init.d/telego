@@ -256,7 +256,7 @@ start_service() {
 # A changed runtime-config checksum restarts the process (secrets and listeners
 # are not hot-reloadable). An enabled=0 configuration removes the instance;
 # enabled=1 creates it even when the service was previously stopped.
-
-stop_service() {
-	procd_kill telego
-}
+#
+# Do not override stop_service(). With USE_PROCD=1, rc.common performs the
+# instance termination itself; calling procd_kill here would kill it twice and
+# makes `stop`/`restart` report a spurious "Command failed: Not found".
