@@ -34,16 +34,22 @@ done
 
 workdir=$(mktemp -d)
 rootfs=$workdir/rootfs
+preview_dir=$workdir/preview
+server_pid=''
 mounts=()
 cleanup() {
   local i
+  if [[ -n "$server_pid" ]]; then
+    kill "$server_pid" 2>/dev/null || true
+    wait "$server_pid" 2>/dev/null || true
+  fi
   for ((i=${#mounts[@]} - 1; i >= 0; i--)); do
     sudo umount -l -- "${mounts[$i]}" 2>/dev/null || true
   done
   sudo rm -rf -- "$workdir"
 }
 trap cleanup EXIT
-mkdir -p "$rootfs"
+mkdir -p "$rootfs" "$preview_dir"
 
 mount_into_chroot() {
   local source=$1
@@ -86,7 +92,44 @@ sudo tar -xzf "$workdir/rootfs.tar.gz" -C "$rootfs"
 sudo mkdir -p "$rootfs/tmp/telego-apks"
 for apk in "${APKS[@]}"; do
   sudo cp -- "$apk" "$rootfs/tmp/telego-apks/"
+  cp -- "$apk" "$preview_dir/"
 done
+(
+  cd "$preview_dir"
+  sha256sum ./*.apk | sed 's#  \./#  #' > telego-install.sha256
+)
+
+# Exercise the real installer against the just-built packages without relying on
+# the mutable public develop-latest release. Only the download base is replaced
+# in this test copy; selection, verification and apk transaction logic is intact.
+cp install.sh "$workdir/telego-install.sh"
+python3 - "$workdir/telego-install.sh" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+text = path.read_text()
+old = '''    if [ "$RELEASE" = 'latest' ]; then BASE_URL="https://github.com/$REPOSITORY/releases/latest/download"
+    else BASE_URL="https://github.com/$REPOSITORY/releases/download/$RELEASE"
+    fi'''
+new = '''    BASE_URL="http://127.0.0.1:18080"'''
+if text.count(old) != 1:
+    raise SystemExit('Could not patch installer release URL for smoke test')
+path.write_text(text.replace(old, new))
+PY
+sudo cp -- "$workdir/telego-install.sh" "$rootfs/tmp/telego-install.sh"
+sudo chmod 0755 "$rootfs/tmp/telego-install.sh"
+
+python3 -m http.server 18080 --bind 127.0.0.1 --directory "$preview_dir" \
+  >"$workdir/preview-http.log" 2>&1 &
+server_pid=$!
+for _ in {1..20}; do
+  if curl --fail --silent --show-error http://127.0.0.1:18080/telego-install.sha256 >/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+curl --fail --silent --show-error http://127.0.0.1:18080/telego-install.sha256 >/dev/null
 
 # OpenWrt's /etc/resolv.conf points into /tmp. Give apk working DNS inside chroot.
 sudo cp /etc/resolv.conf "$rootfs/tmp/resolv.conf"
@@ -157,10 +200,83 @@ assert_installed() {
   test -s /etc/nginx/snippets/telego.locations
 }
 
-# Refresh the official package indexes once. The remove/reinstall lifecycle
-# check reuses the same indexes instead of repeating network work.
+# Refresh the official package indexes once. Installer invocations below refresh
+# them again by design, but this first refresh supports the synthetic old package
+# and the direct lifecycle checks.
 apk update
+
+# True old -> new installer smoke. Build a minimal older telego-pkg with a user
+# configuration, then upgrade it through install.sh. --yes must preserve the
+# installed component set instead of silently adding LuCI/Nginx.
+mkdir -p /tmp/legacy-telego/etc/config /tmp/legacy-telego/usr/bin
+cat >/tmp/legacy-telego/etc/config/telego <<'EOF'
+config general 'general'
+	option enabled '0'
+	option bind_to '127.0.0.1:1443'
+	option log_level 'debug'
+
+config secret 'legacy'
+	option name 'legacy'
+	option secret '0123456789abcdef0123456789abcdef'
+EOF
+cat >/tmp/legacy-telego/usr/bin/telego <<'EOF'
+#!/bin/sh
+echo legacy
+EOF
+chmod 0755 /tmp/legacy-telego/usr/bin/telego
+apk mkpkg \
+  -I name:telego-pkg \
+  -I version:0.6.0-r1 \
+  -I arch:x86_64 \
+  -I description:'telEgo installer upgrade fixture' \
+  -I license:MIT \
+  -F /tmp/legacy-telego \
+  -o /tmp/telego-pkg-0.6.0-r1.apk
+apk add --allow-untrusted /tmp/telego-pkg-0.6.0-r1.apk
+legacy_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+
+/bin/sh /tmp/telego-install.sh --lang en --yes --allow-untrusted --no-color
+apk info -e telego-pkg >/dev/null
+for pkg in nginx-telego luci-app-telego luci-i18n-telego-ru; do
+  if apk info -e "$pkg" >/dev/null 2>&1; then
+    echo "Noninteractive core-only upgrade unexpectedly installed: $pkg" >&2
+    exit 1
+  fi
+done
+new_config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+test "$new_config_hash" = "$legacy_config_hash"
+grep -q "option bind_to '127.0.0.1:1443'" /etc/config/telego
+/usr/bin/telego version >/tmp/upgraded-version.txt 2>&1
+test -s /tmp/upgraded-version.txt
+! grep -qx legacy /tmp/upgraded-version.txt
+
+# Reset the synthetic fixture before testing a clean full installation.
+apk del telego-pkg
+rm -f /etc/config/telego /var/etc/telego.toml
 install_telego
+assert_installed
+
+# A noninteractive component change must also remove packages that are explicitly
+# deselected. rpcd is stubbed because this rootfs is not a booted procd system.
+cp /etc/init.d/rpcd /tmp/rpcd.real
+cat >/etc/init.d/rpcd <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod 0755 /etc/init.d/rpcd
+config_hash=$(sha256sum /etc/config/telego | awk '{print $1}')
+/bin/sh /tmp/telego-install.sh --lang en --no-ru --yes --allow-untrusted --no-color
+for pkg in telego-pkg nginx-telego luci-app-telego; do
+  apk info -e "$pkg" >/dev/null
+done
+if apk info -e luci-i18n-telego-ru >/dev/null 2>&1; then
+  echo 'Deselected Russian translation remained installed' >&2
+  exit 1
+fi
+test "$(sha256sum /etc/config/telego | awk '{print $1}')" = "$config_hash"
+
+/bin/sh /tmp/telego-install.sh --lang en --ru --yes --allow-untrusted --no-color
+mv /tmp/rpcd.real /etc/init.d/rpcd
 assert_installed
 
 # Package lifecycle smoke: the set must be removable and installable again
@@ -177,5 +293,5 @@ rm -f /var/etc/telego.toml
 install_telego
 assert_installed
 
-printf 'OpenWrt %s APK install/runtime/remove/reinstall smoke test passed.\n' "$(cat /etc/openwrt_version)"
+printf 'OpenWrt %s APK installer-upgrade/runtime/remove/reinstall smoke test passed.\n' "$(cat /etc/openwrt_version)"
 CHROOT
