@@ -141,6 +141,10 @@ jobs:
           V: s
           KCONFIG_ALLCONFIG: /feed/.github/openwrt-sdk.config
 
+      - name: Build installer upgrade fixture
+        shell: bash
+        run: bash .github/scripts/build-upgrade-fixture.sh bin/packages/upgrade-fixture
+
       - name: Verify APK feed
         shell: bash
         run: |
@@ -158,6 +162,7 @@ jobs:
             fi
           done
           test -n "$(find bin/packages -type f -name 'packages.adb' -print -quit)"
+          test -s bin/packages/upgrade-fixture/telego-upgrade-fixture-0.6.0-r1.apk
 
       - name: Discover stable OpenWrt compatibility matrix
         id: openwrt_matrix
@@ -237,7 +242,28 @@ jobs:
             gh release create develop-latest --target "$GITHUB_SHA" --prerelease --latest=false \
               --title 'telEgo develop preview' --notes-file preview-notes.md
           fi
+
+          # New APKs can coexist with the previous generation while its manifest
+          # is still live. Switching the manifest is the atomic channel cutover.
           gh release upload develop-latest preview-assets/*.apk --clobber
-          # Publish the manifest last. A racing client fails its checksum check.
           gh release upload develop-latest preview-assets/telego-install.sha256 --clobber
-          gh release edit develop-latest --prerelease --latest=false --notes-file preview-notes.md
+
+          # Keep source provenance aligned with the generation selected by the
+          # manifest. develop-latest is intentionally a movable preview tag.
+          gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/develop-latest" \
+            -f sha="$GITHUB_SHA" -F force=true >/dev/null
+          gh release edit develop-latest --target "$GITHUB_SHA" --prerelease --latest=false \
+            --notes-file preview-notes.md
+
+          # Once the new manifest is live, old APK revisions are no longer needed.
+          # Delete only stale APK assets; keep the manifest and any future metadata.
+          while IFS= read -r asset_name; do
+            case "$asset_name" in
+              *.apk)
+                if [[ ! -f "preview-assets/$asset_name" ]]; then
+                  echo "Deleting stale preview asset: $asset_name"
+                  gh release delete-asset develop-latest "$asset_name" --yes
+                fi
+                ;;
+            esac
+          done < <(gh release view develop-latest --json assets --jq '.assets[].name')

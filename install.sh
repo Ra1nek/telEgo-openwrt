@@ -304,6 +304,15 @@ selection_from_installed() {
     ensure_install_dependencies
 }
 
+deselected_installed_packages() {
+    packages=''
+    [ "$INST_RU" -eq 0 ] || [ "$SEL_RU" -eq 1 ] || packages="$packages luci-i18n-telego-ru"
+    [ "$INST_LUCI" -eq 0 ] || [ "$SEL_LUCI" -eq 1 ] || packages="$packages luci-app-telego"
+    [ "$INST_NGINX" -eq 0 ] || [ "$SEL_NGINX" -eq 1 ] || packages="$packages nginx-telego"
+    [ "$INST_CORE" -eq 0 ] || [ "$SEL_CORE" -eq 1 ] || packages="$packages telego-pkg"
+    printf '%s\n' "$packages"
+}
+
 checkbox() { if [ "$1" -eq 1 ]; then printf '[x]'; else printf '[ ]'; fi; }
 
 print_dependency_graph() {
@@ -326,7 +335,7 @@ print_install_selection() {
 }
 
 menu_install() {
-    if [ "$ASSUME_YES" -eq 1 ]; then selection_all; return 0; fi
+    [ "$ASSUME_YES" -eq 0 ] || return 0
     while :; do
         ensure_install_dependencies
         print_install_selection
@@ -439,7 +448,7 @@ menu_uninstall() {
 choose_existing_action() {
     print_installed_components
     if [ "$MODE" = 'uninstall' ]; then ACTION='uninstall'; return 0; fi
-    if [ "$MODE" = 'install' ] || [ "$ASSUME_YES" -eq 1 ]; then ACTION='install'; selection_all; return 0; fi
+    if [ "$MODE" = 'install' ] || [ "$ASSUME_YES" -eq 1 ]; then ACTION='install'; selection_from_installed; return 0; fi
     section "$(text 'Выберите действие' 'Choose an action')"
     printf '  1) %s\n' "$(text 'Полное обновление установленного набора' 'Update the installed component set')"
     printf '  2) %s\n' "$(text 'Точечное / полное удаление компонентов' 'Selective / complete component removal')"
@@ -598,16 +607,22 @@ apply_install() {
     cd "$WORK_DIR"
     set -- $APK_FILES
     if [ "$SEL_NGINX" -eq 1 ]; then DEPENDENCIES='nginx-ssl'; else DEPENDENCIES=''; fi
+    remove_packages=$(deselected_installed_packages)
     progress_bar 65 "$(text 'Проверка зависимостей и транзакции' 'Simulating dependency transaction')"
     if [ "$ALLOW_UNTRUSTED" -eq 1 ]; then apk add --simulate --allow-untrusted $DEPENDENCIES "$@"; else apk add --simulate $DEPENDENCIES "$@"; fi
+    if [ -n "$remove_packages" ]; then apk del --simulate $remove_packages; fi
     status_ok 'Предварительная проверка apk завершена' 'apk transaction simulation passed'
     if [ -x /etc/init.d/telego ] && /etc/init.d/telego running >/dev/null 2>&1; then WAS_RUNNING=1; fi
     backup_configuration
     progress_bar 80 "$(text 'Применение APK-транзакции' 'Applying APK transaction')"
     if [ "$ALLOW_UNTRUSTED" -eq 1 ]; then apk add --allow-untrusted $DEPENDENCIES "$@"; else apk add $DEPENDENCIES "$@"; fi
     if [ "$RESTORE_CONFIG" -eq 1 ]; then cp -p "$CONFIG_BACKUP" /etc/config/telego; RESTORE_CONFIG=0; status_ok 'Пользовательская конфигурация сохранена' 'User configuration preserved'; fi
+    if [ -n "$remove_packages" ]; then
+        apk del $remove_packages
+        status_ok 'Снятые компоненты удалены' 'Deselected components removed'
+    fi
     progress_bar 92 "$(text 'Обновление интеграции LuCI' 'Refreshing LuCI integration')"
-    if [ "$SEL_LUCI" -eq 1 ] || [ "$SEL_RU" -eq 1 ]; then /etc/init.d/rpcd restart; fi
+    if [ "$SEL_LUCI" -eq 1 ] || [ "$SEL_RU" -eq 1 ] || [ "$INST_LUCI" -ne "$SEL_LUCI" ] || [ "$INST_RU" -ne "$SEL_RU" ]; then /etc/init.d/rpcd restart; fi
     if [ "$WAS_RUNNING" -eq 1 ] && [ -x /etc/init.d/telego ]; then /etc/init.d/telego restart; status_ok 'Работавшая служба telEgo перезапущена' 'Previously running telEgo service restarted'; fi
     progress_bar 100 "$(text 'Готово' 'Complete')"
     status_ok 'Установка завершена.' 'Installation complete.'
@@ -650,9 +665,7 @@ main() {
     if have_any_installed; then
         choose_existing_action
         if [ "$ACTION" = 'uninstall' ]; then menu_uninstall; apply_changes; return 0; fi
-        if [ "$ASSUME_YES" -eq 1 ]; then selection_all
-        elif [ "$ACTION" = 'install' ] && [ $((SEL_CORE + SEL_LUCI + SEL_NGINX + SEL_RU)) -eq 0 ]; then selection_from_installed
-        fi
+        if [ "$ACTION" = 'install' ] && [ $((SEL_CORE + SEL_LUCI + SEL_NGINX + SEL_RU)) -eq 0 ]; then selection_from_installed; fi
     else
         ACTION='install'
         choose_ru_preference
