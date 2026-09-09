@@ -140,7 +140,9 @@ assert_installed() {
   ensure_service_account
   generate_config
   test -s /var/etc/telego.toml
-  test "$(stat -c '%a' /var/etc/telego.toml)" = 600
+  # OpenWrt's minimal BusyBox does not enable the stat applet by default.
+  # Its find implementation does support exact permission matching.
+  find /var/etc/telego.toml -perm 0600 -print | grep -qx '/var/etc/telego.toml'
   grep -q '^\[general\]$' /var/etc/telego.toml
   grep -q '^bind-to = "0.0.0.0:443"$' /var/etc/telego.toml
   grep -q '^\[tls-fronting\]$' /var/etc/telego.toml
