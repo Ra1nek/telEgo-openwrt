@@ -1,8 +1,8 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=telego-pkg
-PKG_VERSION:=0.6.1
-PKG_RELEASE:=9
+PKG_VERSION:=0.6.2
+PKG_RELEASE:=1
 
 include $(INCLUDE_DIR)/package.mk
 
