@@ -12,6 +12,8 @@ This directory contains the technical documentation for the `develop` branch of 
 | Goal | Open |
 |---|---|
 | Install telEgo on OpenWrt | **[Installation](INSTALL_EN.md)** |
+| Register a domain and configure DNS | **[Domain and DNS](DOMAIN_EN.md)** |
+| Install and configure Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE_EN.md)** |
 | Configure MTProxy, FakeTLS, WEB Proxy, or Middle-End | **[Configuration and LuCI](CONFIGURATION_EN.md)** |
 | Understand traffic flow and system design | **[Architecture](ARCHITECTURE_EN.md)** |
 | Work with `ubus`, rpcd, or Prometheus | **[Local API and telemetry](API_EN.md)** |
@@ -43,6 +45,30 @@ Supported installation and upgrade paths:
 - `--allow-untrusted`;
 - manual package installation;
 - first verification after installation.
+
+### [Domain and DNS](DOMAIN_EN.md)
+
+A standalone guide to choosing, registering, and configuring a domain:
+
+- choosing a TLD and registrar;
+- international and country-code domain requirements;
+- considerations for users in Russia and ESIA verification for `.RU/.РФ/.SU`;
+- a step-by-step `.ru` registration example using Timeweb;
+- authoritative nameservers, delegation, and NS verification;
+- DNSSEC and registrar-account security;
+- a minimal example of connecting an existing domain to Cloudflare DNS.
+
+### [Cloudflare Tunnel](CLOUDFLARE_EN.md)
+
+Practical OpenWrt 25.12.x runbook:
+
+- remotely-managed Tunnel and Tunnel token;
+- official `cloudflared`/`luci-app-cloudflared` APK packages;
+- LuCI and UCI/procd setup;
+- outbound TCP/UDP 7844 with no inbound port-forward;
+- Published application → `http://127.0.0.1:18080`;
+- health checks, logs, token rotation, and troubleshooting;
+- credential boundary between `cloudflared` and telEgo.
 
 ### [Configuration and LuCI](CONFIGURATION_EN.md)
 
@@ -136,7 +162,7 @@ When you need to verify how a feature is implemented, start with the correspondi
 | Architecture | `x86_64` |
 | Package manager | `apk` |
 | Go in the production workflow | `1.27` |
-| Upstream telEgo | pinned `v0.6.1` |
+| Upstream telEgo | pinned `v0.6.2` |
 | License | Apache-2.0 |
 
 The project builds four APK packages:
