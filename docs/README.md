@@ -12,6 +12,8 @@
 | Задача | Откройте |
 |---|---|
 | Установить telEgo на OpenWrt | **[Установка](INSTALL.md)** |
+| Зарегистрировать домен и настроить DNS | **[Домен и DNS](DOMAIN.md)** |
+| Установить и настроить Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE.md)** |
 | Настроить MTProxy, FakeTLS, WEB Proxy или Middle-End | **[Конфигурация и LuCI](CONFIGURATION.md)** |
 | Понять схему трафика и устройство проекта | **[Архитектура](ARCHITECTURE.md)** |
 | Разобраться с `ubus`, rpcd и Prometheus | **[Локальный API и телеметрия](API.md)** |
@@ -43,6 +45,30 @@
 - `--allow-untrusted`;
 - ручная установка пакетов;
 - первоначальная проверка после установки.
+
+### [Домен и DNS](DOMAIN.md)
+
+Самостоятельное руководство по выбору, регистрации и базовой настройке домена:
+
+- выбор TLD и регистратора;
+- особенности международных и национальных доменных зон;
+- требования для пользователей из России и идентификация `.RU/.РФ/.SU` через ЕСИА;
+- пошаговый пример регистрации `.ru` через Timeweb;
+- авторитетные DNS-серверы, делегирование и проверка NS;
+- DNSSEC и базовая защита аккаунта регистратора;
+- минимальный пример подключения зарегистрированного домена к Cloudflare DNS.
+
+### [Cloudflare Tunnel](CLOUDFLARE.md)
+
+Практический runbook для OpenWrt 25.12.x:
+
+- remotely-managed Tunnel и Tunnel token;
+- официальные `cloudflared`/`luci-app-cloudflared` APK packages;
+- LuCI и UCI/procd setup;
+- outbound TCP/UDP 7844 и отсутствие inbound port-forward;
+- Published application → `http://127.0.0.1:18080`;
+- health checks, logs, token rotation и troubleshooting;
+- граница credentials между `cloudflared` и telEgo.
 
 ### [Конфигурация и LuCI](CONFIGURATION.md)
 
@@ -136,7 +162,7 @@
 | Архитектура | `x86_64` |
 | Пакетный менеджер | `apk` |
 | Go в production workflow | `1.27` |
-| Upstream telEgo | pinned `v0.6.1` |
+| Upstream telEgo | pinned `v0.6.2` |
 | Лицензия | Apache-2.0 |
 
 Проект собирает четыре собственных APK-пакета:
