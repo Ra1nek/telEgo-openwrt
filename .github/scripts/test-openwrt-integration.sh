@@ -7,7 +7,11 @@ sh -n install.sh
 python3 .github/tests/test_router_installer.py
 BUSYBOX="${BUSYBOX:-$(command -v busybox)}" python3 .github/tests/test_router_installer.py
 sh -n package/telego-pkg/files/init.d/telego
+sh -n package/nginx-telego/files/init.d/nginx-telego
+sh -n package/nginx-telego/files/usr/libexec/nginx-telego-render
+bash .github/tests/nginx-telego.sh
 sh .github/tests/service-account.sh
+sh .github/tests/telego-config-render.sh
 bash .github/tests/service-definition.sh
 "${NODE:-node}" .github/tests/luci-config.cjs
 python3 .github/tests/test_installer.py

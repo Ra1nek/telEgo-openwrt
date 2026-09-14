@@ -1,82 +1,50 @@
-# Configuration Reference & LuCI UX Guide
+# telEgo Configuration on OpenWrt
 
-`telEgo-openwrt` is configured through OpenWrt UCI at:
+[Русский](CONFIGURATION.md) · [**English**](CONFIGURATION_EN.md)
+
+`telEgo-openwrt` uses OpenWrt UCI as the operator-facing source of truth:
 
 ```text
 /etc/config/telego
 ```
 
-The procd init script converts UCI into a generated runtime file:
+The init script converts UCI into the runtime TOML file:
 
 ```text
 /var/etc/telego.toml
 ```
 
-Do **not** edit the generated TOML. It is rebuilt from UCI and atomically replaced with owner `telego:telego` and mode `0600`.
+The generated TOML belongs to `telego:telego`, uses mode `0600`, and is replaced atomically when configuration is applied. **Do not edit it by hand**: UCI wins again on the next reload.
 
-> [!IMPORTANT]
-> This document is both the field reference and the user-facing guide. The authoritative defaults still live in `package/telego-pkg/files/config/telego`, the UCI→TOML mapping in `package/telego-pkg/files/init.d/telego`, and the visible LuCI fields in `package/luci-app-telego/htdocs/resources/view/telego/config.js`.
+Nginx integration has a separate opt-in UCI package:
 
-## Configuration flow
-
-```mermaid
-flowchart LR
-    A["LuCI / uci CLI"] --> U["/etc/config/telego"]
-    U --> I["/etc/init.d/telego"]
-    I --> T["/var/etc/telego.toml<br/>0600 · telego:telego"]
-    T --> D["/usr/bin/telego<br/>run --config ..."]
+```text
+/etc/config/nginx_telego
 ```
 
-## UCI → TOML bridge: one source of truth
-
-OpenWrt administrators work with UCI; upstream telEgo consumes TOML. The init layer is the bridge between the two worlds.
-
-<table>
-<tr>
-<th width="50%">OpenWrt source — <code>/etc/config/telego</code></th>
-<th width="50%">Generated runtime — <code>/var/etc/telego.toml</code></th>
-</tr>
-<tr>
-<td valign="top"><pre><code>config general 'general'
-    option enabled '1'
-    option bind_to '0.0.0.0:443'
-    option log_level 'info'
-
-config tls_fronting 'tls_fronting'
-    option mask_host 'www.google.com'
-    option enable_drs '1'
-    option enable_split_tls '1'
-
-config secret 'alice'
-    option name 'alice'
-    option secret '0123456789abcdef0123456789abcdef'
-
-config secret 'bob'
-    option name 'bob'
-    option secret 'fedcba9876543210fedcba9876543210'</code></pre></td>
-<td valign="top"><pre><code>[general]
-bind-to = "0.0.0.0:443"
-log-level = "info"
-
-[tls-fronting]
-mask-host = "www.google.com"
-enable-drs = true
-enable-split-tls = true
-
-[secrets]
-"alice" = "0123456789abcdef0123456789abcdef"
-"bob" = "fedcba9876543210fedcba9876543210"</code></pre></td>
-</tr>
-</table>
-
-The runtime file is built in a temporary path, validated, changed to `telego:telego`, set to `0600`, and atomically moved into place.
-
-> [!TIP]
-> Think of `/etc/config/telego` as the **database** and `/var/etc/telego.toml` as a **compiled runtime artifact**. If they differ, UCI wins on the next reload.
+It controls only managed Nginx ingress profiles and enables nothing by default.
 
 ---
 
-# LuCI: guided configuration
+## Configuration architecture
+
+```mermaid
+flowchart LR
+    L["LuCI / uci"] --> U["/etc/config/telego"]
+    U --> I["/etc/init.d/telego"]
+    I --> T["/var/etc/telego.toml"]
+    T --> D["telEgo daemon"]
+
+    NU["/etc/config/nginx_telego"] --> NR["nginx-telego-render"]
+    NR --> NC["zz-telego-managed.conf"]
+    NC --> N["Nginx"]
+```
+
+The two control planes are intentionally separate. `telego` describes the proxy daemon runtime. `nginx_telego` describes only the Nginx edge around WEB Proxy. The renderer does **not** rewrite `/etc/config/telego`; instead, it validates that both sides agree and refuses an incompatible configuration.
+
+---
+
+# LuCI
 
 Open:
 
@@ -84,21 +52,17 @@ Open:
 Services → telEgo
 ```
 
-The page exposes the configuration and a live status view. The sections below follow the current LuCI order and explain not only what each field maps to, but when an operator should actually change it.
+The page contains **Configuration** and **Status** tabs.
 
-## 1. MTProxy
+# 1. MTProxy
 
-### Enable MTProxy — `general.enabled`
+## Enable MTProxy — `general.enabled`
 
-| Parameter | What it does | Operational value |
-|---|---|---|
-| **Enable MTProxy** | Controls whether procd creates the telEgo service instance | One switch starts/stops the entire runtime, including the WEB listener owned by that process |
+Controls the whole telEgo procd instance. When disabled, the daemon is not running, so the WEB listener and Middle-End runtime in that process are also absent.
 
 Default: `off`.
 
-When disabled, no telEgo daemon instance is kept running. The option is OpenWrt-only and is not emitted into the TOML file.
-
-### Listen Address — `general.bind_to`
+## Listen Address — `general.bind_to`
 
 Default:
 
@@ -106,38 +70,32 @@ Default:
 0.0.0.0:443
 ```
 
-This is the public MTProxy listener.
+This is telEgo's public TCP listener. A direct MTProxy deployment may use another port. Native shared-port WEB deployment requires telEgo to own public `:443`.
 
-> [!TIP]
-> Port `443` gives the best client compatibility and is the natural choice for a shared FakeTLS deployment. Before enabling it, verify that `uhttpd`, Nginx, or another service is not already bound to the same address/port.
+## Log Level — `general.log_level`
 
-### Log Level — `general.log_level`
+`trace`, `debug`, `info`, `warn`, or `error`. Use `info` for normal operation.
 
-Available values:
+## Advanced MTProxy controls
 
-| Value | Use it when |
-|---|---|
-| `trace` | Deep temporary protocol debugging; very verbose |
-| `debug` | Diagnosing routing, WEB, Middle-End, or startup problems |
-| `info` | Normal production operation |
-| `warn` | You only want operational anomalies |
-| `error` | Minimal logging, usually too sparse for active troubleshooting |
+These settings are now exposed in LuCI and map directly to the pinned upstream configuration:
 
-Recommended default: `info`.
+| Field | UCI | Default | Purpose |
+|---|---|---:|---|
+| Accept Incoming PROXY Protocol | `proxy_protocol` | `0` | Trust inbound PROXY protocol only from a controlled TCP proxy |
+| Max Connections per IP | `max_connections_per_ip` | `100` | Connection-flood limit; `0` disables it |
+| Max IPs per User | `max_ips_per_user` | `10` | Per-secret IP limit; `0` disables it |
+| IP Block Timeout | `ip_block_timeout` | `5m` | How long an evicted IP remains blocked |
+| Handshake Timeout | `handshake_timeout` | `5s` | Maximum authentication-handshake time |
+| Clock Sync URL | `clock_sync_url` | empty | Optional one-shot correction for large clock skew using an HTTP `Date` header |
 
-## 2. TLS Fronting / FakeTLS
+Do not enable `proxy_protocol` on an Internet-reachable listener unless a trusted network boundary exists directly in front of telEgo.
 
-The current LuCI does **not** have a separate “ee/dd mode” switch. The upstream core auto-detects client mode on one listener:
+---
 
-- `ee…` client secret → FakeTLS-wrapped Obfuscated2;
-- `dd…` client secret → raw Obfuscated2.
+# 2. TLS Fronting / FakeTLS
 
-The LuCI fields below configure the FakeTLS/fronting behavior used by the `ee` path and the probe/splice path.
-
-> [!IMPORTANT]
-> If your goal is maximum network camouflage rather than minimum framing overhead, use the **FakeTLS (`ee`) client link**, keep DRS and Split-TLS enabled, and use a stable HTTPS mask host. There is no universal “perfect” mask domain: the best choice depends on what is naturally reachable from the target network.
-
-### Mask Domain — `tls_fronting.mask_host`
+## Mask Domain — `tls_fronting.mask_host`
 
 Default:
 
@@ -145,204 +103,86 @@ Default:
 www.google.com
 ```
 
-Used for mask/SNI validation and certificate-profile behavior.
+This controls FakeTLS SNI/certificate-profile behavior. In a normal direct MTProxy deployment it may be an external mask host. In **native shared-port WEB deployment**, it must match the hostname on the real WEB TLS certificate because ordinary TLS is spliced back to local Nginx.
 
-Choose a host that:
+## Mask Port — `mask_port`
 
-- is reliably reachable from the router/network;
-- serves ordinary modern HTTPS on port `443`;
-- is not a private/internal hostname;
-- has a stable TLS endpoint;
-- makes sense as normal HTTPS traffic in your environment.
+Default `443`.
 
-> [!CAUTION]
-> Do not treat a specific famous domain as a magic bypass recipe. Blocking and fingerprinting policy differs between providers and changes over time.
+## Certificate Host / Port — `cert_host`, `cert_port`
 
-### Mask Port — `tls_fronting.mask_port`
-
-Default: `443`.
-
-Normally leave it unchanged. Change it only when the selected mask/certificate topology deliberately uses another TLS port.
-
-### Certificate Host / Certificate Port — `cert_host`, `cert_port`
-
-Optional advanced override for where telEgo obtains the TLS certificate/profile data.
-
-Use it when the public mask name and the local certificate source are intentionally different, for example in a shared-port topology with a private Nginx certificate listener.
-
-Typical advanced layout:
+Optional certificate-chain source for FakeTLS. The LuCI fields accept a hostname **or an IP address**, allowing the local shared-port topology to use:
 
 ```text
-cert_host = 127.0.0.1
-cert_port = 8444
+Certificate Host = 127.0.0.1
+Certificate Port = 8444
 ```
 
-### Fallback Host / Fallback Port — `splice_host`, `splice_port`
+## Fallback Host / Port — `splice_host`, `splice_port`
 
-Controls where unrecognized/unauthenticated TLS traffic is spliced.
+Defines where telEgo sends TLS connections that are not authenticated MTProxy sessions.
 
-When empty, upstream can use the mask endpoint. In a premium shared-port deployment, point the fallback to a private Nginx TLS listener that serves the real certificate/site.
-
-Example:
+Native shared-port topology:
 
 ```text
 Fallback Host = 127.0.0.1
 Fallback Port = 8443
+Fallback PROXY Protocol = v2
 ```
 
-### Fake Certificate Size — `fake_cert_size`
+## Fake Certificate Size — `fake_cert_size`
 
-Default: `0`.
+- `0` selects automatic matching and is the recommended default;
+- an explicit override must be within `256..16384` bytes.
 
-`0` means automatic profile matching. The upstream implementation can match the first fake certificate `ApplicationData` record size to the mask backend's observed first certificate record.
+LuCI validates this range before saving.
 
-> [!TIP]
-> Leave this at `0` unless you have packet captures and a specific compatibility/fingerprint reason for overriding it.
+## Mask SNI Safelist
 
-### Mask SNI Safelist — `mask_sni_safelist`
+Exact hostnames that may use SNI-following probe forwarding. An empty list disables the feature.
 
-Dynamic list of exact hostnames allowed for SNI-following probe forwarding.
+## DRS and Split TLS
 
-Example:
+Both are enabled by default and match the upstream anti-fingerprint record shaping. They normally should remain unchanged unless you have a specific compatibility reason.
 
-```text
-www.microsoft.com
-www.apple.com
-```
+---
 
-This is intentionally not an open relay. Only exact configured domains are eligible.
+# 3. Users / Secrets
 
-### Fallback PROXY Protocol — `splice_proxy_protocol`
+Every **Users** row becomes an entry in the runtime `[secrets]` table.
+
+| Field | Requirement |
+|---|---|
+| Username | UCI-safe name |
+| Secret | exactly 32 hexadecimal characters |
+
+The **Generate** button creates 16 random bytes with browser Web Crypto and renders them as 32 hexadecimal characters.
+
+> [!IMPORTANT]
+> A secret is a credential. Do not publish `uci show telego`, `/var/etc/telego.toml`, or screenshots that contain real secrets.
+
+---
+
+# 4. WEB Proxy
+
+WEB Proxy is a private HTTP frontend for Telegram Desktop. It **does not terminate TLS itself**. Nginx, Cloudflare, or another reviewed edge must sit in front of it and implement the full fallback contract.
+
+## Enable WEB Proxy — `web_proxy.enabled`
+
+Default `off`.
+
+## Carrier Mode — `carrier`
 
 | Value | Meaning |
-|---:|---|
-| `0` | Disabled |
-| `1` | PROXY protocol v1 |
-| `2` | PROXY protocol v2 |
+|---|---|
+| `https` | one serialized fetch/long-poll carrier |
+| `https-lanes` | one HTTP lane for each Telegram stream |
+| `websocket` | one multiplexed WebSocket |
+| `websocket-lanes` | one WebSocket per stream |
 
-Use this only when the downstream Nginx/HAProxy listener is configured to accept the same PROXY protocol version.
+The OpenWrt default is `https-lanes`, matching the pinned upstream conservative recommendation for a new deployment with public HTTP/2. This is not a claim that it is always faster than every other carrier.
 
-### Fallback Idle Timeout — `splice_idle_timeout`
-
-Default:
-
-```text
-30s
-```
-
-Controls idle lifetime for spliced/decoy connections. These connections are intentionally shorter-lived than authenticated proxy sessions.
-
-### Enable DRS — `enable_drs`
-
-Default: `on`.
-
-Dynamic Record Sizer shapes proxy→client TLS `ApplicationData`:
-
-```text
-1369-byte records
-        ↓
-after 8 records OR 128 KiB
-        ↓
-16384-byte steady-state records
-```
-
-This reduces a fixed early-record-size fingerprint while retaining full-size records for sustained traffic.
-
-### Enable Split TLS — `enable_split_tls`
-
-Default: `on`.
-
-The first outbound `ApplicationData` record is emitted as a 1-byte record, which breaks simple signatures that assume a conventional first application record size.
-
-> [!NOTE]
-> DRS and Split-TLS are anti-fingerprint mechanisms, not a guarantee that any specific DPI/TSPU implementation cannot classify the flow.
-
----
-
-## 3. Users / Secrets
-
-Each row in the LuCI **Users** grid becomes an entry in TOML `[secrets]`.
-
-| Field | Requirement | What happens |
-|---|---|---|
-| **Username** | UCI-safe name | Becomes the TOML map key |
-| **Secret** | Exactly 32 hexadecimal characters | 16-byte / 128-bit base MTProxy secret |
-| **Generate** | Browser button | Generates 16 random bytes with Web Crypto and converts them to 32 hex characters |
-
-The generator uses:
-
-```javascript
-const bytes = new Uint8Array(16);
-window.crypto.getRandomValues(bytes);
-```
-
-The server does not need an external randomness API for this button.
-
-> [!CAUTION]
-> A user secret is a credential. `uci show telego`, `/etc/config/telego`, `/var/etc/telego.toml`, and LuCI screenshots can disclose it.
-
-<details>
-<summary><b>⚡ Create a user from CLI (click to expand)</b></summary>
-
-```sh
-uci add telego secret
-uci set telego.@secret[-1].name='alice'
-uci set telego.@secret[-1].secret='0123456789abcdef0123456789abcdef'
-uci commit telego
-/etc/init.d/telego reload
-```
-
-</details>
-
----
-
-## 4. WEB Proxy
-
-WEB Proxy is a separate Telegram Desktop frontend. It uses a private HTTP/1.1 listener behind real TLS termination in Nginx and then enters the shared telEgo session core.
-
-### Enable WEB Proxy — `web_proxy.enabled`
-
-Default: `off`.
-
-Enable it only after you have:
-
-- a public DNS hostname;
-- a valid TLS certificate for that hostname;
-- an Nginx/TLS deployment that forwards every request for the hostname through the telEgo WEB classifier;
-- a private WEB listener that is not directly exposed to WAN.
-
-### Carrier Mode — `web_proxy.carrier`
-
-Current OpenWrt default: `https-lanes`.
-
-| Carrier | What it does | Choose it when |
-|---|---|---|
-| `https` | One serialized fetch + long-poll carrier | You want the least demanding Nginx setup and maximum compatibility |
-| `https-lanes` | Independent fetch/long-poll lane for each Telegram stream | Recommended default for the full WEB setup; public HTTP/2 is required by upstream guidance |
-| `websocket` | One multiplexed WebSocket for the session | Your edge reliably supports WebSocket Upgrade and you prefer one persistent WS carrier |
-| `websocket-lanes` | One WebSocket per active Telegram stream | You specifically want lane-style WebSocket separation and your edge handles multiple WSS connections cleanly |
-
-### What are Lanes?
-
-A non-lane carrier shares one transport sequence between multiple logical Telegram streams. Lane mode gives each stream its own transport lane.
-
-```mermaid
-flowchart LR
-    APP["Telegram Desktop"] --> S1["Stream A"]
-    APP --> S2["Stream B"]
-    APP --> S3["Stream C"]
-    S1 --> L1["Lane A"]
-    S2 --> L2["Lane B"]
-    S3 --> L3["Lane C"]
-    L1 --> WEB["telEgo WEB frontend"]
-    L2 --> WEB
-    L3 --> WEB
-```
-
-> [!TIP]
-> For a new, fully controlled Nginx deployment, **`https-lanes` is the conservative upstream recommendation**. That is a deployment recommendation, not proof that it is always faster or harder to classify than every other carrier.
-
-### Bind Address — `web_proxy.bind_to`
+## Bind Address — `bind_to`
 
 Default:
 
@@ -350,24 +190,13 @@ Default:
 127.0.0.1:8080
 ```
 
-This is a **private plain HTTP/1.1 listener** between Nginx and telEgo.
+This is a private HTTP/1.1 listener. Do not expose it directly to the WAN.
 
-> [!CAUTION]
-> Do not expose port `8080` directly to the Internet. Nginx (or another reviewed TLS edge implementing the full fallback contract) should be the only client.
+## Hostname — `hostname`
 
-### Hostname — `web_proxy.hostname`
+Required while WEB Proxy is enabled. It must match the public TLS hostname or Cloudflare Published Application.
 
-Required when WEB Proxy is enabled.
-
-Example:
-
-```text
-proxy.example.com
-```
-
-It must match the public hostname and the TLS certificate used by the WEB edge.
-
-### Trusted Proxy CIDRs — `trusted_proxy_cidrs`
+## Trusted Proxy CIDRs
 
 Default:
 
@@ -375,252 +204,334 @@ Default:
 127.0.0.1/32
 ```
 
-Only trusted proxy peers may supply forwarded client addresses.
+Only these Nginx/proxy peers may supply a forwarded client address to telEgo.
 
-> [!CAUTION]
-> Never use `0.0.0.0/0` simply to “make it work.” Trusting forwarded addresses from arbitrary Internet peers breaks the client-IP trust boundary.
+## Compatibility Backend — `backend`
 
-### Hidden advanced WEB fields
+This advanced option is now visible in LuCI.
 
-These exist in UCI/runtime but are not currently exposed by LuCI:
+An empty value is the normal and preferred path: WEB streams enter the shared MTProxy core inside the same process without an extra TCP/Unix hop.
 
-| UCI option | Default | Runtime mapping |
-|---|---:|---|
-| `backend` | empty | `web-proxy.backend` compatibility socket path |
-| `num_event_loops` | `0` | `web-proxy.num-event-loops` |
+An explicit backend is only for compatibility topologies, for example:
 
-Without an explicit `backend`, native WEB streams enter the shared telEgo session core directly; no internal TCP/Unix hop is required for the default path.
+```text
+127.0.0.1:9443
+```
+
+or a supported local Unix socket.
+
+## WEB Event Loops — `num_event_loops`
+
+`0` selects the automatic gnet event-loop count. Change it only after measurement.
 
 ---
 
-## 5. Telegram Middle-End
+# 5. Nginx deployment profiles
 
-Middle-End is an optional upstream route after authentication. It is independent of the WEB carrier choice.
-
-| Field | Default | Operator guidance |
-|---|---:|---|
-| **Enable Middle-End** | `0` | Enable only when you understand the persistent-link/NAT/FD requirements |
-| **Proxy Tag** | empty | Set only if Telegram issued a proxy tag; ME can operate without one |
-| **SOCKS5 Proxy** | empty | Routes ME links through a SOCKS5 egress |
-| **SOCKS5 Username** | empty | Use together with password |
-| **SOCKS5 Password** | empty | Sensitive credential; use together with username |
-| **Artifact Proxy** | empty | Separate proxy for Telegram artifact downloads |
-| **STUN NAT IP** | empty | Usually leave empty; override only when automatic public-IP discovery is wrong |
-| **Middle-End Max Connections** | `0` | `0` selects upstream default; override can only reduce the derived limit |
-| **Middle-End Queue Budget (MB)** | `0` | `0` selects upstream default; expert memory-pressure control |
-
-Pinned upstream maintains four physical gnet links per signed Telegram DC and can repair individual failed slots without rebuilding every healthy DC pool. See [ARCHITECTURE.md](ARCHITECTURE.md#telegram-middle-end-me).
-
----
-
-## 6. Performance
-
-| LuCI field | Default | What it controls | Guidance |
-|---|---:|---|---|
-| **TCP Buffer (KB)** | `128` | `performance.tcp-buffer-kb` | Keep default unless you have measured throughput/buffer pressure |
-| **Event Loops** | `0` | Number of core gnet event loops | `0` = automatic; preferred starting point |
-| **IP Preference** | `prefer-ipv4` | DC address-family policy | Change only when your IPv6/IPv4 path quality justifies it |
-| **Idle Timeout** | `5m` | General connection idle timeout | Tune conservatively; short values increase reconnect churn |
-| **Max Write Buffer (MB)** | `0` | Slow-receiver pending write limit | Use to bound memory only with measured evidence |
-| **Client Silence Close** | `0s` | Optional stale-client recovery | Advanced workaround; too-low values can close legitimate slow sessions |
-
-Available IP preference values:
+`nginx-telego` always installs the generic integration pieces:
 
 ```text
-prefer-ipv4
-prefer-ipv6
-only-ipv4
-only-ipv6
+/etc/nginx/conf.d/telego.conf
+/etc/nginx/snippets/telego.locations
 ```
 
----
+`telego.conf` defines the shared `telego_web → 127.0.0.1:8080` upstream and the Nginx maps used by the integration.
 
-## 7. Generic Upstream SOCKS5
+`telego.locations` is a reusable HTTP/WebSocket/fallback snippet for a normal Nginx TLS server. It is **not an MTProto handler**. In native shared-port mode, the private TLS server on `:8443` includes it after telEgo has separated MTProxy from ordinary TLS.
 
-`upstream.socks5` is separate from Middle-End-specific SOCKS5 settings.
-
-Example:
+The package also provides opt-in managed profiles:
 
 ```text
-127.0.0.1:1080
+/etc/config/nginx_telego
+/usr/libexec/nginx-telego-render
 ```
 
-Use it when direct Telegram DC connections should egress through a VPN/tunnel/SOCKS5 path.
+Both profiles are disabled by default and are **mutually exclusive**.
 
----
+## 5.1 Cloudflare profile
 
-## 8. Metrics
+See the full **[Cloudflare Tunnel guide](CLOUDFLARE_EN.md)**.
 
-### Metrics Address — `metrics.bind_to`
+In short:
 
-Default:
+```sh
+uci set nginx_telego.cloudflare.enabled='1'
+uci set nginx_telego.cloudflare.hostname='web.example.com'
+uci set nginx_telego.shared.enabled='0'
+uci commit nginx_telego
+/etc/init.d/nginx-telego reload
+```
+
+It creates the loopback `127.0.0.1:18080` ingress, restores the client address from `CF-Connecting-IP`, and implements the `418/419` fallback contract.
+
+The Cloudflare profile **does not use `telego.locations`** because it needs Cloudflare-specific client-IP handling.
+
+## 5.2 Native shared-port profile
+
+This mode lets telEgo MTProxy and WEB Proxy share public TCP/443:
 
 ```text
-127.0.0.1:9090
+                    ┌─ authenticated MTProxy ──> Telegram
+                    │
+Internet → telEgo :443
+                    │
+                    └─ ordinary TLS
+                           ↓ PROXY v2
+                    Nginx TLS :8443
+                           ↓ decrypted HTTP/1.1
+                    telego.locations
+                           ↓
+                    telEgo WEB :8080
 ```
 
-### Metrics Path — `metrics.path`
-
-Default:
+Separate control path:
 
 ```text
-/metrics
+telEgo certificate fetcher → Nginx TLS :8444
 ```
 
-### Enable Diagnostics — `metrics.diagnostics`
+### Requirements
 
-Default: `off`.
+- public `:443` belongs to telEgo;
+- the WEB hostname has a real TLS certificate and private key on OpenWrt;
+- `mask_host` equals the WEB/certificate hostname;
+- WEB listener is `127.0.0.1:8080`;
+- `trusted_proxy_cidrs` contains `127.0.0.1/32`;
+- Nginx private ports `8443`, `8444`, and managed fallback `8090` are free;
+- `https-lanes` requires HTTP/2; the standard OpenWrt 25.12 `nginx-ssl` configuration enables HTTP/2 by default.
 
-Private runtime diagnostics should remain on literal loopback.
+### Configure telEgo
+
+Example for `proxy.example.com`:
+
+```sh
+uci set telego.general.bind_to='0.0.0.0:443'
+
+uci set telego.tls_fronting.mask_host='proxy.example.com'
+uci set telego.tls_fronting.cert_host='127.0.0.1'
+uci set telego.tls_fronting.cert_port='8444'
+uci set telego.tls_fronting.splice_host='127.0.0.1'
+uci set telego.tls_fronting.splice_port='8443'
+uci set telego.tls_fronting.splice_proxy_protocol='2'
+
+uci set telego.web_proxy.enabled='1'
+uci set telego.web_proxy.hostname='proxy.example.com'
+uci set telego.web_proxy.bind_to='127.0.0.1:8080'
+uci -q delete telego.web_proxy.trusted_proxy_cidrs
+uci add_list telego.web_proxy.trusted_proxy_cidrs='127.0.0.1/32'
+
+uci commit telego
+/etc/init.d/telego reload
+```
+
+### Configure managed Nginx
+
+The package **does not issue a certificate**. Point it at certificate/key files managed by your chosen certificate workflow:
+
+```sh
+uci set nginx_telego.shared.enabled='1'
+uci set nginx_telego.shared.hostname='proxy.example.com'
+uci set nginx_telego.shared.certificate='/etc/ssl/example/fullchain.pem'
+uci set nginx_telego.shared.certificate_key='/etc/ssl/example/privkey.pem'
+uci set nginx_telego.cloudflare.enabled='0'
+uci set nginx_telego.fallback.manage='1'
+uci commit nginx_telego
+
+/etc/init.d/nginx-telego reload
+```
+
+The renderer validates the complete telEgo contract, port conflicts, certificate readability, and `nginx -t`. A failed candidate must not replace the previous working managed configuration.
+
+Verify:
+
+```sh
+/usr/sbin/nginx -T -c /etc/nginx/uci.conf 2>&1 | \
+    grep -nE '8443|8444|8090|telego.locations|telego_web'
+netstat -lntp 2>/dev/null | grep -E ':443|:8080|:8090|:8443|:8444'
+```
 
 > [!IMPORTANT]
-> The built-in LuCI telemetry backend intentionally fetches only `127.0.0.1:<port>` or `[::1]:<port>`. A remote metrics bind may be valid for the daemon itself, but LuCI refuses to turn its status RPC into a generic remote HTTP fetcher.
-
-<details>
-<summary><b>⚡ Inspect local Prometheus metrics (click to expand)</b></summary>
-
-```sh
-uclient-fetch -q -T 2 -O - http://127.0.0.1:9090/metrics
-```
-
-</details>
-
-See [API.md](API.md).
+> Do not enable native shared-port casually on a working production router. It intentionally changes ownership of public `:443`, the mask/certificate topology, and the TLS splice path. A Cloudflare WEB deployment may continue to operate independently instead.
 
 ---
 
-# Canonical UCI reference
+# 6. Telegram Middle-End
 
-## Service control: `general`
+Middle-End (ME) is an **opt-in outbound transport** selected after authentication. It is `off` by default, so package upgrades keep the existing direct Telegram DC route.
 
-| UCI option | Default | LuCI | Runtime effect |
-|---|---:|:---:|---|
-| `enabled` | `0` | yes | Controls whether procd creates/runs the daemon instance; not written to TOML |
-| `bind_to` | `0.0.0.0:443` | yes | `general.bind-to` |
-| `log_level` | `info` | yes | `general.log-level` |
-| `proxy_protocol` | `0` | no | `general.proxy-protocol` boolean |
-| `max_connections_per_ip` | `100` | no | `general.max-connections-per-ip` |
-| `max_ips_per_user` | `10` | no | `general.max-ips-per-user` |
-| `ip_block_timeout` | `5m` | no | `general.ip-block-timeout` |
-| `handshake_timeout` | `5s` | no | `general.handshake-timeout` |
-| `clock_sync_url` | empty | no | `general.clock-sync-url` only when non-empty |
+## What changes when it is enabled
 
-## TLS fronting: `tls_fronting`
+ME maintains persistent gnet links to Telegram Middle-End endpoints, bounded queues, artifact refresh, STUN/NAT discovery, and direct fallback whenever the active generation is not ready.
 
-| UCI option | Default | LuCI | Runtime mapping |
-|---|---:|:---:|---|
-| `mask_host` | `www.google.com` | yes | `tls-fronting.mask-host` |
-| `mask_port` | `443` | yes | `tls-fronting.mask-port` |
-| `cert_host` | empty | yes | `tls-fronting.cert-host` when set |
-| `cert_port` | empty | yes | `tls-fronting.cert-port` when set |
-| `fake_cert_size` | `0` | yes | `tls-fronting.fake-cert-size` when non-zero |
-| `mask_sni_safelist` | none | yes | `mask-sni-safelist` array |
-| `splice_host` | empty | yes | `tls-fronting.splice-host` when set |
-| `splice_port` | empty | yes | `tls-fronting.splice-port` when set |
-| `splice_proxy_protocol` | `0` | yes | `0` off, `1` v1, `2` v2 |
-| `splice_idle_timeout` | `30s` | yes | `tls-fronting.splice-idle-timeout` |
-| `enable_drs` | `1` | yes | `tls-fronting.enable-drs` |
-| `enable_split_tls` | `1` | yes | `tls-fronting.enable-split-tls` |
+Before enabling it, make sure the router:
 
-## Users/secrets: `secret`
+- can fetch Telegram artifacts over HTTPS;
+- can open TCP connections to the signed ME endpoints;
+- can use UDP STUN for private direct sockets or has a correct `nat_ip` override;
+- has enough file descriptors and memory for the selected load.
 
-| UCI option | Required | LuCI | Behavior |
-|---|:---:|:---:|---|
-| `name` | yes | yes | TOML map key; defaults to UCI section id if absent |
-| `secret` | yes | yes | Exactly 32 hexadecimal characters |
-| `description` | no | no | OpenWrt-side metadata; not emitted by current runtime generator |
+## LuCI fields
 
-## WEB Proxy: `web_proxy`
+| Field | Default | Validation |
+|---|---:|---|
+| Enable Middle-End | `off` | operator opt-in only |
+| Proxy Tag | empty | empty or exactly 32 hex characters |
+| SOCKS5 Proxy | empty | optional ME egress |
+| SOCKS5 Username / Password | empty | SOCKS5 credentials |
+| Artifact Proxy | empty | optional artifact-only proxy |
+| STUN NAT IP | empty | literal IP; normally unnecessary |
+| Max Connections | `0` | `0` or `1..10000` |
+| Queue Budget (MB) | `0` | `0` or `2..32` |
 
-| UCI option | Default | LuCI | Runtime mapping |
-|---|---:|:---:|---|
-| `enabled` | `0` | yes | `web-proxy.enabled` |
-| `carrier` | `https-lanes` | yes | `https`, `https-lanes`, `websocket`, `websocket-lanes` |
-| `bind_to` | `127.0.0.1:8080` | yes | `web-proxy.bind-to` |
-| `hostname` | empty | yes, required when enabled | `web-proxy.hostname` |
-| `trusted_proxy_cidrs` | `127.0.0.1/32` | yes | `trusted-proxy-cidrs` array |
-| `backend` | empty | no | `web-proxy.backend` |
-| `num_event_loops` | `0` | no | `web-proxy.num-event-loops` |
+`0` for max connections selects the upstream default of `10000`. `0` for queue budget selects the upstream default of `32 MiB` plus its permit.
 
-## Telegram Middle-End: `middle_end`
+A proxy tag is **not required** to enable Middle-End. Leave it empty if Telegram did not issue one.
 
-| UCI option | Default | LuCI | Runtime mapping |
-|---|---:|:---:|---|
-| `enabled` | `0` | yes | `middle-end.enabled` |
-| `proxy_tag` | empty | yes | `middle-end.proxy-tag` |
-| `socks5` | empty | yes | `middle-end.socks5` |
-| `socks5_username` | empty | yes | `middle-end.socks5-username` |
-| `socks5_password` | empty | yes | `middle-end.socks5-password` |
-| `artifact_proxy` | empty | yes | `middle-end.artifact-proxy` |
-| `nat_ip` | empty | yes | `middle-end.nat-ip` |
-| `max_connections` | `0` | yes | `middle-end.max-connections` |
-| `queue_budget_mb` | `0` | yes | `middle-end.queue-budget-mb` |
+## Controlled enablement
 
-## Performance: `performance`
+Enable metrics first so the runtime can be observed. Then:
 
-| UCI option | Default | LuCI | Runtime mapping |
-|---|---:|:---:|---|
-| `tcp_buffer_kb` | `128` | yes | `performance.tcp-buffer-kb` |
-| `num_event_loops` | `0` | yes | `performance.num-event-loops` |
-| `prefer_ip` | `prefer-ipv4` | yes | `prefer-ipv4`, `prefer-ipv6`, `only-ipv4`, `only-ipv6` |
-| `idle_timeout` | `5m` | yes | `performance.idle-timeout` |
-| `max_write_buffer_mb` | `0` | yes | `performance.max-write-buffer-mb` |
-| `client_silence_close` | `0s` | yes | `performance.client-silence-close` |
+```sh
+uci set telego.middle_end.enabled='1'
+uci commit telego
+/etc/init.d/telego reload
+```
 
-## Generic upstream SOCKS5: `upstream`
+Watch the **Status** tab and `logread -e telego`.
 
-| UCI option | Default | LuCI | Runtime mapping |
-|---|---:|:---:|---|
-| `socks5` | empty | yes | `upstream.socks5` |
+Rollback:
 
-## Metrics: `metrics`
+```sh
+uci set telego.middle_end.enabled='0'
+uci commit telego
+/etc/init.d/telego reload
+```
 
-| UCI option | Default | LuCI | Runtime mapping |
-|---|---:|:---:|---|
-| `bind_to` | `127.0.0.1:9090` | yes | `metrics.bind-to` |
-| `path` | `/metrics` | yes | `metrics.path` |
-| `diagnostics` | `0` | yes | `metrics.diagnostics` boolean |
+After it is disabled, new authenticated connections use the normal direct DC path again.
 
 ---
 
-# Reload / restart semantics
+# 7. Performance
 
-The init script registers a UCI reload trigger. **Save & Apply** / reload rebuilds the procd instance definition.
+| LuCI | UCI | Default | Guidance |
+|---|---|---:|---|
+| TCP Buffer (KB) | `tcp_buffer_kb` | `128` | change only with measurements |
+| Event Loops | `num_event_loops` | `0` | automatic |
+| IP Preference | `prefer_ip` | `prefer-ipv4` | depends on IPv4/IPv6 path quality |
+| Idle Timeout | `idle_timeout` | `5m` | avoid overly short values |
+| Max Write Buffer (MB) | `max_write_buffer_mb` | `0` | upstream-derived default |
+| Client Silence Close | `client_silence_close` | `0s` | diagnostic recovery option, disabled by default |
 
-```mermaid
-flowchart LR
-    C["UCI commit"] --> R["/etc/init.d/telego reload"]
-    R --> G["Generate TOML"]
-    G --> Q{"general.enabled?"}
-    Q -->|"0"| S["Remove / stop instance"]
-    Q -->|"1"| P["procd instance"]
-    P --> X{"runtime config changed?"}
-    X -->|"yes"| RESTART["Restart daemon"]
-    X -->|"no"| KEEP["Keep equivalent instance"]
+---
+
+# 8. Generic Upstream SOCKS5
+
+`upstream.socks5` affects ordinary Telegram DC connections and is separate from the Middle-End-specific SOCKS5 settings.
+
+Leave it empty for direct routing.
+
+---
+
+# 9. Metrics and Diagnostics
+
+Default endpoint:
+
+```text
+127.0.0.1:9090/metrics
 ```
 
-Secrets and listener changes are not hot-reloaded inside the process by this OpenWrt integration. Existing connections can be interrupted by a restart.
+LuCI Status deliberately permits its rpcd backend to read metrics only from literal loopback `127.0.0.1` or `::1`, preventing the status RPC from becoming a generic HTTP fetcher.
 
-# Inspect configuration safely
+**Enable Diagnostics** exposes private runtime profiling endpoints on the same loopback metrics server. Do not publish them through Nginx, Cloudflare, or WAN.
 
-<details>
-<summary><b>⚡ Non-secret health checks (click to expand)</b></summary>
+Check metrics locally:
 
 ```sh
-uci -q get telego.general.enabled
-uci -q get telego.general.bind_to
-uci -q get telego.web_proxy.enabled
-uci -q get telego.metrics.bind_to
+uclient-fetch -q -T 2 -O - http://127.0.0.1:9090/metrics | head
+```
+
+---
+
+# 10. Status
+
+The **Status** tab now presents three groups.
+
+## Service and MTProxy
+
+- service state / PID / uptime;
+- active connections;
+- active / tracked / blocked IPs;
+- received / sent traffic.
+
+## WEB Proxy Runtime
+
+- enabled state and carrier;
+- active WEB sessions/streams/WebSockets;
+- active backend dials;
+- pending bytes/items;
+- sessions created/closed;
+- carrier retries;
+- backpressure events.
+
+## Middle-End Runtime
+
+- enabled state;
+- admission readiness;
+- repair state;
+- physical links;
+- active bindings;
+- active slot repairs / failures;
+- artifact applied/pending state;
+- artifact refresh failures.
+
+These values are read from telEgo's local Prometheus endpoint through a read-only rpcd backend.
+
+---
+
+# 11. UCI → TOML reference
+
+| UCI section | Main options | Runtime section |
+|---|---|---|
+| `general` | `bind_to`, `log_level`, limits/timeouts | `[general]` |
+| `tls_fronting` | mask/cert/splice/DRS/Split TLS | `[tls-fronting]` |
+| `secret` | `name`, `secret` | `[secrets]` map |
+| `web_proxy` | enabled/carrier/bind/hostname/backend/trusted/loops | `[web-proxy]` |
+| `middle_end` | enabled/tag/proxies/NAT/limits | `[middle-end]` |
+| `performance` | buffers/loops/IP/timeouts | `[performance]` |
+| `upstream` | `socks5` | `[upstream]` |
+| `metrics` | bind/path/diagnostics | `[metrics]` |
+
+Inspect runtime state without publishing secrets:
+
+```sh
+ls -l /var/etc/telego.toml
 /etc/init.d/telego status
 ubus call telego status
 ```
 
-</details>
+---
 
-The generated runtime config contains secrets. Inspect it only locally as root when necessary:
+# 12. Reload semantics
+
+**Save & Apply** updates UCI and rebuilds the procd instance. If runtime TOML changes, the process is restarted; listener, secret, WEB, and ME topology changes are not treated as hot reloads inside the running process.
+
+`nginx_telego` is applied separately:
 
 ```sh
-ls -l /var/etc/telego.toml
+/etc/init.d/nginx-telego reload
 ```
 
-Avoid publishing the file contents.
+The renderer creates a candidate, validates it with `nginx -t`, and only then reloads Nginx. If generated content is byte-for-byte unchanged, an unnecessary Nginx reload is skipped.
+
+When managed profiles are disabled, the helper leaves administrator-owned Nginx files untouched.
+
+---
+
+## Sources
+
+- [Pinned telEgo configuration example](https://github.com/Scratch-net/telego/blob/d9e74017e5f6c8ede4e3ef633646b15ac26abb30/config.example.toml)
+- [Pinned telEgo WEB Proxy design](https://github.com/Scratch-net/telego/blob/d9e74017e5f6c8ede4e3ef633646b15ac26abb30/docs/web-proxy.md)
+- [Pinned Telegram Middle-End design](https://github.com/Scratch-net/telego/blob/d9e74017e5f6c8ede4e3ef633646b15ac26abb30/docs/middle-end.md)
+- [OpenWrt Nginx](https://openwrt.org/docs/guide-user/services/webserver/nginx)
+
+[← Documentation](README_EN.md) · [Cloudflare Tunnel](CLOUDFLARE_EN.md) · [Русский →](CONFIGURATION.md)

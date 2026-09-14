@@ -1,0 +1,22 @@
+# Optional managed Nginx ingress profiles for telEgo.
+# The UCI package uses an underscore because OpenWrt UCI package names cannot
+# contain hyphens. The APK and init script remain named nginx-telego.
+#
+# Both profiles are disabled by default so package upgrades never take over
+# existing listeners or hand-written /etc/nginx/conf.d/*.conf files.
+
+config shared 'shared'
+	option enabled '0'
+	option hostname ''
+	option certificate ''
+	option certificate_key ''
+
+config cloudflare 'cloudflare'
+	option enabled '0'
+	option hostname ''
+
+# When managed, nginx-telego can provide a minimal loopback-only ordinary-site
+# fallback on 127.0.0.1:8090. Set manage=0 when another local site already owns
+# that listener.
+config fallback 'fallback'
+	option manage '1'

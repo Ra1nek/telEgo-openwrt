@@ -71,42 +71,76 @@ function serviceState(status) {
 	return _('Running');
 }
 
+function onOff(value) {
+	return value ? _('Enabled') : _('Disabled');
+}
+
+function yesNo(value) {
+	return Number(value) > 0 ? _('Yes') : _('No');
+}
+
+function middleEndArtifactState(status) {
+	if (!status || !status.middleend_enabled)
+		return _('Disabled');
+	if (Number(status.middleend_artifact_pending) > 0)
+		return _('Pending');
+	if (Number(status.middleend_artifact_applied) > 0)
+		return _('Applied');
+	return _('Waiting');
+}
+
+function statusCard(label, key) {
+	return E('div', { 'class': 'telego-status-card' }, [
+		E('div', { 'class': 'telego-status-label' }, label),
+		E('div', { 'class': 'telego-status-value', 'id': 'telego-status-' + key }, _('—'))
+	]);
+}
+
+function statusGroup(title, cards) {
+	return E('div', { 'class': 'telego-status-section' }, [
+		E('h3', {}, title),
+		E('div', { 'class': 'telego-status-grid' }, cards)
+	]);
+}
+
 function buildStatusView() {
-	const state = E('div', {
-		'class': 'telego-status-grid'
-	}, [
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('Service State')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-state' }, _('Checking...'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('PID')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-pid' }, _('—'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('System Uptime')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-uptime' }, _('—'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('Active Connections')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-connections' }, _('—'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('Active IPs')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-ips' }, _('—'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('Blocked IPs')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-blocked' }, _('—'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('Traffic Received')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-rx' }, _('—'))
-		]),
-		E('div', { 'class': 'telego-status-card' }, [
-			E('div', { 'class': 'telego-status-label' }, _('Traffic Sent')),
-			E('div', { 'class': 'telego-status-value', 'id': 'telego-status-tx' }, _('—'))
-		])
+	const service = statusGroup(_('Service and MTProxy'), [
+		statusCard(_('Service State'), 'state'),
+		statusCard(_('PID'), 'pid'),
+		statusCard(_('Service Uptime'), 'uptime'),
+		statusCard(_('Active Connections'), 'connections'),
+		statusCard(_('Active IPs'), 'ips'),
+		statusCard(_('Tracked IPs'), 'tracked'),
+		statusCard(_('Blocked IPs'), 'blocked'),
+		statusCard(_('Traffic Received'), 'rx'),
+		statusCard(_('Traffic Sent'), 'tx')
+	]);
+
+	const web = statusGroup(_('WEB Proxy Runtime'), [
+		statusCard(_('WEB Proxy State'), 'web-state'),
+		statusCard(_('Carrier Mode'), 'web-carrier'),
+		statusCard(_('Active WEB Sessions'), 'web-sessions'),
+		statusCard(_('Active WEB Streams'), 'web-streams'),
+		statusCard(_('Active WebSockets'), 'web-websockets'),
+		statusCard(_('Backend Dials'), 'web-dials'),
+		statusCard(_('Pending WEB Bytes'), 'web-pending-bytes'),
+		statusCard(_('Pending WEB Items'), 'web-pending-items'),
+		statusCard(_('WEB Sessions Created'), 'web-created'),
+		statusCard(_('WEB Sessions Closed'), 'web-closed'),
+		statusCard(_('Carrier Retries'), 'web-retries'),
+		statusCard(_('Backpressure Events'), 'web-backpressure')
+	]);
+
+	const middleEnd = statusGroup(_('Middle-End Runtime'), [
+		statusCard(_('Middle-End State'), 'me-state'),
+		statusCard(_('Admitting New Bindings'), 'me-admitting'),
+		statusCard(_('Repair in Progress'), 'me-repairing'),
+		statusCard(_('Physical Links'), 'me-links'),
+		statusCard(_('Active Bindings'), 'me-bindings'),
+		statusCard(_('Active Slot Repairs'), 'me-repairs'),
+		statusCard(_('Slot Failures'), 'me-failures'),
+		statusCard(_('Artifact State'), 'me-artifact'),
+		statusCard(_('Artifact Refresh Failures'), 'me-artifact-failures')
 	]);
 
 	const error = E('p', {
@@ -117,8 +151,10 @@ function buildStatusView() {
 
 	return E('div', {}, [
 		E('h2', {}, _('telEgo Status')),
-		E('p', {}, _('Live service and traffic statistics from the local rpcd telemetry backend.')),
-		state,
+		E('p', {}, _('Live service, WEB Proxy and Middle-End statistics from the local metrics endpoint.')),
+		service,
+		web,
+		middleEnd,
 		error
 	]);
 }
@@ -131,9 +167,33 @@ function updateStatus(status, root) {
 		uptime: status ? formatUptime(status.uptime) : _('—'),
 		connections: status ? status.connections : _('—'),
 		ips: status ? status.ips_active : _('—'),
+		tracked: status ? status.ips_tracked : _('—'),
 		blocked: status ? status.ips_blocked : _('—'),
 		rx: status ? formatBytes(status.rx_bytes) : _('—'),
-		tx: status ? formatBytes(status.tx_bytes) : _('—')
+		tx: status ? formatBytes(status.tx_bytes) : _('—'),
+
+		'web-state': status ? onOff(status.web_enabled) : _('—'),
+		'web-carrier': status && status.web_carrier ? status.web_carrier : _('—'),
+		'web-sessions': status ? status.web_sessions_active : _('—'),
+		'web-streams': status ? status.web_streams_active : _('—'),
+		'web-websockets': status ? status.web_websockets_active : _('—'),
+		'web-dials': status ? status.web_backend_dials_active : _('—'),
+		'web-pending-bytes': status ? formatBytes(status.web_pending_bytes) : _('—'),
+		'web-pending-items': status ? status.web_pending_items : _('—'),
+		'web-created': status ? status.web_sessions_created_total : _('—'),
+		'web-closed': status ? status.web_sessions_closed_total : _('—'),
+		'web-retries': status ? status.web_carrier_retries_total : _('—'),
+		'web-backpressure': status ? status.web_backpressure_total : _('—'),
+
+		'me-state': status ? onOff(status.middleend_enabled) : _('—'),
+		'me-admitting': status && status.middleend_enabled ? yesNo(status.middleend_admitting) : _('—'),
+		'me-repairing': status && status.middleend_enabled ? yesNo(status.middleend_repairing) : _('—'),
+		'me-links': status && status.middleend_enabled ? status.middleend_links : _('—'),
+		'me-bindings': status && status.middleend_enabled ? status.middleend_bindings : _('—'),
+		'me-repairs': status && status.middleend_enabled ? status.middleend_repairs_active : _('—'),
+		'me-failures': status && status.middleend_enabled ? status.middleend_slot_failures_total : _('—'),
+		'me-artifact': status ? middleEndArtifactState(status) : _('—'),
+		'me-artifact-failures': status && status.middleend_enabled ? status.middleend_artifact_refresh_failures : _('—')
 	};
 
 	Object.keys(values).forEach(function (key) {
@@ -157,7 +217,7 @@ function makeConfigMap() {
 	const m = new form.Map(
 		'telego',
 		_('telEgo Configuration'),
-		_('Configure MTProxy, TLS fronting, WEB Proxy and user secrets.')
+		_('Configure MTProxy, TLS fronting, WEB Proxy, Middle-End and runtime limits.')
 	);
 
 	let s = m.section(form.TypedSection, 'general', _('MTProxy'));
@@ -184,6 +244,41 @@ function makeConfigMap() {
 	o.value('error', _('Error'));
 	o.default = 'info';
 
+	o = s.option(
+		form.Flag,
+		'proxy_protocol',
+		_('Accept Incoming PROXY Protocol'),
+		_('Enable only when a trusted TCP proxy is directly in front of the public MTProxy listener.')
+	);
+	o.default = '0';
+
+	o = s.option(form.Value, 'max_connections_per_ip', _('Max Connections per IP'));
+	o.datatype = 'uinteger';
+	o.default = '100';
+	o.description = _('0 disables this connection-flood limit.');
+
+	o = s.option(form.Value, 'max_ips_per_user', _('Max IPs per User'));
+	o.datatype = 'uinteger';
+	o.default = '10';
+	o.description = _('0 disables per-secret IP limiting.');
+
+	o = s.option(form.Value, 'ip_block_timeout', _('IP Block Timeout'));
+	o.datatype = 'string';
+	o.default = '5m';
+
+	o = s.option(form.Value, 'handshake_timeout', _('Handshake Timeout'));
+	o.datatype = 'string';
+	o.default = '5s';
+
+	o = s.option(
+		form.Value,
+		'clock_sync_url',
+		_('Clock Sync URL'),
+		_('Optional HTTP(S) URL whose Date header corrects startup clock skew for FakeTLS validation.')
+	);
+	o.datatype = 'string';
+	o.rmempty = true;
+
 	s = m.section(form.TypedSection, 'tls_fronting', _('TLS Fronting'));
 	s.anonymous = true;
 	s.addremove = false;
@@ -201,20 +296,40 @@ function makeConfigMap() {
 	o.datatype = 'port';
 	o.default = '443';
 
-	o = s.option(form.Value, 'cert_host', _('Certificate Host'));
-	o.datatype = 'hostname';
+	o = s.option(
+		form.Value,
+		'cert_host',
+		_('Certificate Host'),
+		_('Optional certificate source. Native shared-port Nginx on this router uses 127.0.0.1.')
+	);
+	o.datatype = 'host';
 	o.rmempty = true;
 
-	o = s.option(form.Value, 'cert_port', _('Certificate Port'));
+	o = s.option(
+		form.Value,
+		'cert_port',
+		_('Certificate Port'),
+		_('Native shared-port Nginx uses port 8444 for certificate collection.')
+	);
 	o.datatype = 'port';
 	o.rmempty = true;
 	o.default = '';
 
-	o = s.option(form.Value, 'splice_host', _('Fallback Host'));
-	o.datatype = 'hostname';
+	o = s.option(
+		form.Value,
+		'splice_host',
+		_('Fallback Host'),
+		_('Where unrecognized TLS is spliced. Native shared-port Nginx on this router uses 127.0.0.1.')
+	);
+	o.datatype = 'host';
 	o.rmempty = true;
 
-	o = s.option(form.Value, 'splice_port', _('Fallback Port'));
+	o = s.option(
+		form.Value,
+		'splice_port',
+		_('Fallback Port'),
+		_('Native shared-port Nginx uses port 8443 and PROXY protocol v2.')
+	);
 	o.datatype = 'port';
 	o.rmempty = true;
 	o.default = '';
@@ -222,6 +337,13 @@ function makeConfigMap() {
 	o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
 	o.datatype = 'uinteger';
 	o.default = '0';
+	o.description = _('0 selects automatic matching; an explicit override must be from 256 to 16384 bytes.');
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 16384)
+			? true
+			: _('Use 0 for automatic mode or a value from 256 to 16384.');
+	};
 
 	o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
 	o.datatype = 'hostname';
@@ -242,9 +364,7 @@ function makeConfigMap() {
 	o = s.option(form.Flag, 'enable_split_tls', _('Enable Split TLS'));
 	o.default = '1';
 
-	/*
-	 * Dynamic users.
-	 */
+	/* Dynamic users. */
 	s = m.section(form.GridSection, 'secret', _('Users'));
 	s.anonymous = true;
 	s.addremove = true;
@@ -291,9 +411,7 @@ function makeConfigMap() {
 		]);
 	};
 
-	/*
-	 * WEB Proxy.
-	 */
+	/* WEB Proxy. */
 	s = m.section(form.TypedSection, 'web_proxy', _('WEB Proxy'));
 	s.anonymous = true;
 	s.addremove = false;
@@ -305,7 +423,7 @@ function makeConfigMap() {
 		form.ListValue,
 		'carrier',
 		_('Carrier Mode'),
-		_('Select the transport used by Telegram Desktop.')
+		_('Select the transport used by Telegram Desktop. HTTPS Lanes is the conservative upstream recommendation for new HTTP/2 deployments.')
 	);
 	o.value('https', _('HTTPS'));
 	o.value('https-lanes', _('HTTPS Lanes'));
@@ -326,7 +444,7 @@ function makeConfigMap() {
 		form.Value,
 		'hostname',
 		_('Hostname'),
-		_('Hostname covered by the public TLS certificate.')
+		_('Hostname covered by the public TLS certificate or Cloudflare Published Application.')
 	);
 	o.depends('enabled', '1');
 	o.retain = true;
@@ -339,54 +457,105 @@ function makeConfigMap() {
 		_('Trusted Proxy CIDRs'),
 		_('Only these proxy addresses may supply forwarded client addresses.')
 	);
+	o.depends('enabled', '1');
 	o.datatype = 'cidr';
 	o.default = ['127.0.0.1/32'];
 
-	/*
-	 * Middle-End.
-	 */
+	o = s.option(
+		form.Value,
+		'backend',
+		_('Compatibility Backend'),
+		_('Optional local TCP or Unix backend. Leave empty to use the faster shared MTProxy core directly.')
+	);
+	o.depends('enabled', '1');
+	o.datatype = 'string';
+	o.rmempty = true;
+
+	o = s.option(
+		form.Value,
+		'num_event_loops',
+		_('WEB Event Loops'),
+		_('0 selects the automatic gnet event-loop count.')
+	);
+	o.depends('enabled', '1');
+	o.datatype = 'uinteger';
+	o.default = '0';
+
+	/* Middle-End. */
 	s = m.section(form.TypedSection, 'middle_end', _('Telegram Middle-End'));
 	s.anonymous = true;
 	s.addremove = false;
 
-	o = s.option(form.Flag, 'enabled', _('Enable Middle-End'));
+	o = s.option(
+		form.Flag,
+		'enabled',
+		_('Enable Middle-End'),
+		_('Keep disabled unless you intentionally use Telegram Middle-End transport. Existing direct DC routing remains the default.')
+	);
 	o.default = '0';
 
 	o = s.option(form.Value, 'proxy_tag', _('Proxy Tag'));
+	o.depends('enabled', '1');
 	o.datatype = 'string';
+	o.rmempty = true;
+	o.description = _('Optional registered Telegram proxy tag: exactly 32 hexadecimal characters.');
+	o.validate = function (section_id, value) {
+		return !value || /^[0-9a-fA-F]{32}$/.test(value)
+			? true
+			: _('Proxy Tag must be empty or contain exactly 32 hexadecimal characters.');
+	};
 
 	o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'));
+	o.depends('enabled', '1');
 	o.datatype = 'string';
 	o.rmempty = true;
 
 	o = s.option(form.Value, 'socks5_username', _('SOCKS5 Username'));
+	o.depends('enabled', '1');
 	o.datatype = 'string';
 	o.rmempty = true;
 
 	o = s.option(form.Value, 'socks5_password', _('SOCKS5 Password'));
+	o.depends('enabled', '1');
 	o.password = true;
 	o.datatype = 'string';
 	o.rmempty = true;
 
 	o = s.option(form.Value, 'artifact_proxy', _('Artifact Proxy'));
+	o.depends('enabled', '1');
 	o.datatype = 'string';
 	o.rmempty = true;
 
 	o = s.option(form.Value, 'nat_ip', _('STUN NAT IP'));
+	o.depends('enabled', '1');
 	o.datatype = 'ipaddr';
 	o.rmempty = true;
 
 	o = s.option(form.Value, 'max_connections', _('Middle-End Max Connections'));
+	o.depends('enabled', '1');
 	o.datatype = 'uinteger';
 	o.default = '0';
+	o.description = _('0 uses the upstream default of 10000; an override may only reduce it.');
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 1 && number <= 10000)
+			? true
+			: _('Use 0 or a value from 1 to 10000.');
+	};
 
 	o = s.option(form.Value, 'queue_budget_mb', _('Middle-End Queue Budget (MB)'));
+	o.depends('enabled', '1');
 	o.datatype = 'uinteger';
 	o.default = '0';
+	o.description = _('0 uses the upstream 32 MiB default; an override may be from 2 to 32 MiB.');
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 2 && number <= 32)
+			? true
+			: _('Use 0 or a value from 2 to 32.');
+	};
 
-	/*
-	 * Performance, upstream and metrics are kept available for advanced users.
-	 */
+	/* Performance, upstream and metrics are advanced runtime controls. */
 	s = m.section(form.TypedSection, 'performance', _('Performance'));
 	s.anonymous = true;
 	s.addremove = false;
@@ -417,11 +586,17 @@ function makeConfigMap() {
 	o = s.option(form.Value, 'client_silence_close', _('Client Silence Close'));
 	o.datatype = 'string';
 	o.default = '0s';
+	o.description = _('0 disables this recovery timer; upstream suggests roughly 10–15s only when diagnosing the iOS Updating stall.');
 
 	s = m.section(form.TypedSection, 'upstream', _('Upstream'));
 	s.anonymous = true;
 	s.addremove = false;
-	o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'));
+	o = s.option(
+		form.Value,
+		'socks5',
+		_('SOCKS5 Proxy'),
+		_('Optional SOCKS5 route for Telegram DC connections. Leave empty for direct routing.')
+	);
 	o.datatype = 'string';
 	o.rmempty = true;
 
@@ -504,8 +679,6 @@ return view.extend({
 				statusPane
 			]);
 
-			// The view is not attached to document yet. Populate the first status
-			// using its own root; later polling can use the mounted document.
 			if (data[1])
 				updateStatus(data[1], root);
 			else

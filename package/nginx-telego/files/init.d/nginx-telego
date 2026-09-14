@@ -1,0 +1,22 @@
+#!/bin/sh /etc/rc.common
+
+START=81
+STOP=19
+
+start() {
+	/usr/libexec/nginx-telego-render apply
+}
+
+reload() {
+	/usr/libexec/nginx-telego-render apply
+}
+
+restart() {
+	/usr/libexec/nginx-telego-render apply
+}
+
+# Managed files are configuration, not a daemon instance. Stopping this helper
+# must not remove a valid Nginx listener from an already running router.
+stop() {
+	:
+}
