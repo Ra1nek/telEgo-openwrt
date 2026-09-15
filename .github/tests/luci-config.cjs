@@ -102,11 +102,20 @@ async function check(initialStatus) {
 
 	if (initialStatus) {
 		assert.equal(root.querySelector('#telego-status-pid').textContent, '42');
-		assert.equal(root.querySelector('#telego-status-web-sessions').textContent, '2');
-		assert.equal(root.querySelector('#telego-status-web-streams').textContent, '5');
-		assert.equal(root.querySelector('#telego-status-me-links').textContent, '4');
-		assert.equal(root.querySelector('#telego-status-me-artifact').textContent, 'Applied');
-		assert.equal(root.querySelector('#telego-status-error').textContent, '');
+		if (initialStatus.metrics_available) {
+			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Running');
+			assert.equal(root.querySelector('#telego-status-web-sessions').textContent, '2');
+			assert.equal(root.querySelector('#telego-status-web-streams').textContent, '5');
+			assert.equal(root.querySelector('#telego-status-me-links').textContent, '4');
+			assert.equal(root.querySelector('#telego-status-me-artifact').textContent, 'Applied');
+			assert.equal(root.querySelector('#telego-status-error').textContent, '');
+		} else {
+			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Error');
+			assert.equal(root.querySelector('#telego-status-web-sessions').textContent, '—');
+			assert.equal(root.querySelector('#telego-status-me-links').textContent, '—');
+			assert.equal(root.querySelector('#telego-status-me-artifact').textContent, '—');
+			assert.equal(root.querySelector('#telego-status-error').textContent, 'Metrics: Error (fetch-failed)');
+		}
 	} else {
 		assert.equal(root.querySelector('#telego-status-error').textContent, 'Unable to read telEgo status.');
 	}
@@ -114,20 +123,24 @@ async function check(initialStatus) {
 	await poll(); // RPC failures must not reject the polling callback.
 }
 
+const healthyStatus = {
+	running: true, pid: 42, uptime: 100,
+	metrics_available: true, metrics_error: '',
+	connections: 3, ips_active: 2, ips_tracked: 4, ips_blocked: 0,
+	rx_bytes: 100, tx_bytes: 200,
+	web_enabled: true, web_carrier: 'https-lanes', web_sessions_active: 2,
+	web_streams_active: 5, web_websockets_active: 1, web_backend_dials_active: 0,
+	web_pending_bytes: 1024, web_pending_items: 1, web_sessions_created_total: 10,
+	web_sessions_closed_total: 8, web_carrier_retries_total: 1, web_backpressure_total: 0,
+	middleend_enabled: true, middleend_admitting: 1, middleend_repairing: 0,
+	middleend_links: 4, middleend_bindings: 3, middleend_repairs_active: 0,
+	middleend_slot_failures_total: 0, middleend_artifact_applied: 1,
+	middleend_artifact_pending: 0, middleend_artifact_refresh_failures: 0
+};
+
 (async () => {
 	await check(null);
-	await check({
-		running: true, pid: 42, uptime: 100,
-		connections: 3, ips_active: 2, ips_tracked: 4, ips_blocked: 0,
-		rx_bytes: 100, tx_bytes: 200,
-		web_enabled: true, web_carrier: 'https-lanes', web_sessions_active: 2,
-		web_streams_active: 5, web_websockets_active: 1, web_backend_dials_active: 0,
-		web_pending_bytes: 1024, web_pending_items: 1, web_sessions_created_total: 10,
-		web_sessions_closed_total: 8, web_carrier_retries_total: 1, web_backpressure_total: 0,
-		middleend_enabled: true, middleend_admitting: 1, middleend_repairing: 0,
-		middleend_links: 4, middleend_bindings: 3, middleend_repairs_active: 0,
-		middleend_slot_failures_total: 0, middleend_artifact_applied: 1,
-		middleend_artifact_pending: 0, middleend_artifact_refresh_failures: 0
-	});
+	await check(healthyStatus);
+	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

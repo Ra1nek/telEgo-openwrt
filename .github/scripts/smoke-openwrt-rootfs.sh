@@ -211,13 +211,20 @@ assert_installed() {
   grep -q '^\[general\]$' /var/etc/telego.toml
   grep -q '^bind-to = "0.0.0.0:443"$' /var/etc/telego.toml
   grep -q '^\[tls-fronting\]$' /var/etc/telego.toml
+  grep -q '^\[metrics\]$' /var/etc/telego.toml
+  grep -q '^bind-to = "127.0.0.1:9090"$' /var/etc/telego.toml
+  grep -q '^path = "/metrics"$' /var/etc/telego.toml
   grep -q '^\[secrets\]$' /var/etc/telego.toml
 
   test -s /www/luci-static/resources/view/telego/config.js
   test -s /usr/share/luci/menu.d/telego.menu.json
   test -s /usr/share/rpcd/acl.d/luci-app-telego.json
   test -x /usr/share/rpcd/ucode/telego
-  test -s /usr/share/luci/i18n/telego.ru.lmo
+  # luci-app-telego's RPC backend calls the OpenWrt uclient package by its
+  # canonical runtime path. Catch package/path mismatches in the real rootfs.
+  test -x /bin/uclient-fetch
+  test -s /usr/lib/lua/luci/i18n/telego.ru.lmo
+  test ! -e /usr/share/luci/i18n/telego.ru.lmo
 
   test -s /etc/nginx/conf.d/20-telego-core.conf
   test ! -e /etc/nginx/conf.d/telego.conf
