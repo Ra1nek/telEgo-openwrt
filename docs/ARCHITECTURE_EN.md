@@ -279,15 +279,15 @@ flowchart LR
     UCI["/etc/config/nginx_telego"] --> INIT["/etc/init.d/nginx-telego"]
     INIT --> REC["nginx-telego-reconcile"]
     REC --> OWN["ownership/status preflight"]
-    OWN --> REPAIR["safe package repair + legacy migration"]
+    OWN --> REPAIR["safe package drift repair"]
     REPAIR --> RENDER["renderer --no-reload"]
     RENDER --> TEST["final nginx -t"]
     TEST --> RELOAD["reload only when changed"]
 ```
 
-The reconciler serializes writers with a process lock, backs up managed paths, repairs only safe package drift, migrates proven legacy package state, and rolls the filesystem back if rendering, final validation, or Nginx reload fails. Package uninstall generated cleanup uses the same coordinator via `remove-generated`.
+The reconciler serializes writers with a process lock, backs up managed paths, repairs only safe package drift, and rolls the filesystem back if rendering, final validation, or Nginx reload fails. Package uninstall generated cleanup uses the same coordinator via `remove-generated`.
 
-Historical `/etc/nginx/conf.d/telego.conf` is removed automatically only when it matches the canonical package core. Historical `/etc/nginx/conf.d/zz-telego-managed.conf` is removed only when the old package marker proves generated ownership. Changed/foreign regular files are preserved.
+The old alpha paths `/etc/nginx/conf.d/telego.conf` and `/etc/nginx/conf.d/zz-telego-managed.conf` are outside the ownership registry and are not migrated automatically. If they remain on a test system, inspect and remove them manually before adopting the P7 baseline.
 
 See [NGINX_FILES_EN.md](NGINX_FILES_EN.md) for the complete ownership state machine.
 
