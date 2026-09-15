@@ -50,12 +50,12 @@ endef
 
 define Package/luci-app-telego/postinst
 #!/bin/sh
-[ -n "$${IPKG_INSTROOT}" ] || {
+	[ -n "$${IPKG_INSTROOT}" ] || {
 	rm -f /tmp/luci-indexcache.*
 	rm -rf /tmp/luci-modulecache/
 	/etc/init.d/rpcd reload 2>/dev/null || true
-}
-exit 0
+	}
+	exit 0
 endef
 
 $(eval $(call BuildPackage,luci-app-telego))
