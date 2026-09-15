@@ -8,6 +8,10 @@ function isEnabled(config, section, option) {
 	return uci.get(config, section, option || 'enabled') === '1';
 }
 
+function profileConflict() {
+	return isEnabled('nginx_telego', 'shared') && isEnabled('nginx_telego', 'cloudflare');
+}
+
 function profileMode() {
 	const shared = isEnabled('nginx_telego', 'shared');
 	const cloudflare = isEnabled('nginx_telego', 'cloudflare');
@@ -111,6 +115,13 @@ return view.extend({
 			uci.set('nginx_telego', 'cloudflare', 'enabled', value === 'cloudflare' ? '1' : '0');
 		};
 
+		o = s.option(form.DummyValue, '_profile_state', _('Configuration State'));
+		o.cfgvalue = function () {
+			return profileConflict()
+				? _('Invalid: both managed profiles are enabled. Select a mode and Save & Apply to repair the UCI state.')
+				: _('Valid');
+		};
+
 		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx File'));
 		o.cfgvalue = function () { return '/etc/nginx/conf.d/zz-telego-managed.conf'; };
 
@@ -182,7 +193,6 @@ return view.extend({
 			_('Absolute path to the matching private key. nginx-telego never creates or renews certificates.')
 		);
 		o.depends('_mode', 'shared');
-		o.password = true;
 		o.rmempty = false;
 		o.validate = validateAbsolutePath;
 
