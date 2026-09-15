@@ -4,12 +4,15 @@ cd "$(dirname "$0")/../.."
 
 bash -n scripts/install-on-router.sh
 sh -n install.sh
+bash -n .github/scripts/verify-nginx-telego-apk.sh
 python3 .github/tests/test_router_installer.py
 BUSYBOX="${BUSYBOX:-$(command -v busybox)}" python3 .github/tests/test_router_installer.py
 sh -n package/telego-pkg/files/init.d/telego
 sh -n package/nginx-telego/files/init.d/nginx-telego
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-render
+sh -n package/nginx-telego/files/usr/libexec/nginx-telego-files
 bash .github/tests/nginx-telego.sh
+bash .github/tests/nginx-telego-ownership.sh
 bash .github/tests/nginx-telego-service.sh
 sh .github/tests/service-account.sh
 sh .github/tests/telego-config-render.sh
@@ -23,7 +26,7 @@ python3 .github/scripts/check-luci-i18n.py
 # runtime set (ucode + libucode) instead of the whole source/build tree.
 # Set UCODE explicitly to bypass this cache and use another interpreter.
 UCODE_REVISION=85922056ef7abeace3cca3ab28bc1ac2d88e31b1
-UCODE_CACHE_ROOT="${UCODE_CACHE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache}/telego/ucode}"
+UCODE_CACHE_ROOT="${UCODE_CACHE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache/telego/ucode}}"
 
 if [[ -z ${UCODE:-} ]]; then
 	runtime_dir="$UCODE_CACHE_ROOT/$UCODE_REVISION"
