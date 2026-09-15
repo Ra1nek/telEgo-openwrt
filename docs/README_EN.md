@@ -92,7 +92,7 @@ The P6/P7 contract for managed Nginx filesystem state:
 - ownership registry and canonical package sources;
 - `ok`, `modified`, `missing`, `managed`, `foreign`, and unsafe-type states;
 - final `20-telego-core.conf`, `80-telego-ingress.conf`, and `85-telego-fallback.conf` layout;
-- safe migration of historical `telego.conf` and `zz-telego-managed.conf`;
+- clean alpha baseline without hidden migration of old `telego.conf` and `zz-telego-managed.conf` paths;
 - transactional reconciliation, `nginx -t`, reload-if-changed, and rollback;
 - the boundary between package-owned/generated files and administrator/application files.
 
