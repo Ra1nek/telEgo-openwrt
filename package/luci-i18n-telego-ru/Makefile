@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-i18n-telego-ru
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -36,10 +36,10 @@ define Package/luci-i18n-telego-ru/install
 		> $(1)/etc/uci-defaults/luci-i18n-telego-ru
 	chmod 0755 $(1)/etc/uci-defaults/luci-i18n-telego-ru
 
-	$(INSTALL_DIR) $(1)/usr/share/luci/i18n
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
 	$(PO2LMO) \
 		./po/ru/telego.po \
-		$(1)/usr/share/luci/i18n/telego.ru.lmo
+		$(1)/usr/lib/lua/luci/i18n/telego.ru.lmo
 endef
 
 $(eval $(call BuildPackage,luci-i18n-telego-ru))
