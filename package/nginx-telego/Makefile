@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -66,8 +66,9 @@ endef
 
 # Generated state is not an APK conffile. Route uninstall cleanup through the
 # same reconciliation lock/transaction boundary used by LuCI and procd so two
-# mutation paths cannot race each other. Keep generated state across upgrades;
-# the newly installed reconciler migrates and revalidates it.
+# mutation paths cannot race each other. Keep current generated state across
+# upgrades; the newly installed reconciler revalidates it against the same
+# 20/80/85 ownership contract.
 define Package/nginx-telego/prerm
 	#!/bin/sh
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
