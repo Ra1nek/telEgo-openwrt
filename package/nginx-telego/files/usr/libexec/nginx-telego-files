@@ -80,9 +80,14 @@ emit_status() {
 
         if [ "$ownership" = package ]; then
             canonical=$(resolve_path "$source")
-            if [ ! -e "$target" ]; then
+            # Test symlinks before existence. A dangling symlink makes `test -e`
+            # false, but it is still filesystem drift and must never be reported
+            # as a merely missing managed file.
+            if [ -L "$target" ]; then
+                state=invalid-type
+            elif [ ! -e "$target" ]; then
                 state=missing
-            elif [ ! -f "$target" ] || [ -L "$target" ]; then
+            elif [ ! -f "$target" ]; then
                 state=invalid-type
             elif [ ! -f "$canonical" ] || [ -L "$canonical" ]; then
                 state=source-missing
@@ -92,9 +97,13 @@ emit_status() {
                 state=modified
             fi
         else
-            if [ ! -e "$target" ]; then
+            # The generated path follows the same rule: any symlink, including a
+            # dangling one, is an invalid type rather than an absent managed file.
+            if [ -L "$target" ]; then
+                state=invalid-type
+            elif [ ! -e "$target" ]; then
                 state=absent
-            elif [ ! -f "$target" ] || [ -L "$target" ]; then
+            elif [ ! -f "$target" ]; then
                 state=invalid-type
             elif grep -Fqx "$MANAGED_MARKER" "$target" 2>/dev/null; then
                 state=managed
