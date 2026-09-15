@@ -1,11 +1,13 @@
 # telEgo WEB Proxy locations.
 #
-# This file MUST be included inside the public TLS `server {}` block, for example:
+# This file MUST be included inside a TLS `server {}` block, for example:
 #
 #   include /etc/nginx/snippets/telego.locations;
 #
-# The public TLS server remains responsible for the real certificate. The
-# private upstream is plain HTTP/1.1 on 127.0.0.1:8080.
+# The surrounding server owns TLS. In native shared-port mode it listens on
+# 127.0.0.1:8443 with PROXY protocol v2 from telEgo. In a normal TLS server the
+# client address falls back to $remote_addr. The private WEB upstream remains
+# plain HTTP/1.1 on 127.0.0.1:8080.
 
 location / {
 	proxy_pass http://telego_web;
@@ -22,7 +24,8 @@ location / {
 	recursive_error_pages off;
 
 	proxy_set_header Host $http_host;
-	proxy_set_header X-Forwarded-For $remote_addr;
+	proxy_set_header X-Real-IP $telego_client_ip;
+	proxy_set_header X-Forwarded-For $telego_client_ip;
 	proxy_set_header X-Forwarded-Proto https;
 	proxy_set_header Forwarded "";
 
@@ -39,12 +42,14 @@ location / {
 location @telego_ordinary {
 	internal;
 
-	# Replace 127.0.0.1:8090 with the existing ordinary website listener.
+	# Replace 127.0.0.1:8090 with the existing ordinary website listener if a
+	# different local fallback is required.
 	proxy_pass http://127.0.0.1:8090;
 	proxy_http_version 1.1;
 
 	proxy_set_header Host $http_host;
-	proxy_set_header X-Forwarded-For $remote_addr;
+	proxy_set_header X-Real-IP $telego_client_ip;
+	proxy_set_header X-Forwarded-For $telego_client_ip;
 	proxy_set_header X-Forwarded-Proto https;
 	proxy_set_header Upgrade $http_upgrade;
 	proxy_set_header Connection $telego_connection_upgrade;
@@ -52,6 +57,8 @@ location @telego_ordinary {
 
 location @telego_sanitized {
 	internal;
+
+	set $args "";
 
 	# Never forward carrier credentials to the ordinary website.
 	proxy_pass http://127.0.0.1:8090$uri;
@@ -76,6 +83,7 @@ location @telego_sanitized {
 	proxy_set_header Sec-WebSocket-Protocol "";
 	proxy_set_header Sec-WebSocket-Version "";
 	proxy_set_header Sec-WebSocket-Extensions "";
+	proxy_set_header X-Real-IP "";
 	proxy_set_header X-Forwarded-For "";
 	proxy_set_header Forwarded "";
 	proxy_set_header Upgrade "";
