@@ -1,0 +1,19 @@
+# nginx-telego managed Nginx ownership registry v1
+#
+# Columns are TAB-separated:
+# path    role    ownership    presence    source
+#
+# ownership:
+#   package   active file has a canonical package copy and may be repaired
+#   generated active file is rendered from UCI/runtime state
+#
+# presence:
+#   required    file is expected on every installed system
+#   conditional file may be absent when its managed feature is disabled
+#
+# source is an absolute canonical package path for package-owned files and the
+# literal "renderer" for generated files. This registry only covers Nginx files
+# owned by nginx-telego; unrelated administrator/application files are foreign.
+/etc/nginx/conf.d/telego.conf	core	package	required	/usr/share/nginx-telego/templates/telego.conf
+/etc/nginx/snippets/telego.locations	locations	package	required	/usr/share/nginx-telego/templates/telego.locations
+/etc/nginx/conf.d/zz-telego-managed.conf	ingress	generated	conditional	renderer
