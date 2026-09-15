@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-i18n-telego-ru
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk

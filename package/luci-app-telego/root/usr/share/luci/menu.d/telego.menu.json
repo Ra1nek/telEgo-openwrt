@@ -3,11 +3,38 @@
     "title": "telEgo",
     "order": 60,
     "action": {
+      "type": "firstchild",
+      "preferred": "configuration",
+      "recurse": true
+    },
+    "depends": {
+      "acl": ["luci-app-telego"]
+    }
+  },
+  "admin/services/telego/configuration": {
+    "title": "Configuration",
+    "order": 10,
+    "action": {
       "type": "view",
       "path": "telego/config"
     },
     "depends": {
       "acl": ["luci-app-telego"]
+    }
+  },
+  "admin/services/telego/ingress": {
+    "title": "WEB Ingress",
+    "order": 20,
+    "action": {
+      "type": "view",
+      "path": "telego/ingress"
+    },
+    "depends": {
+      "acl": ["luci-app-telego"],
+      "fs": {
+        "/etc/config/nginx_telego": "file",
+        "/usr/libexec/nginx-telego-render": "executable"
+      }
     }
   }
 }
