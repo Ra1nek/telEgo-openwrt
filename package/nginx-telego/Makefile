@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -29,19 +29,19 @@ endef
 
 define Package/nginx-telego/install
 	$(INSTALL_DIR) $(1)/etc/nginx/conf.d
-	$(INSTALL_DATA) ./files/conf.d/telego.conf \
-		$(1)/etc/nginx/conf.d/telego.conf
+	$(INSTALL_DATA) ./files/conf.d/20-telego-core.conf \
+		$(1)/etc/nginx/conf.d/20-telego-core.conf
 
 	$(INSTALL_DIR) $(1)/etc/nginx/snippets
 	$(INSTALL_DATA) ./files/telego.locations \
 		$(1)/etc/nginx/snippets/telego.locations
 
-	# Keep immutable package copies outside the active Nginx include tree. Future
-	# reconciliation/LuCI repair operations compare active files with these copies
-	# instead of treating a hand-edited active file as the source of truth.
+	# Immutable package copies live outside the active Nginx include tree. The
+	# reconciler compares active files with these canonical repair sources instead
+	# of ever adopting a hand-edited active file as the source of truth.
 	$(INSTALL_DIR) $(1)/usr/share/nginx-telego/templates
-	$(INSTALL_DATA) ./files/conf.d/telego.conf \
-		$(1)/usr/share/nginx-telego/templates/telego.conf
+	$(INSTALL_DATA) ./files/conf.d/20-telego-core.conf \
+		$(1)/usr/share/nginx-telego/templates/20-telego-core.conf
 	$(INSTALL_DATA) ./files/telego.locations \
 		$(1)/usr/share/nginx-telego/templates/telego.locations
 	$(INSTALL_DATA) ./files/usr/share/nginx-telego/ownership.tsv \
@@ -64,15 +64,16 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-reconcile
 endef
 
-# Generated managed server blocks are not APK conffiles. Remove current split
-# outputs and any marker-owned legacy combined output before a real uninstall.
-# Keep generated state across upgrades; the new reconciler migrates/revalidates it.
+# Generated state is not an APK conffile. Route uninstall cleanup through the
+# same reconciliation lock/transaction boundary used by LuCI and procd so two
+# mutation paths cannot race each other. Keep generated state across upgrades;
+# the newly installed reconciler migrates and revalidates it.
 define Package/nginx-telego/prerm
 	#!/bin/sh
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
 	[ "$${PKG_UPGRADE}" = "1" ] && exit 0
-	[ -x /usr/libexec/nginx-telego-render ] || exit 0
-	/usr/libexec/nginx-telego-render remove
+	[ -x /usr/libexec/nginx-telego-reconcile ] || exit 0
+	/usr/libexec/nginx-telego-reconcile remove-generated
 	exit $$?
 endef
 
