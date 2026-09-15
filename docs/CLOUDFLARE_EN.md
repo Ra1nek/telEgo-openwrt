@@ -167,7 +167,7 @@ grep -RnsE 'listen[[:space:]]+([^;[:space:]]*:)?18080([[:space:]]|;)' \
     /etc/nginx/conf.d /etc/nginx/uci.conf 2>/dev/null
 ```
 
-If this reports your existing `zz-telego-cloudflare.conf`, use **Option B** and do not migrate only for the sake of using the managed profile.
+If this reports your existing `zz-telego-cloudflare.conf`, use **Option B** and do not replace it merely for the sake of using the managed profile.
 
 For a new managed configuration:
 
@@ -201,7 +201,7 @@ Managed files are role-separated:
 
 Generated files carry both the nginx-telego ownership marker and a role marker. A regular file on one of the reserved generated paths without the correct markers is treated as foreign and is not overwritten.
 
-The historical combined `/etc/nginx/conf.d/zz-telego-managed.conf` is migration-only. It is removed automatically only when its old marker proves nginx-telego ownership; a foreign file with that name is preserved.
+The old alpha `/etc/nginx/conf.d/zz-telego-managed.conf` is not a migration input and is never removed automatically. If it remains from an early test build, inspect its origin/content first and remove it manually before adopting the P7 baseline.
 
 If rendering, final `nginx -t`, or Nginx reload fails, the reconciler restores the managed filesystem to its pre-transaction state.
 
@@ -238,7 +238,7 @@ uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-With both profiles disabled, reconciliation removes only nginx-telego-owned generated ingress/fallback state. It does not touch your `zz-telego-cloudflare.conf` or another foreign regular `.conf` file. If an old marker-owned `zz-telego-managed.conf` is present, it is retired transactionally as legacy package state.
+With both profiles disabled, reconciliation removes only current nginx-telego-owned generated ingress/fallback state. It does not touch your `zz-telego-cloudflare.conf`, old alpha paths outside the registry, or another foreign regular `.conf` file.
 
 A hand-written Cloudflare ingress should provide the same behavior as the managed profile:
 
@@ -445,7 +445,7 @@ After the first four layers are healthy, test WEB Proxy in Telegram Desktop and 
 /etc/config/nginx_telego
 ```
 
-Reconciliation also repairs safe drift in package-owned core/snippet files and retires known package-owned legacy paths. It never adopts an administrator-owned regular file solely because its filename collides with a managed path.
+Reconciliation repairs safe drift in package-owned core/snippet files and manages only the current generated `80-telego-ingress.conf` / `85-telego-fallback.conf` paths. Old alpha paths outside the registry are not removed automatically.
 
 Managed profiles remain `off` unless you explicitly enable them. An existing administrator-owned Nginx file must not become managed just because the APK was upgraded.
 
@@ -466,7 +466,7 @@ After a major update, a useful quick check is:
 | Symptom | Check first |
 |---|---|
 | No `127.0.0.1:8080` | telEgo service, WEB Proxy `enabled`, hostname, telEgo logs |
-| Reconciler reports an `18080` conflict | an existing manual Cloudflare ingress is already present; keep managed mode off or migrate deliberately |
+| Reconciler reports an `18080` conflict | an existing manual Cloudflare ingress is already present; keep managed mode off or deliberately replace the manual configuration |
 | Reconciler reports hostname mismatch | `nginx_telego.cloudflare.hostname` and `telego.web_proxy.hostname` must match |
 | `nginx -t` fails | another Nginx file or the generated candidate is invalid; reconciliation rolls managed state back instead of committing a broken tree |
 | `nginx-telego-files status` reports `foreign` | the reserved path exists but ownership/role markers do not prove it belongs to nginx-telego; inspect it before changing anything |
