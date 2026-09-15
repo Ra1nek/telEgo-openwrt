@@ -30,7 +30,7 @@ flowchart LR
 | LuCI | Configuration UI и status view | `package/luci-app-telego/htdocs/` |
 | Local telemetry | Read-only `ubus` method на основе service state + Prometheus metrics | `package/luci-app-telego/root/usr/share/rpcd/` |
 | Translation | Русский перевод LuCI | `package/luci-i18n-telego-ru/` |
-| WEB Proxy edge | Nginx `http {}` definitions и reusable location snippet | `package/nginx-telego/` |
+| WEB Proxy edge | Nginx ownership, reconciliation, generated ingress/fallback и reusable location snippet | `package/nginx-telego/` |
 | CI/release | Validation, Go build, OpenWrt SDK APK build, feed/release publishing | `.github/workflows/` |
 | Installation | Preview/stable download, integrity/trust checks, установка на router | `install.sh`, `scripts/install-on-router.sh` |
 
@@ -42,7 +42,7 @@ flowchart LR
 |---|---|---|
 | Control plane | LuCI JS, UCI, init script, procd, rpcd | Настройка, start/stop, генерация runtime state, локальный status |
 | Data plane | telEgo Go/gnet core, FakeTLS, WEB frontend, Middle-End/direct DC routes | Передача Telegram traffic |
-| Edge integration | Nginx TLS + `telego.locations` | Real TLS termination, WEB ingress, fallback на ordinary site |
+| Edge integration | Nginx TLS + `telego.locations` + reconciliation | Real TLS termination, WEB ingress, fallback на ordinary site и целостность managed filesystem |
 
 ```mermaid
 flowchart TB
@@ -249,21 +249,49 @@ flowchart LR
 
 ## Native WEB Proxy и Nginx
 
-Package `nginx-telego` предоставляет reusable integration, а не полностью готовый public website/TLS deployment.
+Package `nginx-telego` владеет небольшим явно ограниченным подмножеством Nginx state и транзакционно приводит его к desired state. Пакет **не** объявляет собственностью весь `/etc/nginx/conf.d/` и не принимает автоматически administrator/application files под своё управление.
 
-Installed files:
+Финальный managed layout P6/P7:
 
 ```text
-/etc/nginx/conf.d/telego.conf
-/etc/nginx/snippets/telego.locations
+/etc/nginx/conf.d/20-telego-core.conf          # package-owned, required
+/etc/nginx/snippets/telego.locations           # package-owned, required
+/etc/nginx/conf.d/80-telego-ingress.conf       # generated, conditional
+/etc/nginx/conf.d/85-telego-fallback.conf      # generated, conditional
+/usr/share/nginx-telego/ownership.tsv
+/usr/libexec/nginx-telego-files
+/usr/libexec/nginx-telego-reconcile
+/usr/libexec/nginx-telego-render
 ```
 
-`telego.conf` подключается из Nginx `http {}` и определяет:
+`20-telego-core.conf` подключается из Nginx `http {}` и определяет:
 
 - mapping WebSocket `Connection`;
+- mapping client address для PROXY protocol;
 - `upstream telego_web` → `127.0.0.1:8080` с keepalive.
 
-`telego.locations` должен подключаться внутри administrator-managed TLS `server {}` block.
+`telego.locations` — reusable snippet для подключения внутри TLS `server {}` block. Managed Cloudflare ingress его не использует, потому что Cloudflare требует отдельной обработки client IP.
+
+Generated `80-*` и `85-*` требуют одновременно общего ownership marker `nginx-telego` и корректного role marker. Regular file на reserved path без правильной роли считается `foreign` и не перезаписывается.
+
+### Reconciliation control path
+
+```mermaid
+flowchart LR
+    UCI["/etc/config/nginx_telego"] --> INIT["/etc/init.d/nginx-telego"]
+    INIT --> REC["nginx-telego-reconcile"]
+    REC --> OWN["ownership/status preflight"]
+    OWN --> REPAIR["safe package repair + legacy migration"]
+    REPAIR --> RENDER["renderer --no-reload"]
+    RENDER --> TEST["final nginx -t"]
+    TEST --> RELOAD["reload only when changed"]
+```
+
+Reconciler сериализует writers process lock'ом, создаёт backup managed paths, восстанавливает только безопасный package drift, мигрирует только доказанный legacy package state и откатывает filesystem, если renderer, финальный `nginx -t` или reload Nginx завершается ошибкой. Cleanup generated state при удалении APK проходит через тот же coordinator с режимом `remove-generated`.
+
+Исторический `/etc/nginx/conf.d/telego.conf` удаляется автоматически только если он совпадает с canonical package core. Исторический `/etc/nginx/conf.d/zz-telego-managed.conf` удаляется только если старый package marker доказывает generated ownership. Изменённые или foreign regular files сохраняются.
+
+Полная state machine ownership описана в [NGINX_FILES.md](NGINX_FILES.md).
 
 ### Shared-port topology
 
