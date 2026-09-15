@@ -513,11 +513,11 @@ msgstr "Профиль входа"
 msgid "Mode"
 msgstr "Режим"
 
-msgid "Selecting a mode updates the existing shared.enabled and cloudflare.enabled UCI flags. Save & Apply invokes the nginx-telego renderer through the OpenWrt reload trigger."
-msgstr "Выбор режима обновляет существующие UCI-флаги shared.enabled и cloudflare.enabled. «Сохранить и применить» запускает renderer nginx-telego через OpenWrt reload trigger."
+msgid "Selecting a mode updates the existing shared.enabled and cloudflare.enabled UCI flags. Save & Apply invokes the nginx-telego reconciliation engine through the OpenWrt reload trigger."
+msgstr "Выбор режима обновляет UCI-флаги shared.enabled и cloudflare.enabled. «Сохранить и применить» применяет изменения через механизм согласования nginx-telego и триггер перезагрузки OpenWrt."
 
-msgid "Managed Nginx File"
-msgstr "Управляемый файл Nginx"
+msgid "Managed Nginx Files"
+msgstr "Управляемые файлы Nginx"
 
 msgid "Current telEgo WEB Contract"
 msgstr "Текущий WEB-контракт telEgo"
@@ -573,8 +573,8 @@ msgstr "Источник сертификата FakeTLS"
 msgid "Current Native Shared-Port Contract"
 msgstr "Текущий контракт Native Shared-Port"
 
-msgid "Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. The renderer refuses to change Nginx if this contract is not satisfied."
-msgstr "Требуются публичный TCP/443, источник сертификата 127.0.0.1:8444, fallback 127.0.0.1:8443 и PROXY Protocol v2. Renderer откажется менять Nginx, если этот контракт не выполнен."
+msgid "Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. nginx-telego refuses to apply the managed Nginx state if this contract is not satisfied."
+msgstr "Требуются публичный TCP/443, источник сертификата 127.0.0.1:8444, fallback 127.0.0.1:8443 и PROXY Protocol v2. nginx-telego откажется применять управляемое состояние Nginx, если этот контракт не выполнен."
 
 msgid "Manage Local Fallback"
 msgstr "Управлять локальным fallback"
