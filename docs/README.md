@@ -92,7 +92,7 @@
 - ownership registry и canonical package sources;
 - состояния `ok`, `modified`, `missing`, `managed`, `foreign` и unsafe types;
 - финальный layout `20-telego-core.conf`, `80-telego-ingress.conf`, `85-telego-fallback.conf`;
-- безопасная migration исторических `telego.conf` и `zz-telego-managed.conf`;
+- clean alpha baseline без скрытой миграции старых `telego.conf` и `zz-telego-managed.conf`;
 - transactional reconciliation, `nginx -t`, reload-if-changed и rollback;
 - граница между package-owned/generated и administrator/application files.
 
