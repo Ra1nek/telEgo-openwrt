@@ -27,7 +27,7 @@ assert(status.middleend_links == 5 && status.middleend_bindings == 9, 'Middle-En
 assert(status.middleend_repairs_active == 1 && status.middleend_slot_failures_total == 2, 'Middle-End repair metrics');
 assert(status.middleend_artifact_applied == 1 && status.middleend_artifact_pending == 0, 'Middle-End artifact state');
 assert(status.middleend_artifact_refresh_failures == 1, 'Middle-End artifact refresh failures');
-assert(global.fetched == "/usr/bin/uclient-fetch -q -T 2 -O - 'http://127.0.0.1:9090/metrics'", 'bounded shell command');
+assert(global.fetched == "/bin/uclient-fetch -q -T 2 -O - 'http://127.0.0.1:9090/metrics'", 'OpenWrt uclient-fetch runtime path');
 
 for (let endpoint in ['0.0.0.0:9090', 'example.com:9090', '127.0.0.1:65536']) {
 	global.fixture.bind_to = endpoint;
@@ -56,7 +56,7 @@ assert(plugin.telego.status.call().metrics_available, 'IPv6 endpoint metrics hea
 assert(index(global.fetched, "'http://[::1]:9090/custom'") >= 0, 'IPv6 loopback');
 global.fixture.path = "/a'b$(id)";
 plugin.telego.status.call();
-assert(global.fetched == "/usr/bin/uclient-fetch -q -T 2 -O - 'http://[::1]:9090/a'\\''b$(id)'", 'shell metacharacters stay quoted');
+assert(global.fetched == "/bin/uclient-fetch -q -T 2 -O - 'http://[::1]:9090/a'\\''b$(id)'", 'shell metacharacters stay quoted');
 global.fixture.path = '/metrics\ninjected';
 global.fetched = null;
 const invalidPath = plugin.telego.status.call();
