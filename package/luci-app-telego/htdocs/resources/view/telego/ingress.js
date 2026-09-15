@@ -117,7 +117,9 @@ return view.extend({
 
 		o = s.option(form.DummyValue, '_profile_state', _('Status'));
 		o.cfgvalue = function () {
-			return profileConflict() ? _('Error') : _('Enabled');
+			if (profileConflict())
+				return _('Error');
+			return profileMode() === 'disabled' ? _('Disabled') : _('Enabled');
 		};
 
 		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx File'));
@@ -202,7 +204,7 @@ return view.extend({
 
 		o = s.option(form.DummyValue, '_certificate_source', _('FakeTLS Certificate Source'));
 		o.depends('_mode', 'shared');
-		o.cfgvalue = function () { return 'https://127.0.0.1:8444'; };
+		o.cfgvalue = function () { return '127.0.0.1:8444'; };
 
 		o = s.option(form.DummyValue, '_shared_contract', _('Current Native Shared-Port Contract'));
 		o.depends('_mode', 'shared');
