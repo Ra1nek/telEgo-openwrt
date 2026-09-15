@@ -137,7 +137,7 @@ procd config.change
 Reconciler выполняет одну транзакцию:
 
 ```text
-lock
+kernel flock
  ↓
 validate registry + inventory
  ↓
@@ -156,7 +156,7 @@ commit
 
 При ошибке renderer, `nginx -t` или reload filesystem state откатывается к pre-transaction состоянию.
 
-Одновременно может работать только один reconciler. Active lock блокирует второй apply; stale lock восстанавливается автоматически.
+Одновременно может работать только один reconciler. Mutex реализован kernel `flock(2)` через `/usr/bin/flock`: второй writer получает отказ, а после нормального завершения или падения владельца блокировка освобождается ядром автоматически. Lock inode может оставаться на диске; PID-файлы и опасное ручное удаление «stale lock» больше не используются.
 
 ## Alpha baseline: старые имена не мигрируются
 
@@ -214,7 +214,7 @@ Write-path P7 использует только уже проверенный na
 
 1. ownership tests: drift, source failure, symlink/directory/FIFO, path boundary и canonical role markers;
 2. renderer tests: Cloudflare/Native contracts, conflicts, strict role-aware ownership и atomic rollback;
-3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transition, active/stale lock и uninstall path;
+3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transition, реальный concurrent apply под kernel flock, освобождение lock после завершения владельца и uninstall path;
 4. APK layout: финальные package paths, modes, ownership, отсутствие generated payloads и старых alpha paths;
 5. OpenWrt rootfs smoke: реальный APK, `nginx-telego-files validate/status`, clean 20/80/85 baseline и remove/reinstall lifecycle.
 

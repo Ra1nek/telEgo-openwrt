@@ -137,7 +137,7 @@ procd config.change
 The reconciler runs one transaction:
 
 ```text
-lock
+kernel flock
  ↓
 validate registry + inventory
  ↓
@@ -156,7 +156,7 @@ commit
 
 If rendering, final `nginx -t`, or reload fails, managed filesystem state is rolled back to its pre-transaction bytes.
 
-Only one reconciler may run at a time. An active lock rejects overlap; a stale lock is recovered automatically.
+Only one reconciler may run at a time. The mutex uses kernel `flock(2)` through `/usr/bin/flock`: a second writer is rejected, while owner exit or failure releases the lock automatically in the kernel. The lock inode may remain on disk; no PID file or unsafe manual stale-lock deletion is used.
 
 ## Alpha baseline: old names are not migrated
 
@@ -214,7 +214,7 @@ The contract is verified at multiple levels:
 
 1. ownership tests: drift, canonical-source failures, symlink/directory/FIFO cases, path boundaries, and canonical role markers;
 2. renderer tests: Cloudflare/Native contracts, conflicts, strict role-aware ownership, and atomic rollback;
-3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transitions, active/stale locks, and uninstall cleanup;
+3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transitions, a real concurrent apply under kernel flock, lock release after owner exit, and uninstall cleanup;
 4. APK layout verification: final package paths, modes, ownership, absence of generated payloads, and absence of old alpha payload paths;
 5. OpenWrt rootfs smoke: real APK installation, `nginx-telego-files validate/status`, the clean 20/80/85 baseline, and remove/reinstall lifecycle.
 

@@ -18,7 +18,8 @@ NGINX_UCI_CONFIG=${NGINX_UCI_CONFIG:-${ROOT}/etc/config/nginx}
 CONF_DIR=${NGINX_TELEGO_CONF_DIR:-${ROOT}/etc/nginx/conf.d}
 INGRESS_OUTPUT=${NGINX_TELEGO_INGRESS_OUTPUT:-${CONF_DIR}/80-telego-ingress.conf}
 FALLBACK_OUTPUT=${NGINX_TELEGO_FALLBACK_OUTPUT:-${CONF_DIR}/85-telego-fallback.conf}
-LOCK_DIR=${NGINX_TELEGO_LOCK_DIR:-${ROOT}/var/lock/nginx-telego-reconcile.lock}
+FLOCK_BIN=${NGINX_TELEGO_FLOCK_BIN:-${ROOT}/usr/bin/flock}
+LOCK_FILE=${NGINX_TELEGO_LOCK_FILE:-${NGINX_TELEGO_LOCK_DIR:-${ROOT}/var/lock/nginx-telego-reconcile.lock}}
 RELOAD=1
 MODE=apply
 mode_seen=0
@@ -85,33 +86,21 @@ tx_active=0
 backup_index=0
 
 acquire_lock() {
-    lock_parent=$(dirname "$LOCK_DIR")
+    [ -x "$FLOCK_BIN" ] || fail "flock executable not found: $FLOCK_BIN"
+
+    lock_parent=$(dirname "$LOCK_FILE")
     mkdir -p "$lock_parent"
 
-    if mkdir "$LOCK_DIR" 2>/dev/null; then
-        printf '%s\n' "$$" >"$LOCK_DIR/pid"
-        lock_held=1
-        return 0
+    if [ -L "$LOCK_FILE" ] || { [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; }; then
+        fail "reconciliation lock path is not a regular file: $LOCK_FILE"
     fi
 
-    stale=1
-    old_pid=''
-    if [ -r "$LOCK_DIR/pid" ]; then
-        old_pid=$(cat "$LOCK_DIR/pid" 2>/dev/null || true)
-        case "$old_pid" in
-            ''|*[!0-9]*) ;;
-            *)
-                if kill -0 "$old_pid" 2>/dev/null; then
-                    stale=0
-                fi
-                ;;
-        esac
+    exec 9>>"$LOCK_FILE" || fail "could not open reconciliation lock: $LOCK_FILE"
+    if ! "$FLOCK_BIN" -n 9; then
+        exec 9>&-
+        fail 'another reconciliation is already running'
     fi
 
-    [ "$stale" -eq 1 ] || fail "another reconciliation is already running (pid $old_pid)"
-    rm -rf "$LOCK_DIR"
-    mkdir "$LOCK_DIR" || fail "could not acquire reconciliation lock: $LOCK_DIR"
-    printf '%s\n' "$$" >"$LOCK_DIR/pid"
     lock_held=1
 }
 
@@ -148,7 +137,7 @@ cleanup() {
 
     [ -z "$work" ] || rm -rf "$work"
     if [ "$lock_held" -eq 1 ]; then
-        rm -rf "$LOCK_DIR"
+        exec 9>&-
     fi
     exit "$rc"
 }

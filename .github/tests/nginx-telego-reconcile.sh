@@ -5,8 +5,17 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RECONCILE="$ROOT/package/nginx-telego/files/usr/libexec/nginx-telego-reconcile"
 FILES="$ROOT/package/nginx-telego/files/usr/libexec/nginx-telego-files"
 RENDER="$ROOT/package/nginx-telego/files/usr/libexec/nginx-telego-render"
+FLOCK_BIN=$(command -v flock)
 work=$(mktemp -d)
-trap 'rm -rf -- "$work"' EXIT
+background_pid=''
+cleanup() {
+  if [[ -n "$background_pid" ]]; then
+    kill "$background_pid" 2>/dev/null || true
+    wait "$background_pid" 2>/dev/null || true
+  fi
+  rm -rf -- "$work"
+}
+trap cleanup EXIT
 
 rootfs="$work/rootfs"
 mkdir -p \
@@ -58,6 +67,12 @@ chmod +x "$work/uci"
 cat >"$work/nginx" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$NGINX_LOG"
+if [ -n "${NGINX_TEST_BLOCK:-}" ]; then
+  : >"${NGINX_TEST_BLOCK}.entered"
+  while [ ! -e "${NGINX_TEST_BLOCK}.release" ]; do
+    sleep 0.05
+  done
+fi
 [ "${NGINX_TEST_FAIL:-0}" != 1 ]
 SH
 chmod +x "$work/nginx"
@@ -87,7 +102,8 @@ export NGINX_TELEGO_MANIFEST="$rootfs/usr/share/nginx-telego/ownership.tsv"
 export NGINX_TELEGO_CONF_DIR="$rootfs/etc/nginx/conf.d"
 export NGINX_TELEGO_INGRESS_OUTPUT="$rootfs/etc/nginx/conf.d/80-telego-ingress.conf"
 export NGINX_TELEGO_FALLBACK_OUTPUT="$rootfs/etc/nginx/conf.d/85-telego-fallback.conf"
-export NGINX_TELEGO_LOCK_DIR="$work/reconcile.lock"
+export NGINX_TELEGO_FLOCK_BIN="$FLOCK_BIN"
+export NGINX_TELEGO_LOCK_FILE="$work/reconcile.lock"
 export UCI_BIN="$work/uci"
 export NGINX_BIN="$work/nginx"
 export NGINX_CONF="$rootfs/etc/nginx/uci.conf"
@@ -242,21 +258,42 @@ fi
 grep -q 'unsafe generated-path type' "$work/unsafe-generated.out"
 rm -f "$INGRESS"
 
-# A stale lock is recovered automatically.
-mkdir -p "$NGINX_TELEGO_LOCK_DIR"
-printf '99999999\n' >"$NGINX_TELEGO_LOCK_DIR/pid"
-"$RECONCILE" apply
-! test -e "$NGINX_TELEGO_LOCK_DIR"
-
-# An active lock refuses a concurrent writer.
-mkdir -p "$NGINX_TELEGO_LOCK_DIR"
-printf '%s\n' "$$" >"$NGINX_TELEGO_LOCK_DIR/pid"
-if "$RECONCILE" apply >"$work/active-lock.out" 2>&1; then
-  echo 'reconciliation unexpectedly ignored an active lock' >&2
+# Hold a real reconciler inside nginx -t and prove that a second writer cannot
+# enter the transaction concurrently.
+block="$work/concurrent-reconcile"
+NGINX_TEST_BLOCK="$block" "$RECONCILE" apply >"$work/concurrent-first.out" 2>&1 &
+background_pid=$!
+for _ in {1..100}; do
+  [[ -e "$block.entered" ]] && break
+  sleep 0.05
+done
+if [[ ! -e "$block.entered" ]]; then
+  echo 'first reconciliation did not enter the guarded transaction' >&2
   exit 1
 fi
-grep -q 'another reconciliation is already running' "$work/active-lock.out"
-rm -rf "$NGINX_TELEGO_LOCK_DIR"
+if "$RECONCILE" apply >"$work/concurrent-second.out" 2>&1; then
+  echo 'concurrent reconciliation unexpectedly acquired the active flock' >&2
+  exit 1
+fi
+grep -q 'another reconciliation is already running' "$work/concurrent-second.out"
+: >"$block.release"
+wait "$background_pid"
+background_pid=''
+
+# The lock inode intentionally persists. Kernel flock ownership disappears when
+# the owner exits, so no PID file or unsafe stale-lock deletion is required.
+test -f "$NGINX_TELEGO_LOCK_FILE"
+"$RECONCILE" apply
+
+# A non-regular lock path is refused instead of being replaced as root.
+rm -f "$NGINX_TELEGO_LOCK_FILE"
+mkdir "$NGINX_TELEGO_LOCK_FILE"
+if "$RECONCILE" apply >"$work/unsafe-lock.out" 2>&1; then
+  echo 'reconciliation unexpectedly accepted a non-regular lock path' >&2
+  exit 1
+fi
+grep -q 'lock path is not a regular file' "$work/unsafe-lock.out"
+rmdir "$NGINX_TELEGO_LOCK_FILE"
 
 # remove-generated removes only currently owned generated paths and leaves foreign state.
 export FIX_CF_ENABLED=1 FIX_FALLBACK_MANAGE=1

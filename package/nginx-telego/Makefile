@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=7
+PKG_RELEASE:=8
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,7 +11,7 @@ define Package/nginx-telego
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Nginx integration for telEgo WEB Proxy
-  DEPENDS:=+telego-pkg
+  DEPENDS:=+telego-pkg +flock
   EXTRA_DEPENDS:=nginx-ssl (>=1.0)
 endef
 
