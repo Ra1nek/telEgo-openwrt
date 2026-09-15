@@ -42,4 +42,13 @@ define Package/luci-i18n-telego-ru/install
 		$(1)/usr/lib/lua/luci/i18n/telego.ru.lmo
 endef
 
+define Package/luci-i18n-telego-ru/postinst
+#!/bin/sh
+[ -n "$${IPKG_INSTROOT}" ] || {
+	rm -f /tmp/luci-indexcache.*
+	rm -rf /tmp/luci-modulecache/
+}
+exit 0
+endef
+
 $(eval $(call BuildPackage,luci-i18n-telego-ru))
