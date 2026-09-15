@@ -281,15 +281,15 @@ flowchart LR
     UCI["/etc/config/nginx_telego"] --> INIT["/etc/init.d/nginx-telego"]
     INIT --> REC["nginx-telego-reconcile"]
     REC --> OWN["ownership/status preflight"]
-    OWN --> REPAIR["safe package repair + legacy migration"]
+    OWN --> REPAIR["safe package drift repair"]
     REPAIR --> RENDER["renderer --no-reload"]
     RENDER --> TEST["final nginx -t"]
     TEST --> RELOAD["reload only when changed"]
 ```
 
-Reconciler сериализует writers process lock'ом, создаёт backup managed paths, восстанавливает только безопасный package drift, мигрирует только доказанный legacy package state и откатывает filesystem, если renderer, финальный `nginx -t` или reload Nginx завершается ошибкой. Cleanup generated state при удалении APK проходит через тот же coordinator с режимом `remove-generated`.
+Reconciler сериализует writers process lock'ом, создаёт backup managed paths, восстанавливает только безопасный package drift и откатывает filesystem, если renderer, финальный `nginx -t` или reload Nginx завершается ошибкой. Cleanup generated state при удалении APK проходит через тот же coordinator с режимом `remove-generated`.
 
-Исторический `/etc/nginx/conf.d/telego.conf` удаляется автоматически только если он совпадает с canonical package core. Исторический `/etc/nginx/conf.d/zz-telego-managed.conf` удаляется только если старый package marker доказывает generated ownership. Изменённые или foreign regular files сохраняются.
+Старые alpha-пути `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` не входят в ownership registry и не мигрируются автоматически. Если они остались на тестовой системе, их нужно отдельно проверить и удалить вручную перед переходом на baseline P7.
 
 Полная state machine ownership описана в [NGINX_FILES.md](NGINX_FILES.md).
 
