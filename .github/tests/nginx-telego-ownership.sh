@@ -25,6 +25,23 @@ cp "$rootfs/usr/share/nginx-telego/templates/telego.locations" \
   "$rootfs/etc/nginx/snippets/telego.locations"
 
 export NGINX_TELEGO_ROOT="$rootfs"
+registry="$rootfs/usr/share/nginx-telego/ownership.tsv"
+cp "$registry" "$work/ownership-good.tsv"
+
+restore_registry() {
+  cp "$work/ownership-good.tsv" "$registry"
+}
+
+expect_validate_fail() {
+  local pattern=$1
+  local output=$2
+  if "$HELPER" validate >"$output" 2>&1; then
+    echo "invalid ownership registry unexpectedly accepted: $pattern" >&2
+    exit 1
+  fi
+  grep -Fq "$pattern" "$output"
+  restore_registry
+}
 
 # The registry must be syntactically valid and classify pristine package files.
 "$HELPER" validate
@@ -51,6 +68,17 @@ rm -f "$rootfs/etc/nginx/snippets/telego.locations"
 cp "$rootfs/usr/share/nginx-telego/templates/telego.locations" \
   "$rootfs/etc/nginx/snippets/telego.locations"
 
+# Canonical package repair sources distinguish absence from unsafe file types.
+rm -f "$rootfs/usr/share/nginx-telego/templates/telego.conf"
+"$HELPER" status >"$work/status"
+grep -Fq $'/etc/nginx/conf.d/telego.conf\tcore\tpackage\trequired\tsource-missing\t' "$work/status"
+ln -s /tmp/not-a-real-template "$rootfs/usr/share/nginx-telego/templates/telego.conf"
+"$HELPER" status >"$work/status"
+grep -Fq $'/etc/nginx/conf.d/telego.conf\tcore\tpackage\trequired\tsource-invalid-type\t' "$work/status"
+rm -f "$rootfs/usr/share/nginx-telego/templates/telego.conf"
+cp "$ROOT/package/nginx-telego/files/conf.d/telego.conf" \
+  "$rootfs/usr/share/nginx-telego/templates/telego.conf"
+
 # The generated path is owned only when it carries the renderer ownership marker.
 printf '# user file\n' >"$rootfs/etc/nginx/conf.d/zz-telego-managed.conf"
 "$HELPER" status >"$work/status"
@@ -63,19 +91,36 @@ EOF
 "$HELPER" status >"$work/status"
 grep -Fq $'/etc/nginx/conf.d/zz-telego-managed.conf\tingress\tgenerated\tconditional\tmanaged\trenderer' "$work/status"
 
-# Duplicate ownership declarations are rejected so two roles cannot claim one path.
-cp "$rootfs/usr/share/nginx-telego/ownership.tsv" "$work/ownership-good.tsv"
-grep '^/etc/nginx/conf.d/telego.conf' "$work/ownership-good.tsv" >>"$rootfs/usr/share/nginx-telego/ownership.tsv"
-if "$HELPER" validate >"$work/duplicate.out" 2>&1; then
-  echo 'duplicate managed path unexpectedly accepted' >&2
-  exit 1
-fi
-grep -Fq 'duplicate managed path' "$work/duplicate.out"
-cp "$work/ownership-good.tsv" "$rootfs/usr/share/nginx-telego/ownership.tsv"
-
-# Canonical repair sources are package state; their loss is reported separately.
-rm -f "$rootfs/usr/share/nginx-telego/templates/telego.conf"
+rm -f "$rootfs/etc/nginx/conf.d/zz-telego-managed.conf"
+mkdir "$rootfs/etc/nginx/conf.d/zz-telego-managed.conf"
 "$HELPER" status >"$work/status"
-grep -Fq $'/etc/nginx/conf.d/telego.conf\tcore\tpackage\trequired\tsource-missing\t' "$work/status"
+grep -Fq $'/etc/nginx/conf.d/zz-telego-managed.conf\tingress\tgenerated\tconditional\tinvalid-type\trenderer' "$work/status"
+rmdir "$rootfs/etc/nginx/conf.d/zz-telego-managed.conf"
+mkfifo "$rootfs/etc/nginx/conf.d/zz-telego-managed.conf"
+"$HELPER" status >"$work/status"
+grep -Fq $'/etc/nginx/conf.d/zz-telego-managed.conf\tingress\tgenerated\tconditional\tinvalid-type\trenderer' "$work/status"
+rm -f "$rootfs/etc/nginx/conf.d/zz-telego-managed.conf"
+
+# Duplicate declarations are rejected so two managed roles cannot claim one path.
+grep '^/etc/nginx/conf.d/telego.conf' "$work/ownership-good.tsv" >>"$registry"
+expect_validate_fail 'duplicate managed path' "$work/duplicate.out"
+
+# The registry is a security boundary, not an arbitrary root filesystem manifest.
+printf '/etc/passwd\tcore\tpackage\trequired\t/usr/share/nginx-telego/templates/telego.conf\n' >>"$registry"
+expect_validate_fail 'managed conf.d path must be' "$work/outside-target.out"
+
+printf '/etc/nginx/conf.d/extra.conf\tcore\tpackage\trequired\t/etc/passwd\n' >>"$registry"
+expect_validate_fail 'package source must be under /usr/share/nginx-telego/templates/' "$work/outside-source.out"
+
+printf '/etc/nginx/conf.d/extra.conf\tunknown\tpackage\trequired\t/usr/share/nginx-telego/templates/telego.conf\n' >>"$registry"
+expect_validate_fail "invalid role 'unknown'" "$work/role.out"
+
+printf '/etc/nginx/conf.d/extra.conf\tcore\tpackage\trequired\t\n' >>"$registry"
+expect_validate_fail 'missing source' "$work/source-empty.out"
+
+printf '/etc/nginx/conf.d/../escape.conf\tcore\tpackage\trequired\t/usr/share/nginx-telego/templates/telego.conf\n' >>"$registry"
+expect_validate_fail 'managed path contains dot traversal' "$work/traversal.out"
+
+"$HELPER" validate
 
 echo 'nginx-telego ownership registry tests passed'

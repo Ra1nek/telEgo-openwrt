@@ -1,8 +1,8 @@
 #!/bin/sh
 # Inspect nginx-telego owned Nginx files without modifying them.
 #
-# This helper is intentionally read-only. P6 establishes explicit ownership and
-# drift classification; reconciliation/repair actions are added in later stages.
+# P6 establishes explicit ownership and drift classification. This helper is
+# intentionally read-only; reconciliation/repair actions belong to later stages.
 set -eu
 
 ROOT=${NGINX_TELEGO_ROOT:-}
@@ -27,6 +27,91 @@ resolve_path() {
     esac
 }
 
+validate_clean_absolute_path() {
+    value=$1
+    label=$2
+
+    case "$value" in
+        /*) ;;
+        *) fail "$label must be absolute: $value" ;;
+    esac
+
+    case "$value" in
+        *'//'*) fail "$label contains an empty path segment: $value" ;;
+        *'/../'*|*/..|*'/./'*|*/.) fail "$label contains dot traversal: $value" ;;
+    esac
+}
+
+validate_conf_d_path() {
+    value=$1
+    validate_clean_absolute_path "$value" 'managed path'
+    case "$value" in
+        /etc/nginx/conf.d/*.conf) ;;
+        *) fail "managed conf.d path must be /etc/nginx/conf.d/*.conf: $value" ;;
+    esac
+    relative=${value#/etc/nginx/conf.d/}
+    case "$relative" in
+        ''|*/*) fail "managed conf.d path must name one direct child: $value" ;;
+    esac
+}
+
+validate_snippet_path() {
+    value=$1
+    validate_clean_absolute_path "$value" 'managed path'
+    case "$value" in
+        /etc/nginx/snippets/?*) ;;
+        *) fail "managed snippet path must be under /etc/nginx/snippets/: $value" ;;
+    esac
+    relative=${value#/etc/nginx/snippets/}
+    case "$relative" in
+        ''|*/*) fail "managed snippet path must name one direct child: $value" ;;
+    esac
+}
+
+validate_template_path() {
+    value=$1
+    validate_clean_absolute_path "$value" 'package source'
+    case "$value" in
+        /usr/share/nginx-telego/templates/?*) ;;
+        *) fail "package source must be under /usr/share/nginx-telego/templates/: $value" ;;
+    esac
+    relative=${value#/usr/share/nginx-telego/templates/}
+    case "$relative" in
+        ''|*/*) fail "package source must name one direct template: $value" ;;
+    esac
+}
+
+validate_role_contract() {
+    path=$1
+    role=$2
+    ownership=$3
+    presence=$4
+    source=$5
+    line_no=$6
+
+    case "$role" in
+        core)
+            [ "$ownership" = package ] || fail "core role must be package-owned at $MANIFEST:$line_no"
+            [ "$presence" = required ] || fail "core role must be required at $MANIFEST:$line_no"
+            validate_conf_d_path "$path"
+            validate_template_path "$source"
+            ;;
+        locations)
+            [ "$ownership" = package ] || fail "locations role must be package-owned at $MANIFEST:$line_no"
+            [ "$presence" = required ] || fail "locations role must be required at $MANIFEST:$line_no"
+            validate_snippet_path "$path"
+            validate_template_path "$source"
+            ;;
+        ingress)
+            [ "$ownership" = generated ] || fail "ingress role must be generated at $MANIFEST:$line_no"
+            [ "$presence" = conditional ] || fail "ingress role must be conditional at $MANIFEST:$line_no"
+            validate_conf_d_path "$path"
+            [ "$source" = renderer ] || fail "generated source must be 'renderer' at $MANIFEST:$line_no"
+            ;;
+        *) fail "invalid role '$role' at $MANIFEST:$line_no" ;;
+    esac
+}
+
 validate_manifest() {
     [ -r "$MANIFEST" ] || fail "ownership registry is not readable: $MANIFEST"
 
@@ -41,8 +126,10 @@ validate_manifest() {
         esac
 
         [ -z "${extra:-}" ] || fail "invalid extra field at $MANIFEST:$line_no"
-        case "$path" in /*) ;; *) fail "path must be absolute at $MANIFEST:$line_no" ;; esac
-        [ -n "$role" ] || fail "missing role at $MANIFEST:$line_no"
+        [ -n "${role:-}" ] || fail "missing role at $MANIFEST:$line_no"
+        [ -n "${ownership:-}" ] || fail "missing ownership at $MANIFEST:$line_no"
+        [ -n "${presence:-}" ] || fail "missing presence at $MANIFEST:$line_no"
+        [ -n "${source:-}" ] || fail "missing source at $MANIFEST:$line_no"
 
         case "$ownership" in
             package|generated) ;;
@@ -53,11 +140,7 @@ validate_manifest() {
             *) fail "invalid presence '$presence' at $MANIFEST:$line_no" ;;
         esac
 
-        if [ "$ownership" = package ]; then
-            case "$source" in /*) ;; *) fail "package source must be absolute at $MANIFEST:$line_no" ;; esac
-        else
-            [ "$source" = renderer ] || fail "generated source must be 'renderer' at $MANIFEST:$line_no"
-        fi
+        validate_role_contract "$path" "$role" "$ownership" "$presence" "$source" "$line_no"
 
         if grep -Fqx "$path" "$seen" 2>/dev/null; then
             fail "duplicate managed path in ownership registry: $path"
@@ -80,25 +163,29 @@ emit_status() {
 
         if [ "$ownership" = package ]; then
             canonical=$(resolve_path "$source")
-            # Test symlinks before existence. A dangling symlink makes `test -e`
-            # false, but it is still filesystem drift and must never be reported
-            # as a merely missing managed file.
-            if [ -L "$target" ]; then
+
+            # Canonical package state is the repair source. Report its failure
+            # before active-file drift because P7 cannot repair without it.
+            if [ -L "$canonical" ]; then
+                state=source-invalid-type
+            elif [ ! -e "$canonical" ]; then
+                state=source-missing
+            elif [ ! -f "$canonical" ]; then
+                state=source-invalid-type
+            elif [ -L "$target" ]; then
+                # A dangling symlink also makes `test -e` false, so symlinks must
+                # be checked before existence and never classified as "missing".
                 state=invalid-type
             elif [ ! -e "$target" ]; then
                 state=missing
             elif [ ! -f "$target" ]; then
                 state=invalid-type
-            elif [ ! -f "$canonical" ] || [ -L "$canonical" ]; then
-                state=source-missing
             elif cmp -s "$canonical" "$target"; then
                 state=ok
             else
                 state=modified
             fi
         else
-            # The generated path follows the same rule: any symlink, including a
-            # dangling one, is an invalid type rather than an absent managed file.
             if [ -L "$target" ]; then
                 state=invalid-type
             elif [ ! -e "$target" ]; then
