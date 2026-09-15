@@ -123,6 +123,8 @@ function metric_label(labels, key) {
 
 function read_metrics() {
 	const result = {
+		available: false,
+		error: 'unavailable',
 		connections: 0,
 		ips_active: 0,
 		ips_tracked: 0,
@@ -153,17 +155,22 @@ function read_metrics() {
 	};
 
 	const endpoint = metrics_endpoint();
-	if (!endpoint)
+	if (!endpoint) {
+		result.error = 'invalid-endpoint';
 		return result;
+	}
 
 	// OpenWrt's pinned ucode accepts a shell command, not an argv array.
 	// Quote the entire URL, including any literal apostrophes in its path.
 	const quoted = "'" + replace(endpoint, /'/g, function() { return "'\\''"; }) + "'";
 	const proc = popen('/usr/bin/uclient-fetch -q -T 2 -O - ' + quoted, 'r');
 
-	if (!proc)
+	if (!proc) {
+		result.error = 'fetch-failed';
 		return result;
+	}
 
+	let recognized = 0;
 	for (let line = proc.read('line'); length(line); line = proc.read('line')) {
 		line = rtrim(line, '\r\n');
 		if (!length(line) || substr(line, 0, 1) === '#')
@@ -180,86 +187,122 @@ function read_metrics() {
 		switch (name) {
 		case 'telego_connections_active':
 			result.connections += value;
+			recognized++;
 			break;
 		case 'telego_ips_active':
 			result.ips_active += value;
+			recognized++;
 			break;
 		case 'telego_ips_tracked':
 			result.ips_tracked += value;
+			recognized++;
 			break;
 		case 'telego_ips_blocked':
 			result.ips_blocked += value;
+			recognized++;
 			break;
 		case 'telego_traffic_in_bytes_total':
 			result.rx_bytes += value;
+			recognized++;
 			break;
 		case 'telego_traffic_out_bytes_total':
 			result.tx_bytes += value;
+			recognized++;
 			break;
 
 		case 'telego_web_sessions_active':
 			result.web_sessions_active += value;
+			recognized++;
 			break;
 		case 'telego_web_streams_active':
 			result.web_streams_active += value;
+			recognized++;
 			break;
 		case 'telego_web_websocket_connections_active':
 			result.web_websockets_active += value;
+			recognized++;
 			break;
 		case 'telego_web_backend_dials_active':
 			result.web_backend_dials_active += value;
+			recognized++;
 			break;
 		case 'telego_web_pending_bytes':
 			result.web_pending_bytes += value;
+			recognized++;
 			break;
 		case 'telego_web_pending_items':
 			result.web_pending_items += value;
+			recognized++;
 			break;
 		case 'telego_web_sessions_created_total':
 			result.web_sessions_created_total += value;
+			recognized++;
 			break;
 		case 'telego_web_sessions_closed_total':
 			result.web_sessions_closed_total += value;
+			recognized++;
 			break;
 		case 'telego_web_carrier_retries_total':
 			result.web_carrier_retries_total += value;
+			recognized++;
 			break;
 		case 'telego_web_backpressure_total':
 			result.web_backpressure_total += value;
+			recognized++;
 			break;
 
 		case 'telego_middleend_admitting':
 			result.middleend_admitting += value;
+			recognized++;
 			break;
 		case 'telego_middleend_repairing':
 			result.middleend_repairing += value;
+			recognized++;
 			break;
 		case 'telego_middleend_links':
 			result.middleend_links += value;
+			recognized++;
 			break;
 		case 'telego_middleend_bindings_active':
 			result.middleend_bindings += value;
+			recognized++;
 			break;
 		case 'telego_middleend_slot_repairs_active':
 			result.middleend_repairs_active += value;
+			recognized++;
 			break;
 		case 'telego_middleend_slot_failure_total':
 			result.middleend_slot_failures_total += value;
+			recognized++;
 			break;
 		case 'telego_middleend_artifact_state':
 			if (metric_label(labels, 'state') == 'applied')
 				result.middleend_artifact_applied += value;
 			else if (metric_label(labels, 'state') == 'pending')
 				result.middleend_artifact_pending += value;
+			recognized++;
 			break;
 		case 'telego_middleend_artifact_refresh_total':
 			if (metric_label(labels, 'result') == 'failure')
 				result.middleend_artifact_refresh_failures += value;
+			recognized++;
 			break;
 		}
 	}
 
-	proc.close();
+	const exit_code = proc.close();
+	if (exit_code != 0) {
+		result.error = 'fetch-failed';
+		return result;
+	}
+
+	if (!recognized) {
+		result.error = 'unrecognized-response';
+		return result;
+	}
+
+	result.available = true;
+	result.error = '';
 	return result;
 }
 
@@ -274,6 +317,8 @@ const methods = {
 				running: service.running,
 				pid: service.pid,
 				uptime: process_uptime(service.pid),
+				metrics_available: metrics.available,
+				metrics_error: metrics.error,
 				connections: int(metrics.connections),
 				ips_active: int(metrics.ips_active),
 				ips_tracked: int(metrics.ips_tracked),
