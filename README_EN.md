@@ -85,7 +85,7 @@ Detailed build/runtime/network diagrams, Middle-End pools, Link Repair/Refresh, 
 | `telego-pkg` | x86_64 | `/usr/bin/telego`, UCI, procd/ujail service, capability profile |
 | `luci-app-telego` | all | LuCI JavaScript UI and read-only rpcd telemetry backend |
 | `luci-i18n-telego-ru` | all | Russian LuCI translation |
-| `nginx-telego` | all | Nginx `http {}` definitions and WEB Proxy location snippet |
+| `nginx-telego` | all | managed Nginx ownership/reconciliation, WEB ingress/fallback, and reusable location snippet |
 
 # Quick install
 
@@ -216,12 +216,16 @@ Detailed topology and lifecycle: **[Architecture → Telegram Middle-End](docs/A
 
 ## WEB Proxy / Nginx
 
-`nginx-telego` installs:
+`nginx-telego` uses the final P6/P7 managed layout:
 
 ```text
-/etc/nginx/conf.d/telego.conf
+/etc/nginx/conf.d/20-telego-core.conf
 /etc/nginx/snippets/telego.locations
+/etc/nginx/conf.d/80-telego-ingress.conf      # conditional generated
+/etc/nginx/conf.d/85-telego-fallback.conf     # conditional generated
 ```
+
+Normal changes are applied through `/etc/init.d/nginx-telego reload`. The reconciler validates ownership/drift, performs safe migration/repair, uses the renderer as an internal generator, runs the final `nginx -t`, and rolls the managed filesystem back on failure.
 
 The package intentionally does **not** create the public TLS `server {}` or obtain a certificate; those are deployment-specific responsibilities.
 
@@ -242,7 +246,7 @@ WEB Proxy supports:
 
 Private fallback `418` preserves an ordinary website request; `419` marks a carrier-shaped request that failed authentication, after which Nginx removes carrier credentials before the ordinary-site fallback.
 
-Topology and sanitization: **[Architecture → Native WEB Proxy and Nginx](docs/ARCHITECTURE_EN.md#native-web-proxy-and-nginx)**.
+Topology, ownership/reconciliation, and sanitization: **[Architecture → Native WEB Proxy and Nginx](docs/ARCHITECTURE_EN.md#native-web-proxy-and-nginx)** and **[Nginx files](docs/NGINX_FILES_EN.md)**.
 
 ## Security
 

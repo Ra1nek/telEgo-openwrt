@@ -35,12 +35,16 @@ flowchart LR
     I --> T["/var/etc/telego.toml"]
     T --> D["telEgo daemon"]
 
-    NU["/etc/config/nginx_telego"] --> NR["nginx-telego-render"]
-    NR --> NC["zz-telego-managed.conf"]
-    NC --> N["Nginx"]
+    NU["/etc/config/nginx_telego"] --> RI["/etc/init.d/nginx-telego"]
+    RI --> RC["nginx-telego-reconcile"]
+    RC --> OWN["ownership.tsv + canonical templates"]
+    RC --> REN["nginx-telego-render --no-reload"]
+    REN --> ING["80-telego-ingress.conf"]
+    REN --> FB["85-telego-fallback.conf"]
+    RC --> N["nginx -t + reload"]
 ```
 
-The two control planes are intentionally separate. `telego` describes the proxy daemon runtime. `nginx_telego` describes only the Nginx edge around WEB Proxy. The renderer does **not** rewrite `/etc/config/telego`; instead, it validates that both sides agree and refuses an incompatible configuration.
+The two control planes are intentionally separate. `telego` describes the proxy daemon runtime. `nginx_telego` describes only the Nginx edge around WEB Proxy. The reconciliation engine does **not** rewrite `/etc/config/telego`; it validates the required telEgo contract and refuses an incompatible desired state. The renderer is an internal generated-state component, not the operator-facing apply path.
 
 ---
 
@@ -228,25 +232,36 @@ or a supported local Unix socket.
 
 # 5. Nginx deployment profiles
 
-`nginx-telego` always installs the generic integration pieces:
+`nginx-telego` installs the final P6/P7 managed layout:
 
 ```text
-/etc/nginx/conf.d/telego.conf
+/etc/nginx/conf.d/20-telego-core.conf
 /etc/nginx/snippets/telego.locations
+/usr/share/nginx-telego/ownership.tsv
+/usr/libexec/nginx-telego-files
+/usr/libexec/nginx-telego-render
+/usr/libexec/nginx-telego-reconcile
 ```
 
-`telego.conf` defines the shared `telego_web → 127.0.0.1:8080` upstream and the Nginx maps used by the integration.
+`20-telego-core.conf` defines the shared `telego_web → 127.0.0.1:8080` upstream and the Nginx maps used by the integration. Its canonical repair source is stored under `/usr/share/nginx-telego/templates/20-telego-core.conf`.
 
 `telego.locations` is a reusable HTTP/WebSocket/fallback snippet for a normal Nginx TLS server. It is **not an MTProto handler**. In native shared-port mode, the private TLS server on `:8443` includes it after telEgo has separated MTProxy from ordinary TLS.
 
-The package also provides opt-in managed profiles:
+The opt-in managed profiles use:
 
 ```text
 /etc/config/nginx_telego
-/usr/libexec/nginx-telego-render
+/etc/nginx/conf.d/80-telego-ingress.conf
+/etc/nginx/conf.d/85-telego-fallback.conf
 ```
 
+`80-telego-ingress.conf` exists only while Cloudflare or Native Shared-Port managed ingress is enabled. `85-telego-fallback.conf` exists only while a managed profile is enabled and `fallback.manage=1`. Generated files carry both the common nginx-telego marker and a role-specific marker so content copied to the wrong reserved path is not silently adopted.
+
 Both profiles are disabled by default and are **mutually exclusive**.
+
+The historical `/etc/nginx/conf.d/telego.conf` and `/etc/nginx/conf.d/zz-telego-managed.conf` are migration-only paths. Reconciliation removes them automatically only when package ownership can be proven; changed/foreign regular files are preserved rather than silently discarded.
+
+See **[Nginx file ownership and reconciliation](NGINX_FILES_EN.md)** for the exact state machine and rollback rules.
 
 ## 5.1 Cloudflare profile
 
@@ -340,11 +355,12 @@ uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-The renderer validates the complete telEgo contract, port conflicts, certificate readability, and `nginx -t`. A failed candidate must not replace the previous working managed configuration.
+The reconciler checks ownership/drift, the renderer validates the telEgo contract, port conflicts, and certificate readability, and the outer transaction performs a final `nginx -t` before reload. A render, validation, or reload failure restores managed files to their pre-transaction state.
 
 Verify:
 
 ```sh
+/usr/libexec/nginx-telego-files status
 /usr/sbin/nginx -T -c /etc/nginx/uci.conf 2>&1 | \
     grep -nE '8443|8444|8090|telego.locations|telego_web'
 netstat -lntp 2>/dev/null | grep -E ':443|:8080|:8090|:8443|:8444'
@@ -521,9 +537,9 @@ ubus call telego status
 /etc/init.d/nginx-telego reload
 ```
 
-The renderer creates a candidate, validates it with `nginx -t`, and only then reloads Nginx. If generated content is byte-for-byte unchanged, an unnecessary Nginx reload is skipped.
+The init helper invokes `nginx-telego-reconcile`. Reconciliation serializes changes with a lock, repairs safe package drift, migrates proven legacy package state, delegates generated-file rendering with reload suppressed, performs a final `nginx -t`, then reloads Nginx only if the complete managed filesystem state changed. Renderer, final validation, and reload failures all trigger filesystem rollback.
 
-When managed profiles are disabled, the helper leaves administrator-owned Nginx files untouched.
+When managed profiles are disabled, nginx-telego removes only its own generated files and leaves administrator-owned Nginx files untouched.
 
 ---
 

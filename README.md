@@ -85,7 +85,7 @@ flowchart LR
 | `telego-pkg` | x86_64 | `/usr/bin/telego`, UCI,<br>служба procd/ujail,<br>профиль Linux capabilities |
 | `luci-app-telego` | all | интерфейс LuCI на JavaScript<br>и read-only backend телеметрии rpcd |
 | `luci-i18n-telego-ru` | all | русский перевод LuCI |
-| `nginx-telego` | all | директивы Nginx для `http {}`<br>и готовый location-snippet WEB Proxy |
+| `nginx-telego` | all | managed Nginx ownership/reconciliation,<br>WEB ingress/fallback и reusable location-snippet |
 
 # Быстрая установка
 
@@ -216,12 +216,16 @@ flowchart LR
 
 ## WEB Proxy / Nginx
 
-`nginx-telego` устанавливает:
+`nginx-telego` использует финальный managed layout P6/P7:
 
 ```text
-/etc/nginx/conf.d/telego.conf
+/etc/nginx/conf.d/20-telego-core.conf
 /etc/nginx/snippets/telego.locations
+/etc/nginx/conf.d/80-telego-ingress.conf      # conditional generated
+/etc/nginx/conf.d/85-telego-fallback.conf     # conditional generated
 ```
+
+Обычные изменения применяются через `/etc/init.d/nginx-telego reload`. Reconciler проверяет ownership/drift, выполняет безопасную migration/repair, использует renderer как внутренний генератор, запускает финальный `nginx -t` и откатывает managed filesystem при ошибке.
 
 Пакет намеренно **не создаёт** публичный TLS `server {}` и не получает сертификат: эта часть настройки зависит от конкретного развёртывания.
 
@@ -242,7 +246,7 @@ WEB Proxy поддерживает:
 
 Внутренний fallback-статус `418` сохраняет обычный запрос к сайту. Статус `419` используется для запроса, похожего на carrier-трафик, но не прошедшего аутентификацию; перед передачей такого запроса обычному сайту Nginx удаляет служебные данные carrier.
 
-Топология и очистка запросов: **[Архитектура → Native WEB Proxy and Nginx](docs/ARCHITECTURE.md#native-web-proxy-and-nginx)**.
+Топология, ownership/reconciliation и очистка запросов: **[Архитектура → Native WEB Proxy and Nginx](docs/ARCHITECTURE.md#native-web-proxy-and-nginx)** и **[Nginx files](docs/NGINX_FILES.md)**.
 
 ## Безопасность
 

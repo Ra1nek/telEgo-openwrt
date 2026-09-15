@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=3
+PKG_RELEASE:=8
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,7 +11,7 @@ define Package/nginx-telego
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Nginx integration for telEgo WEB Proxy
-  DEPENDS:=+telego-pkg
+  DEPENDS:=+telego-pkg +flock
   EXTRA_DEPENDS:=nginx-ssl (>=1.0)
 endef
 
@@ -29,19 +29,19 @@ endef
 
 define Package/nginx-telego/install
 	$(INSTALL_DIR) $(1)/etc/nginx/conf.d
-	$(INSTALL_DATA) ./files/conf.d/telego.conf \
-		$(1)/etc/nginx/conf.d/telego.conf
+	$(INSTALL_DATA) ./files/conf.d/20-telego-core.conf \
+		$(1)/etc/nginx/conf.d/20-telego-core.conf
 
 	$(INSTALL_DIR) $(1)/etc/nginx/snippets
 	$(INSTALL_DATA) ./files/telego.locations \
 		$(1)/etc/nginx/snippets/telego.locations
 
-	# Keep immutable package copies outside the active Nginx include tree. Future
-	# reconciliation/LuCI repair operations compare active files with these copies
-	# instead of treating a hand-edited active file as the source of truth.
+	# Immutable package copies live outside the active Nginx include tree. The
+	# reconciler compares active files with these canonical repair sources instead
+	# of ever adopting a hand-edited active file as the source of truth.
 	$(INSTALL_DIR) $(1)/usr/share/nginx-telego/templates
-	$(INSTALL_DATA) ./files/conf.d/telego.conf \
-		$(1)/usr/share/nginx-telego/templates/telego.conf
+	$(INSTALL_DATA) ./files/conf.d/20-telego-core.conf \
+		$(1)/usr/share/nginx-telego/templates/20-telego-core.conf
 	$(INSTALL_DATA) ./files/telego.locations \
 		$(1)/usr/share/nginx-telego/templates/telego.locations
 	$(INSTALL_DATA) ./files/usr/share/nginx-telego/ownership.tsv \
@@ -60,18 +60,21 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-render
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-files \
 		$(1)/usr/libexec/nginx-telego-files
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-reconcile \
+		$(1)/usr/libexec/nginx-telego-reconcile
 endef
 
-# A generated managed server block is not an APK conffile. Remove it before a
-# real uninstall while the generic upstream/snippet files are still present, so
-# Nginx never retains a stale reference to a removed package. Keep it across
-# upgrades; the newly installed renderer will revalidate it.
+# Generated state is not an APK conffile. Route uninstall cleanup through the
+# same reconciliation lock/transaction boundary used by LuCI and procd so two
+# mutation paths cannot race each other. Keep current generated state across
+# upgrades; the newly installed reconciler revalidates it against the same
+# 20/80/85 ownership contract.
 define Package/nginx-telego/prerm
 	#!/bin/sh
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
 	[ "$${PKG_UPGRADE}" = "1" ] && exit 0
-	[ -x /usr/libexec/nginx-telego-render ] || exit 0
-	/usr/libexec/nginx-telego-render remove
+	[ -x /usr/libexec/nginx-telego-reconcile ] || exit 0
+	/usr/libexec/nginx-telego-reconcile remove-generated
 	exit $$?
 endef
 

@@ -101,7 +101,7 @@ return view.extend({
 			form.ListValue,
 			'_mode',
 			_('Mode'),
-			_('Selecting a mode updates the existing shared.enabled and cloudflare.enabled UCI flags. Save & Apply invokes the nginx-telego renderer through the OpenWrt reload trigger.')
+			_('Selecting a mode updates the existing shared.enabled and cloudflare.enabled UCI flags. Save & Apply invokes the nginx-telego reconciliation engine through the OpenWrt reload trigger.')
 		);
 		o.value('disabled', _('Disabled'));
 		o.value('cloudflare', 'Cloudflare Tunnel');
@@ -122,8 +122,10 @@ return view.extend({
 			return profileMode() === 'disabled' ? _('Disabled') : _('Enabled');
 		};
 
-		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx File'));
-		o.cfgvalue = function () { return '/etc/nginx/conf.d/zz-telego-managed.conf'; };
+		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx Files'));
+		o.cfgvalue = function () {
+			return '/etc/nginx/conf.d/20-telego-core.conf · /etc/nginx/conf.d/80-telego-ingress.conf · /etc/nginx/conf.d/85-telego-fallback.conf';
+		};
 
 		o = s.option(form.DummyValue, '_web_contract', _('Current telEgo WEB Contract'));
 		o.cfgvalue = webContractText;
@@ -209,7 +211,7 @@ return view.extend({
 		o = s.option(form.DummyValue, '_shared_contract', _('Current Native Shared-Port Contract'));
 		o.depends('_mode', 'shared');
 		o.cfgvalue = sharedContractText;
-		o.description = _('Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. The renderer refuses to change Nginx if this contract is not satisfied.');
+		o.description = _('Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. nginx-telego refuses to apply the managed Nginx state if this contract is not satisfied.');
 
 		o = s.option(
 			form.Flag,

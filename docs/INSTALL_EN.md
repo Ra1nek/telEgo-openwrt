@@ -194,14 +194,26 @@ Expected security properties are owner `telego:telego` and mode `0600` while the
 
 ## WEB Proxy prerequisites
 
-`nginx-telego` installs reusable integration files, not a complete public TLS site:
+`nginx-telego` installs the package-owned core/snippet plus the reconciliation engine. The final P6/P7 managed layout is:
 
 ```text
-/etc/nginx/conf.d/telego.conf
+/etc/nginx/conf.d/20-telego-core.conf
 /etc/nginx/snippets/telego.locations
+/etc/nginx/conf.d/80-telego-ingress.conf      # conditional generated
+/etc/nginx/conf.d/85-telego-fallback.conf     # conditional generated
+/usr/share/nginx-telego/ownership.tsv
+/usr/libexec/nginx-telego-reconcile
 ```
 
-Inside the administrator-managed TLS `server {}` block, include:
+The `80-*` and `85-*` files exist only when the corresponding managed profile/fallback is enabled. Apply normal changes through:
+
+```sh
+/etc/init.d/nginx-telego reload
+```
+
+Do not invoke the renderer directly for normal administration. The init script delegates to the reconciler, which validates ownership/drift, performs safe migration/repair, uses the renderer as an internal generator, runs the final `nginx -t`, and rolls the managed filesystem back on failure.
+
+When using an administrator-managed TLS `server {}` with the generic snippet, include:
 
 ```nginx
 include /etc/nginx/snippets/telego.locations;
@@ -215,7 +227,7 @@ You are still responsible for:
 - the ordinary-site fallback listener expected by the snippet if you use that path;
 - WAN firewall/NAT rules.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md#web-proxy-and-nginx).
+See [ARCHITECTURE_EN.md](ARCHITECTURE_EN.md#native-web-proxy-and-nginx) and [NGINX_FILES_EN.md](NGINX_FILES_EN.md).
 
 ## Upgrade behavior
 

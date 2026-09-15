@@ -94,6 +94,12 @@ const ingress = new Function('form', 'uci', 'view', '_',
 	assert.equal(store.nginx_telego.shared.enabled, '0');
 	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
 
+	const managed = options.find(o => o.name === '_managed_output');
+	assert.ok(managed.cfgvalue().includes('/etc/nginx/conf.d/20-telego-core.conf'));
+	assert.ok(managed.cfgvalue().includes('/etc/nginx/conf.d/80-telego-ingress.conf'));
+	assert.ok(managed.cfgvalue().includes('/etc/nginx/conf.d/85-telego-fallback.conf'));
+	assert.ok(!managed.cfgvalue().includes('zz-telego-managed.conf'));
+
 	const cfHost = options.find(o => o.name === 'cloudflare_hostname');
 	assert.deepEqual(cfHost.dependencies, [['_mode', 'cloudflare']]);
 	assert.equal(cfHost.validate(null, ''), true);
@@ -123,7 +129,8 @@ const ingress = new Function('form', 'uci', 'view', '_',
 	assert.equal(menu['admin/services/telego'].action.preferred, 'configuration');
 	assert.equal(menu['admin/services/telego/ingress'].action.path, 'telego/ingress');
 	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/etc/config/nginx_telego'], 'file');
-	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/usr/libexec/nginx-telego-render'], 'executable');
+	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/usr/libexec/nginx-telego-reconcile'], 'executable');
+	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/usr/libexec/nginx-telego-render'], undefined);
 
 	const acl = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/rpcd/acl.d/luci-app-telego.json', 'utf8'))['luci-app-telego'];
 	assert.ok(acl.read.uci.includes('nginx_telego'));

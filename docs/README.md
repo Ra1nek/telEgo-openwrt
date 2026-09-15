@@ -15,6 +15,7 @@
 | Зарегистрировать домен и настроить DNS | **[Домен и DNS](DOMAIN.md)** |
 | Установить и настроить Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE.md)** |
 | Настроить MTProxy, FakeTLS, WEB Proxy или Middle-End | **[Конфигурация и LuCI](CONFIGURATION.md)** |
+| Проверить ownership, drift и reconciliation Nginx-файлов | **[Nginx files](NGINX_FILES.md)** |
 | Понять схему трафика и устройство проекта | **[Архитектура](ARCHITECTURE.md)** |
 | Разобраться с `ubus`, rpcd и Prometheus | **[Локальный API и телеметрия](API.md)** |
 | Найти причину сбоя | **[Диагностика](TROUBLESHOOTING.md)** |
@@ -83,6 +84,17 @@
 - WEB Proxy и режимы `https`, `https-lanes`, `websocket`, `websocket-lanes`;
 - Telegram Middle-End;
 - производительность, upstream SOCKS5 и метрики.
+
+### [Nginx files](NGINX_FILES.md)
+
+Контракт P6/P7 для управляемого Nginx filesystem state:
+
+- ownership registry и canonical package sources;
+- состояния `ok`, `modified`, `missing`, `managed`, `foreign` и unsafe types;
+- финальный layout `20-telego-core.conf`, `80-telego-ingress.conf`, `85-telego-fallback.conf`;
+- clean alpha baseline без скрытой миграции старых `telego.conf` и `zz-telego-managed.conf`;
+- transactional reconciliation, `nginx -t`, reload-if-changed и rollback;
+- граница между package-owned/generated и administrator/application files.
 
 ### [Локальный API и телеметрия](API.md)
 

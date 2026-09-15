@@ -55,12 +55,27 @@ assert_regular() {
   fi
 }
 
-assert_regular /etc/nginx/conf.d/telego.conf 644
+assert_absent() {
+  local path=$1
+  if [[ -e "$root$path" || -L "$root$path" ]]; then
+    printf 'Unexpected legacy/generated path in nginx-telego APK: %s\n' "$path" >&2
+    exit 1
+  fi
+}
+
+assert_regular /etc/nginx/conf.d/20-telego-core.conf 644
 assert_regular /etc/nginx/snippets/telego.locations 644
-assert_regular /usr/share/nginx-telego/templates/telego.conf 644
+assert_regular /usr/share/nginx-telego/templates/20-telego-core.conf 644
 assert_regular /usr/share/nginx-telego/templates/telego.locations 644
 assert_regular /usr/share/nginx-telego/ownership.tsv 644
 assert_regular /usr/libexec/nginx-telego-files 755
 assert_regular /usr/libexec/nginx-telego-render 755
+assert_regular /usr/libexec/nginx-telego-reconcile 755
 
-printf 'nginx-telego APK ownership layout verified: %s\n' "$apk_file"
+assert_absent /etc/nginx/conf.d/telego.conf
+assert_absent /etc/nginx/conf.d/80-telego-ingress.conf
+assert_absent /etc/nginx/conf.d/85-telego-fallback.conf
+assert_absent /etc/nginx/conf.d/zz-telego-managed.conf
+assert_absent /usr/share/nginx-telego/templates/telego.conf
+
+printf 'nginx-telego final P6/P7 APK layout verified: %s\n' "$apk_file"

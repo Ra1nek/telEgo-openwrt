@@ -163,11 +163,11 @@ mount_into_chroot /sys
 # Do not use `sh -u` here. OpenWrt's own /lib/functions.sh intentionally reads
 # unset variables such as IPKG_INSTROOT and treats them as empty. A booted
 # OpenWrt also has volatile runtime directories under /var; the tar rootfs does
-# not, so create the lock directory before package hooks are executed.
+# not, so create the runtime directories needed by package hooks and nginx -t.
 sudo chroot "$rootfs" /bin/sh -e <<'CHROOT'
 export HOME=/root
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-mkdir -p /var/lock
+mkdir -p /var/lock /var/run
 
 # Fail early with mount diagnostics if the chroot stops resembling a booted
 # OpenWrt filesystem. The installer itself must keep its real df-based preflight.
@@ -219,8 +219,21 @@ assert_installed() {
   test -x /usr/share/rpcd/ucode/telego
   test -s /usr/share/luci/i18n/telego.ru.lmo
 
-  test -s /etc/nginx/conf.d/telego.conf
+  test -s /etc/nginx/conf.d/20-telego-core.conf
+  test ! -e /etc/nginx/conf.d/telego.conf
+  test ! -e /etc/nginx/conf.d/zz-telego-managed.conf
   test -s /etc/nginx/snippets/telego.locations
+  test -s /usr/share/nginx-telego/templates/20-telego-core.conf
+  test -s /usr/share/nginx-telego/templates/telego.locations
+  test -s /usr/share/nginx-telego/ownership.tsv
+  test -x /usr/libexec/nginx-telego-files
+  test -x /usr/libexec/nginx-telego-render
+  test -x /usr/libexec/nginx-telego-reconcile
+  /usr/libexec/nginx-telego-files validate
+  /usr/libexec/nginx-telego-files status >/tmp/nginx-telego-status.tsv
+  grep -q '^/etc/nginx/conf.d/20-telego-core.conf.*core.*package.*required.*ok' /tmp/nginx-telego-status.tsv
+  grep -q '^/etc/nginx/conf.d/80-telego-ingress.conf.*ingress.*generated.*conditional.*absent' /tmp/nginx-telego-status.tsv
+  grep -q '^/etc/nginx/conf.d/85-telego-fallback.conf.*fallback.*generated.*conditional.*absent' /tmp/nginx-telego-status.tsv
 }
 
 # Refresh the official package indexes once. Installer invocations below refresh

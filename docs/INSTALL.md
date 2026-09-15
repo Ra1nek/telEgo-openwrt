@@ -196,14 +196,26 @@ ls -l /var/etc/telego.toml
 
 ## Требования WEB Proxy
 
-`nginx-telego` устанавливает готовые файлы интеграции, но не создаёт полноценный публичный TLS-сайт:
+`nginx-telego` устанавливает package-owned core/snippet и reconciliation engine. Финальный managed layout P6/P7:
 
 ```text
-/etc/nginx/conf.d/telego.conf
+/etc/nginx/conf.d/20-telego-core.conf
 /etc/nginx/snippets/telego.locations
+/etc/nginx/conf.d/80-telego-ingress.conf      # conditional generated
+/etc/nginx/conf.d/85-telego-fallback.conf     # conditional generated
+/usr/share/nginx-telego/ownership.tsv
+/usr/libexec/nginx-telego-reconcile
 ```
 
-Добавьте в управляемый вами TLS-блок `server {}`:
+Файлы `80-*` и `85-*` появляются только когда соответствующий managed profile/fallback включён. Обычный apply выполняйте через:
+
+```sh
+/etc/init.d/nginx-telego reload
+```
+
+Не запускайте renderer напрямую для обычного управления: init script передаёт изменения reconciler, который проверяет ownership/drift, выполняет безопасную migration/repair, вызывает renderer как внутренний генератор, запускает финальный `nginx -t` и откатывает managed filesystem при ошибке.
+
+Если используется administrator-managed TLS `server {}` с generic snippet, подключите:
 
 ```nginx
 include /etc/nginx/snippets/telego.locations;
@@ -217,7 +229,7 @@ include /etc/nginx/snippets/telego.locations;
 - внутренний обработчик обычного сайта, который ожидает `telego.locations`, если используется этот сценарий;
 - правила WAN firewall/NAT.
 
-См. [ARCHITECTURE.md](ARCHITECTURE.md#native-web-proxy-и-nginx).
+См. [ARCHITECTURE.md](ARCHITECTURE.md#native-web-proxy-и-nginx) и [NGINX_FILES.md](NGINX_FILES.md).
 
 ## Поведение при обновлении
 
