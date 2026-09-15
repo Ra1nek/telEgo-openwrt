@@ -174,6 +174,7 @@ export FIX_CF_ENABLED=0
 "$RECONCILE" apply
 ! test -e "$INGRESS"
 ! test -e "$FALLBACK"
+reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 printf '%s\nserver { listen 127.0.0.1:18080; }\n' "$MARKER" >"$LEGACY"
 cp "$LEGACY" "$work/legacy-before-fail"
 export FIX_CF_ENABLED=1 NGINX_TEST_FAIL=1
