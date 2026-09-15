@@ -1,4 +1,4 @@
-# nginx-telego managed Nginx ownership registry v1
+# nginx-telego managed Nginx ownership registry v2
 #
 # Columns are TAB-separated:
 # path    role    ownership    presence    source
@@ -16,4 +16,5 @@
 # owned by nginx-telego; unrelated administrator/application files are foreign.
 /etc/nginx/conf.d/telego.conf	core	package	required	/usr/share/nginx-telego/templates/telego.conf
 /etc/nginx/snippets/telego.locations	locations	package	required	/usr/share/nginx-telego/templates/telego.locations
-/etc/nginx/conf.d/zz-telego-managed.conf	ingress	generated	conditional	renderer
+/etc/nginx/conf.d/80-telego-ingress.conf	ingress	generated	conditional	renderer
+/etc/nginx/conf.d/85-telego-fallback.conf	fallback	generated	conditional	renderer

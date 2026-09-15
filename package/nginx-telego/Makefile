@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -64,10 +64,9 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-reconcile
 endef
 
-# A generated managed server block is not an APK conffile. Remove it before a
-# real uninstall while the generic upstream/snippet files are still present, so
-# Nginx never retains a stale reference to a removed package. Keep it across
-# upgrades; the newly installed renderer will revalidate it.
+# Generated managed server blocks are not APK conffiles. Remove current split
+# outputs and any marker-owned legacy combined output before a real uninstall.
+# Keep generated state across upgrades; the new reconciler migrates/revalidates it.
 define Package/nginx-telego/prerm
 	#!/bin/sh
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0

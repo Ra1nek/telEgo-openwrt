@@ -1,8 +1,9 @@
 #!/bin/sh
 # Inspect nginx-telego owned Nginx files without modifying them.
 #
-# P6 establishes explicit ownership and drift classification. This helper is
-# intentionally read-only; reconciliation/repair actions belong to later stages.
+# P6 established explicit ownership and drift classification. P7 extends that
+# contract to separate generated ingress and fallback files while keeping this
+# helper read-only.
 set -eu
 
 ROOT=${NGINX_TELEGO_ROOT:-}
@@ -102,9 +103,9 @@ validate_role_contract() {
             validate_snippet_path "$path"
             validate_template_path "$source"
             ;;
-        ingress)
-            [ "$ownership" = generated ] || fail "ingress role must be generated at $MANIFEST:$line_no"
-            [ "$presence" = conditional ] || fail "ingress role must be conditional at $MANIFEST:$line_no"
+        ingress|fallback)
+            [ "$ownership" = generated ] || fail "$role role must be generated at $MANIFEST:$line_no"
+            [ "$presence" = conditional ] || fail "$role role must be conditional at $MANIFEST:$line_no"
             validate_conf_d_path "$path"
             [ "$source" = renderer ] || fail "generated source must be 'renderer' at $MANIFEST:$line_no"
             ;;
@@ -164,8 +165,6 @@ emit_status() {
         if [ "$ownership" = package ]; then
             canonical=$(resolve_path "$source")
 
-            # Canonical package state is the repair source. Report its failure
-            # before active-file drift because P7 cannot repair without it.
             if [ -L "$canonical" ]; then
                 state=source-invalid-type
             elif [ ! -e "$canonical" ]; then
@@ -173,8 +172,6 @@ emit_status() {
             elif [ ! -f "$canonical" ]; then
                 state=source-invalid-type
             elif [ -L "$target" ]; then
-                # A dangling symlink also makes `test -e` false, so symlinks must
-                # be checked before existence and never classified as "missing".
                 state=invalid-type
             elif [ ! -e "$target" ]; then
                 state=missing
