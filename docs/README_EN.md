@@ -15,6 +15,7 @@ This directory contains the technical documentation for the `develop` branch of 
 | Register a domain and configure DNS | **[Domain and DNS](DOMAIN_EN.md)** |
 | Install and configure Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE_EN.md)** |
 | Configure MTProxy, FakeTLS, WEB Proxy, or Middle-End | **[Configuration and LuCI](CONFIGURATION_EN.md)** |
+| Inspect Nginx ownership, drift, and reconciliation | **[Nginx files](NGINX_FILES_EN.md)** |
 | Understand traffic flow and system design | **[Architecture](ARCHITECTURE_EN.md)** |
 | Work with `ubus`, rpcd, or Prometheus | **[Local API and telemetry](API_EN.md)** |
 | Diagnose a failure | **[Troubleshooting](TROUBLESHOOTING_EN.md)** |
@@ -83,6 +84,17 @@ The main administrator guide:
 - WEB Proxy carriers: `https`, `https-lanes`, `websocket`, `websocket-lanes`;
 - Telegram Middle-End;
 - performance, upstream SOCKS5, and metrics.
+
+### [Nginx files](NGINX_FILES_EN.md)
+
+The P6/P7 contract for managed Nginx filesystem state:
+
+- ownership registry and canonical package sources;
+- `ok`, `modified`, `missing`, `managed`, `foreign`, and unsafe-type states;
+- final `20-telego-core.conf`, `80-telego-ingress.conf`, and `85-telego-fallback.conf` layout;
+- safe migration of historical `telego.conf` and `zz-telego-managed.conf`;
+- transactional reconciliation, `nginx -t`, reload-if-changed, and rollback;
+- the boundary between package-owned/generated files and administrator/application files.
 
 ### [Local API and telemetry](API_EN.md)
 
