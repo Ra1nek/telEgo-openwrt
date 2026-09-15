@@ -115,12 +115,11 @@ return view.extend({
 			uci.set('nginx_telego', 'cloudflare', 'enabled', value === 'cloudflare' ? '1' : '0');
 		};
 
-		o = s.option(form.DummyValue, '_profile_state', _('Configuration State'));
+		o = s.option(form.DummyValue, '_profile_state', _('Status'));
 		o.cfgvalue = function () {
-			return profileConflict()
-				? _('Invalid: both managed profiles are enabled. Select a mode and Save & Apply to repair the UCI state.')
-				: _('Valid');
+			return profileConflict() ? _('Error') : _('Enabled');
 		};
+		o.description = _('If both profiles were enabled outside LuCI, select the intended mode and Save & Apply to repair the UCI state.');
 
 		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx File'));
 		o.cfgvalue = function () { return '/etc/nginx/conf.d/zz-telego-managed.conf'; };
