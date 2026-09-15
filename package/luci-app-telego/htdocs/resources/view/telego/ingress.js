@@ -123,7 +123,9 @@ return view.extend({
 		};
 
 		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx File'));
-		o.cfgvalue = function () { return '/etc/nginx/conf.d/zz-telego-managed.conf'; };
+		o.cfgvalue = function () {
+			return '/etc/nginx/conf.d/20-telego-core.conf · /etc/nginx/conf.d/80-telego-ingress.conf · /etc/nginx/conf.d/85-telego-fallback.conf';
+		};
 
 		o = s.option(form.DummyValue, '_web_contract', _('Current telEgo WEB Contract'));
 		o.cfgvalue = webContractText;
