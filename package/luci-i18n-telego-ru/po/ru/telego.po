@@ -497,3 +497,99 @@ msgstr "Конфигурация"
 
 msgid "Status"
 msgstr "Статус"
+
+msgid "WEB Ingress"
+msgstr "WEB-вход"
+
+msgid "WEB Ingress / Nginx Integration"
+msgstr "WEB-вход / интеграция Nginx"
+
+msgid "Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated by nginx-telego before Nginx is reloaded."
+msgstr "Выберите один управляемый профиль WEB-входа. Режим «Отключено» не трогает Nginx-конфигурацию, созданную вручную; управляемые профили взаимоисключающие и проверяются nginx-telego до перезагрузки Nginx."
+
+msgid "Ingress Profile"
+msgstr "Профиль входа"
+
+msgid "Mode"
+msgstr "Режим"
+
+msgid "Selecting a mode updates the existing shared.enabled and cloudflare.enabled UCI flags. Save & Apply invokes the nginx-telego renderer through the OpenWrt reload trigger."
+msgstr "Выбор режима обновляет существующие UCI-флаги shared.enabled и cloudflare.enabled. «Сохранить и применить» запускает renderer nginx-telego через OpenWrt reload trigger."
+
+msgid "Managed Nginx File"
+msgstr "Управляемый файл Nginx"
+
+msgid "Current telEgo WEB Contract"
+msgstr "Текущий WEB-контракт telEgo"
+
+msgid "not set"
+msgstr "не задано"
+
+msgid "WEB Proxy enabled"
+msgstr "WEB-прокси включён"
+
+msgid "WEB Proxy disabled"
+msgstr "WEB-прокси отключён"
+
+msgid "loopback proxy trusted"
+msgstr "loopback-прокси доверен"
+
+msgid "loopback proxy is not trusted"
+msgstr "loopback-прокси не доверен"
+
+msgid "Leave empty to reuse telego.web_proxy.hostname. When set, it must match that hostname exactly."
+msgstr "Оставьте пустым, чтобы использовать telego.web_proxy.hostname. Если значение задано, оно должно точно совпадать с этим hostname."
+
+msgid "The ingress hostname must match the telEgo WEB Proxy hostname."
+msgstr "Hostname входного профиля должен совпадать с hostname WEB-прокси telEgo."
+
+msgid "Cloudflare Tunnel Service URL"
+msgstr "URL сервиса Cloudflare Tunnel"
+
+msgid "Configure the Cloudflare Published Application to use this local HTTP origin. Public TLS terminates at Cloudflare."
+msgstr "Укажите этот локальный HTTP origin в Cloudflare Published Application. Публичный TLS завершается на стороне Cloudflare."
+
+msgid "Leave empty to reuse telego.web_proxy.hostname. Native Shared-Port requires the WEB hostname, FakeTLS mask hostname and TLS certificate hostname to agree."
+msgstr "Оставьте пустым, чтобы использовать telego.web_proxy.hostname. Для Native Shared-Port WEB hostname, hostname маски FakeTLS и hostname TLS-сертификата должны совпадать."
+
+msgid "TLS Certificate"
+msgstr "TLS-сертификат"
+
+msgid "Absolute path to the existing certificate chain used by the private Nginx TLS listeners."
+msgstr "Абсолютный путь к существующей цепочке сертификатов для приватных TLS-listener Nginx."
+
+msgid "TLS Private Key"
+msgstr "Закрытый ключ TLS"
+
+msgid "Absolute path to the matching private key. nginx-telego never creates or renews certificates."
+msgstr "Абсолютный путь к соответствующему закрытому ключу. nginx-telego не выпускает и не обновляет сертификаты."
+
+msgid "Native Shared-Port Flow"
+msgstr "Схема Native Shared-Port"
+
+msgid "FakeTLS Certificate Source"
+msgstr "Источник сертификата FakeTLS"
+
+msgid "Current Native Shared-Port Contract"
+msgstr "Текущий контракт Native Shared-Port"
+
+msgid "Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. The renderer refuses to change Nginx if this contract is not satisfied."
+msgstr "Требуются публичный TCP/443, источник сертификата 127.0.0.1:8444, fallback 127.0.0.1:8443 и PROXY Protocol v2. Renderer откажется менять Nginx, если этот контракт не выполнен."
+
+msgid "Manage Local Fallback"
+msgstr "Управлять локальным fallback"
+
+msgid "Provide the minimal loopback-only ordinary-site fallback on 127.0.0.1:8090. Disable this only when another local Nginx server already owns that listener."
+msgstr "Создавать минимальный fallback обычного сайта только на loopback 127.0.0.1:8090. Отключайте только если этот listener уже принадлежит другому локальному server Nginx."
+
+msgid "Apply Safety"
+msgstr "Безопасность применения"
+
+msgid "Conflict detection · nginx -t · atomic rollback · administrator-owned files are never overwritten"
+msgstr "Проверка конфликтов · nginx -t · атомарный rollback · файлы администратора никогда не перезаписываются"
+
+msgid "An absolute path is required for Native Shared-Port mode."
+msgstr "Для режима Native Shared-Port требуется абсолютный путь."
+
+msgid "Use an absolute path containing only letters, digits, underscore, dot, slash, plus or hyphen."
+msgstr "Используйте абсолютный путь только из букв, цифр, подчёркивания, точки, косой черты, плюса и дефиса."
