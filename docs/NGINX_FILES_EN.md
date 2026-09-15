@@ -28,15 +28,13 @@ Canonical static package copies:
 
 An active file never becomes canonical merely because it was edited by hand. `package` files are authoritative from their canonical copies; `generated` files are authoritative from UCI/runtime state rendered by nginx-telego.
 
-## Registry v3
+## Registry v3 and final P7 layout
 
 `ownership.tsv` contains five TAB-separated fields:
 
 ```text
 path    role    ownership    presence    source
 ```
-
-Final P7 layout:
 
 | Path | Role | Ownership | Presence | Source |
 |---|---|---|---|---|
@@ -46,6 +44,17 @@ Final P7 layout:
 | `/etc/nginx/conf.d/85-telego-fallback.conf` | `fallback` | `generated` | `conditional` | `renderer` |
 
 `nginx-telego` does not claim the whole `/etc/nginx/conf.d/` directory. Unknown administrator/application files remain foreign.
+
+### Why `package/nginx-telego/files/conf.d/` contains only `20-telego-core.conf`
+
+This is intentional. `package/nginx-telego/files/conf.d/` contains the static APK payload, so it only carries the required package-owned core:
+
+```text
+package/nginx-telego/files/conf.d/
+└── 20-telego-core.conf
+```
+
+`80-telego-ingress.conf` and `85-telego-fallback.conf` are **not static package source files**. They are conditional runtime state created or removed by `/usr/libexec/nginx-telego-render` from UCI. On a clean installation with managed ingress disabled, both files are absent. This is already part of P7, not deferred to P8.
 
 ## Ownership
 
@@ -84,9 +93,7 @@ or:
 # nginx-telego-role: fallback
 ```
 
-A file with the common marker but the wrong role marker is not adopted; it is classified `foreign`.
-
-For migration from the early P7 implementation, the prior role lines are accepted only for the same role and are rewritten to the canonical marker on the next render.
+There are no compatibility aliases for older role markers. A file with the common marker but a missing or wrong role marker is not adopted; it is classified `foreign`.
 
 Generated states:
 
@@ -138,8 +145,6 @@ backup managed state
  ↓
 repair safe package drift
  ↓
-migrate owned legacy paths
- ↓
 renderer apply --no-reload
  ↓
 final nginx -t
@@ -153,23 +158,33 @@ If rendering, final `nginx -t`, or reload fails, managed filesystem state is rol
 
 Only one reconciler may run at a time. An active lock rejects overlap; a stale lock is recovered automatically.
 
-## Legacy migration
+## Alpha baseline: old names are not migrated
 
-P7 handles two historical paths automatically.
+At the current alpha stage, P7 deliberately establishes a clean baseline and contains **no in-place migration** for the old experimental paths:
 
-### `/etc/nginx/conf.d/zz-telego-managed.conf`
+```text
+/etc/nginx/conf.d/telego.conf
+/etc/nginx/conf.d/zz-telego-managed.conf
+```
 
-The old combined generated file is removed/migrated only when its historical package marker proves ownership. A foreign regular file is preserved. A symlink, directory, FIFO, or other unsafe type stops automatic migration.
+They are not part of `ownership.tsv`, are not recognized by the reconciler/renderer as managed state, and are not automatically deleted by the package. This keeps hidden compatibility rules out of the new filesystem model.
 
-### `/etc/nginx/conf.d/telego.conf`
+If these files remain on a test router from an earlier alpha build, first verify that they are obsolete telEgo files and contain no administrator changes you still need, then remove them manually before adopting the P7 baseline:
 
-The old static core is removed automatically only when its bytes match the canonical core. A changed regular file is preserved and blocks automatic migration so administrator content is never silently discarded. Unsafe types also stop migration.
+```sh
+rm -f /etc/nginx/conf.d/telego.conf
+rm -f /etc/nginx/conf.d/zz-telego-managed.conf
+/etc/init.d/nginx-telego reload
+```
 
-After successful P7 migration the active package layout uses only `20-*`, `80-*`, `85-*`, plus `telego.locations`.
+> [!CAUTION]
+> Do not delete a file merely because its name matches if you are unsure of its origin. `nginx-telego` intentionally does not perform that deletion automatically.
+
+From this baseline onward, the authoritative telEgo namespace is only `20-telego-core.conf`, conditional `80-telego-ingress.conf`, conditional `85-telego-fallback.conf`, and `telego.locations`.
 
 ## Uninstall
 
-Generated cleanup is also coordinated through the reconciler:
+Generated cleanup is coordinated through the reconciler:
 
 ```sh
 /usr/libexec/nginx-telego-reconcile remove-generated
@@ -197,12 +212,12 @@ P7 write operations therefore inherit the already constrained P6 namespace.
 
 The contract is verified at multiple levels:
 
-1. ownership tests: drift, canonical-source failures, symlink/directory/FIFO cases, path boundaries, and role markers;
-2. renderer tests: Cloudflare/Native contracts, conflicts, role-aware ownership, and atomic rollback;
-3. reconciler tests: package repair, core/generated migration, `nginx -t`/reload rollback, foreign files, fallback transitions, active/stale locks, and uninstall cleanup;
-4. APK layout verification: final package paths, modes, ownership, and absence of legacy/generated payloads;
-5. OpenWrt rootfs smoke: real APK installation, `nginx-telego-files validate/status`, legacy migration, and remove/reinstall lifecycle.
+1. ownership tests: drift, canonical-source failures, symlink/directory/FIFO cases, path boundaries, and canonical role markers;
+2. renderer tests: Cloudflare/Native contracts, conflicts, strict role-aware ownership, and atomic rollback;
+3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transitions, active/stale locks, and uninstall cleanup;
+4. APK layout verification: final package paths, modes, ownership, absence of generated payloads, and absence of old alpha payload paths;
+5. OpenWrt rootfs smoke: real APK installation, `nginx-telego-files validate/status`, the clean 20/80/85 baseline, and remove/reinstall lifecycle.
 
 ## P8 boundary
 
-P6/P7 mutate only files owned by `nginx-telego` and preserve foreign state. P8 will add LuCI inventory plus explicit administrator operations for custom/foreign `.conf` files: disable/quarantine, restore, delete, diff, repair, and a later restricted editor. Until P8, a foreign file is never deleted or adopted automatically.
+P6/P7 mutate only files owned by `nginx-telego` and preserve foreign state. P8 will add LuCI inventory plus explicit administrator operations for custom/foreign `.conf` files: disable/quarantine, restore, delete, diff, repair, and a later restricted editor. P8 does not create the 20/80/85 model; that model is already fully defined by P7.
