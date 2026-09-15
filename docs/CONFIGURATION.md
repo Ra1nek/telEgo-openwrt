@@ -259,7 +259,7 @@ Opt-in managed profiles используют:
 
 Оба profiles выключены default и **взаимоисключающие**.
 
-Исторические `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` являются только migration paths. Reconciliation удаляет их автоматически только когда package ownership доказан; изменённые/foreign regular files сохраняются, а не удаляются молча.
+Старые alpha-пути `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` не входят в ownership registry, не мигрируются и не удаляются автоматически. Если они остались на тестовой системе, сначала проверьте их происхождение/содержимое и удалите вручную перед переходом на baseline P7.
 
 Точная state machine и правила rollback описаны в **[Nginx file ownership и reconciliation](NGINX_FILES.md)**.
 
@@ -537,7 +537,7 @@ ubus call telego status
 /etc/init.d/nginx-telego reload
 ```
 
-Init helper запускает `nginx-telego-reconcile`. Reconciliation сериализует изменения lock'ом, чинит безопасный package drift, мигрирует доказанный legacy package state, делегирует renderer генерацию с отключённым reload, выполняет финальный `nginx -t`, а затем reload'ит Nginx только если итоговый managed filesystem действительно изменился. Ошибки renderer, final validation и reload приводят к rollback filesystem state.
+Init helper запускает `nginx-telego-reconcile`. Reconciliation сериализует изменения lock'ом, чинит безопасный package drift, делегирует renderer генерацию с отключённым reload, выполняет финальный `nginx -t`, а затем reload'ит Nginx только если итоговый managed filesystem действительно изменился. Ошибки renderer, final validation и reload приводят к rollback filesystem state.
 
 При выключенных managed profiles `nginx-telego` удаляет только собственные generated files и не затрагивает administrator-owned Nginx files.
 
