@@ -33,7 +33,7 @@
       "acl": ["luci-app-telego"],
       "fs": {
         "/etc/config/nginx_telego": "file",
-        "/usr/libexec/nginx-telego-render": "executable"
+        "/usr/libexec/nginx-telego-reconcile": "executable"
       }
     }
   }
