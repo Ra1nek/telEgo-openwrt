@@ -160,10 +160,10 @@ function read_metrics() {
 		return result;
 	}
 
-	// OpenWrt's pinned ucode accepts a shell command, not an argv array.
+	// OpenWrt 25.12 installs uclient-fetch as /bin/uclient-fetch.
 	// Quote the entire URL, including any literal apostrophes in its path.
 	const quoted = "'" + replace(endpoint, /'/g, function() { return "'\\''"; }) + "'";
-	const proc = popen('/usr/bin/uclient-fetch -q -T 2 -O - ' + quoted, 'r');
+	const proc = popen('/bin/uclient-fetch -q -T 2 -O - ' + quoted, 'r');
 
 	if (!proc) {
 		result.error = 'fetch-failed';
