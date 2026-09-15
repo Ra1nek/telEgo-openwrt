@@ -119,7 +119,6 @@ return view.extend({
 		o.cfgvalue = function () {
 			return profileConflict() ? _('Error') : _('Enabled');
 		};
-		o.description = _('If both profiles were enabled outside LuCI, select the intended mode and Save & Apply to repair the UCI state.');
 
 		o = s.option(form.DummyValue, '_managed_output', _('Managed Nginx File'));
 		o.cfgvalue = function () { return '/etc/nginx/conf.d/zz-telego-managed.conf'; };
