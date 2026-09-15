@@ -220,6 +220,9 @@ assert_installed() {
   test -s /usr/share/luci/menu.d/telego.menu.json
   test -s /usr/share/rpcd/acl.d/luci-app-telego.json
   test -x /usr/share/rpcd/ucode/telego
+  # luci-app-telego's RPC backend calls the OpenWrt uclient package by its
+  # canonical runtime path. Catch package/path mismatches in the real rootfs.
+  test -x /bin/uclient-fetch
   test -s /usr/lib/lua/luci/i18n/telego.ru.lmo
   test ! -e /usr/share/luci/i18n/telego.ru.lmo
 
