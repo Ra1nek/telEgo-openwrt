@@ -93,16 +93,19 @@ Cloudflare ingress другой: ему нужна обработка `CF-Connec
 ```sh
 apk info telego-pkg
 apk info nginx-telego
-ls -l /etc/nginx/conf.d/telego.conf
+ls -l /etc/nginx/conf.d/20-telego-core.conf
 ls -l /etc/nginx/snippets/telego.locations
 ```
 
-Начиная с `nginx-telego 0.6.2`, пакет также устанавливает:
+`nginx-telego` устанавливает managed ownership/reconciliation stack:
 
 ```text
 /etc/config/nginx_telego
 /etc/init.d/nginx-telego
+/usr/libexec/nginx-telego-files
 /usr/libexec/nginx-telego-render
+/usr/libexec/nginx-telego-reconcile
+/usr/share/nginx-telego/ownership.tsv
 ```
 
 Имя UCI package — именно `nginx_telego` с подчёркиванием. APK и init script по-прежнему называются `nginx-telego`.
@@ -155,7 +158,7 @@ netstat -lntp 2>/dev/null | grep ':8080'
 
 Есть **два взаимоисключающих варианта**.
 
-## Вариант A — managed profile `nginx-telego` (для новой установки)
+## Вариант A — managed profile `nginx-telego` для новой установки
 
 Сначала убедитесь, что старого ручного listener `18080` нет:
 
@@ -164,7 +167,7 @@ grep -RnsE 'listen[[:space:]]+([^;[:space:]]*:)?18080([[:space:]]|;)' \
     /etc/nginx/conf.d /etc/nginx/uci.conf 2>/dev/null
 ```
 
-Если вывод показывает ваш рабочий `zz-telego-cloudflare.conf`, используйте **вариант B** и ничего не мигрируйте только ради нового механизма.
+Если вывод показывает ваш рабочий `zz-telego-cloudflare.conf`, используйте **вариант B** и не мигрируйте только ради managed profile.
 
 Для новой managed-конфигурации:
 
@@ -177,27 +180,36 @@ uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-Renderer перед применением проверяет:
+Публичный apply-path — init helper `nginx-telego`. Он запускает reconciliation engine: проверяет ownership, восстанавливает безопасный package drift, получает от renderer desired generated state, выполняет финальный `nginx -t` и только после успешной проверки всего managed filesystem reload'ит Nginx.
+
+Перед commit managed Cloudflare profile проверяет:
 
 - WEB Proxy действительно включён;
 - hostname совпадает с `telego.web_proxy.hostname`;
 - WEB listener настроен на `127.0.0.1:8080`;
 - `127.0.0.1/32` входит в trusted proxy CIDRs;
 - `18080` и, при managed fallback, `8090` не заняты другим конфигом;
-- результирующая конфигурация проходит `nginx -t`.
+- итоговая конфигурация Nginx проходит `nginx -t`.
 
-Generated file:
+Managed state разделён по ролям:
 
 ```text
-/etc/nginx/conf.d/zz-telego-managed.conf
+/etc/nginx/conf.d/20-telego-core.conf       # package-owned core maps/upstream
+/etc/nginx/conf.d/80-telego-ingress.conf    # generated при включённом managed profile
+/etc/nginx/conf.d/85-telego-fallback.conf   # generated при fallback.manage=1
 ```
 
-Если `nginx -t` не проходит, предыдущая managed-конфигурация восстанавливается. Если файл с таким именем существует, но не имеет marker `nginx-telego`, renderer считает его пользовательским и не переписывает.
+Generated-файлы содержат общий ownership marker и marker конкретной роли. Regular file на reserved path без корректных markers считается `foreign` и не перезаписывается.
 
-Проверьте результат:
+Исторический combined `/etc/nginx/conf.d/zz-telego-managed.conf` используется только для migration. Он удаляется автоматически лишь когда старый marker доказывает ownership `nginx-telego`; чужой regular file с таким именем сохраняется.
+
+Если renderer, финальный `nginx -t` или reload Nginx завершается ошибкой, reconciler восстанавливает managed filesystem в pre-transaction состояние.
+
+Проверьте результат, не обходя reconciler:
 
 ```sh
-/usr/libexec/nginx-telego-render --no-reload
+/usr/libexec/nginx-telego-files validate
+/usr/libexec/nginx-telego-files status
 /usr/sbin/nginx -T -c /etc/nginx/uci.conf 2>&1 | \
     grep -nE '18080|8090|telego_cf_client_ip|telego_web'
 netstat -lntp 2>/dev/null | grep -E ':18080|:8090|:8080'
@@ -210,6 +222,8 @@ uci set nginx_telego.fallback.manage='0'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
+
+В этом режиме пакет сохраняет managed ingress, но удаляет свой `85-telego-fallback.conf` и не трогает внешнего владельца `8090`.
 
 ## Вариант B — существующий ручной Cloudflare-конфиг
 
@@ -224,7 +238,7 @@ uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-При выключенных профилях helper удаляет только собственный `zz-telego-managed.conf` с валидным marker. Ваш `zz-telego-cloudflare.conf` он не трогает.
+При выключенных профилях reconciliation удаляет только собственные generated ingress/fallback файлы. Ваш `zz-telego-cloudflare.conf` и другие `foreign` regular `.conf` не затрагиваются. Если остался старый marker-owned `zz-telego-managed.conf`, он транзакционно удаляется как legacy package state.
 
 Ручной Cloudflare ingress должен выполнять те же функции, что managed profile:
 
@@ -425,13 +439,15 @@ curl -I https://web.example.com/
 
 `cloudflared`, Nginx и telEgo управляются init/procd OpenWrt.
 
-`nginx-telego` — не отдельный daemon. Его init helper только проверяет/рендерит opt-in Nginx ingress. Профили хранятся в:
+`nginx-telego` — не отдельный daemon. Его init helper запускает reconciliation engine для opt-in Nginx state из:
 
 ```text
 /etc/config/nginx_telego
 ```
 
-При package upgrade оба managed профиля остаются `off`, если вы их не включали. Существующий пользовательский Nginx-файл не должен автоматически становиться managed.
+Reconciliation также восстанавливает безопасный drift package-owned core/snippet и выводит из эксплуатации известные package-owned legacy paths. Administrator-owned regular file не принимается в ownership только из-за совпадающего имени.
+
+Managed profiles остаются `off`, пока вы явно их не включили. Существующий пользовательский Nginx-файл не должен автоматически становиться managed после обновления APK.
 
 После крупного обновления полезно проверить:
 
@@ -439,6 +455,7 @@ curl -I https://web.example.com/
 /etc/init.d/telego status
 /etc/init.d/nginx status
 /etc/init.d/cloudflared status
+/usr/libexec/nginx-telego-files status
 /usr/sbin/nginx -t -c /etc/nginx/uci.conf
 ```
 
@@ -449,9 +466,10 @@ curl -I https://web.example.com/
 | Симптом | Что проверить первым |
 |---|---|
 | Нет `127.0.0.1:8080` | telEgo service, WEB Proxy `enabled`, hostname, логи telEgo |
-| Renderer сообщает conflict `18080` | уже существует ручной Cloudflare ingress; оставьте managed profile выключенным либо мигрируйте осознанно |
-| Renderer сообщает mismatch hostname | `nginx_telego.cloudflare.hostname` и `telego.web_proxy.hostname` должны совпадать |
-| `nginx -t` не проходит | ошибка другого Nginx-конфига или generated candidate; renderer не должен оставлять сломанный managed file |
+| Reconciler сообщает conflict `18080` | уже существует ручной Cloudflare ingress; оставьте managed profile выключенным либо мигрируйте осознанно |
+| Reconciler сообщает mismatch hostname | `nginx_telego.cloudflare.hostname` и `telego.web_proxy.hostname` должны совпадать |
+| `nginx -t` не проходит | ошибка другого Nginx-конфига или generated candidate; reconciliation откатывает managed state вместо commit сломанного дерева |
+| `nginx-telego-files status` показывает `foreign` | reserved path занят regular file, ownership/role markers которого не подтверждают `nginx-telego`; сначала изучите файл |
 | Tunnel `Inactive` | service/token/DNS/исходящий 7844 |
 | Tunnel `Healthy`, но внешний `502` | `18080`, затем `8080`, затем fallback `8090` |
 | Браузер работает, Telegram нет | hostname/carrier/trusted proxy, Telegram link/profile, WEB runtime metrics |
@@ -465,6 +483,7 @@ curl -I https://web.example.com/
 /etc/init.d/nginx status
 /etc/init.d/cloudflared status
 
+/usr/libexec/nginx-telego-files status
 netstat -lntp 2>/dev/null | grep -E ':8080|:8090|:18080'
 
 /usr/sbin/nginx -T -c /etc/nginx/uci.conf 2>&1 | \
