@@ -11,8 +11,10 @@ sh -n package/telego-pkg/files/init.d/telego
 sh -n package/nginx-telego/files/init.d/nginx-telego
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-render
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-files
+sh -n package/nginx-telego/files/usr/libexec/nginx-telego-reconcile
 bash .github/tests/nginx-telego.sh
 bash .github/tests/nginx-telego-ownership.sh
+bash .github/tests/nginx-telego-reconcile.sh
 bash .github/tests/nginx-telego-service.sh
 sh .github/tests/service-account.sh
 sh .github/tests/telego-config-render.sh

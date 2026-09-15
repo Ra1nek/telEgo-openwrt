@@ -62,5 +62,6 @@ assert_regular /usr/share/nginx-telego/templates/telego.locations 644
 assert_regular /usr/share/nginx-telego/ownership.tsv 644
 assert_regular /usr/libexec/nginx-telego-files 755
 assert_regular /usr/libexec/nginx-telego-render 755
+assert_regular /usr/libexec/nginx-telego-reconcile 755
 
-printf 'nginx-telego APK ownership layout verified: %s\n' "$apk_file"
+printf 'nginx-telego APK ownership/reconciliation layout verified: %s\n' "$apk_file"

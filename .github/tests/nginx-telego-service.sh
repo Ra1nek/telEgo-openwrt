@@ -4,14 +4,14 @@ set -euo pipefail
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
 
-cat >"$work/render" <<'SH'
+cat >"$work/reconcile" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$NGINX_TELEGO_TEST_LOG"
 SH
-chmod +x "$work/render"
+chmod +x "$work/reconcile"
 
-export NGINX_TELEGO_RENDER="$work/render"
-export NGINX_TELEGO_TEST_LOG="$work/render.log"
+export NGINX_TELEGO_RECONCILE="$work/reconcile"
+export NGINX_TELEGO_TEST_LOG="$work/reconcile.log"
 : >"$NGINX_TELEGO_TEST_LOG"
 
 # shellcheck source=/dev/null

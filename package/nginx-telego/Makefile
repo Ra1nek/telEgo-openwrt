@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -60,6 +60,8 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-render
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-files \
 		$(1)/usr/libexec/nginx-telego-files
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-reconcile \
+		$(1)/usr/libexec/nginx-telego-reconcile
 endef
 
 # A generated managed server block is not an APK conffile. Remove it before a
