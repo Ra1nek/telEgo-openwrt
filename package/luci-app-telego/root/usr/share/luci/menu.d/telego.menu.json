@@ -36,5 +36,20 @@
         "/usr/libexec/nginx-telego-reconcile": "executable"
       }
     }
+  },
+  "admin/services/telego/nginx-files": {
+    "title": "Nginx Files",
+    "order": 30,
+    "action": {
+      "type": "view",
+      "path": "telego/nginx-files"
+    },
+    "depends": {
+      "acl": ["luci-app-telego"],
+      "fs": {
+        "/usr/libexec/nginx-telego-admin": "executable",
+        "/usr/share/nginx-telego/ownership.tsv": "file"
+      }
+    }
   }
 }
