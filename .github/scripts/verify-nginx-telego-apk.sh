@@ -25,7 +25,9 @@ docker run --rm --user 0:0 --entrypoint /bin/bash \
 
 root=$work/root
 assert_regular() {
-  local path=$1 mode=$2 full="$root$path"
+  local path=$1
+  local mode=$2
+  local full="$root$path"
   [[ -f "$full" && ! -L "$full" ]] || { printf 'Expected regular file in nginx-telego APK: %s\n' "$path" >&2; exit 1; }
   [[ $(stat -c '%a' "$full") == "$mode" ]] || { printf 'Unexpected mode for %s\n' "$path" >&2; exit 1; }
   [[ $(stat -c '%u:%g' "$full") == '0:0' ]] || { printf 'Unexpected owner for %s\n' "$path" >&2; exit 1; }
