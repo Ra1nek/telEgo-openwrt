@@ -15,12 +15,12 @@ assert(!invalidRole.ok && invalidRole.error == 'invalid-managed-role', 'generate
 const foreign = nginx.foreign_content.call({ args: { name: '50-custom.conf' } });
 assert(foreign.ok && foreign.content == '# custom\nserver {}\n', 'foreign editor content');
 assert(foreign.revision == global.fixture.editor_revision && foreign.size == 19, 'foreign editor revision metadata');
-assert(join(global.editor_command, '|') == '/usr/libexec/nginx-telego-editor|inspect|50-custom.conf', 'foreign inspection uses argv-safe helper invocation');
+assert(join('|', global.editor_command) == '/usr/libexec/nginx-telego-editor|inspect|50-custom.conf', 'foreign inspection uses argv-safe helper invocation');
 
 const replaced = nginx.replace_active.call({ args: { name: '50-custom.conf', revision: global.fixture.editor_revision, content: '# edited\nserver {}\n' } });
 assert(replaced.ok && replaced.changed, 'restricted editor write succeeds');
 assert(global.editor_written == '# edited\nserver {}\n', 'editor content is streamed through stdin');
-assert(join(global.editor_command, '|') == '/usr/libexec/nginx-telego-editor|replace|50-custom.conf|' + global.fixture.editor_revision, 'editor write uses argv-safe helper invocation');
+assert(join('|', global.editor_command) == '/usr/libexec/nginx-telego-editor|replace|50-custom.conf|' + global.fixture.editor_revision, 'editor write uses argv-safe helper invocation');
 
 nginx.replace_active.call({ args: { name: '50-custom+safe.conf', revision: global.fixture.editor_revision, content: 'safe\n' } });
 assert(global.editor_command[2] == '50-custom+safe.conf', 'valid editor filename is passed literally');
