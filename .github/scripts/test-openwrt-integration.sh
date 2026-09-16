@@ -52,6 +52,9 @@ if [[ -z ${UCODE:-} ]]; then
 
 	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 		"$UCODE" .github/tests/rpcd-status.uc
+	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+		"$UCODE" .github/tests/rpcd-nginx.uc
 else
 	"$UCODE" .github/tests/rpcd-status.uc
+	"$UCODE" .github/tests/rpcd-nginx.uc
 fi
