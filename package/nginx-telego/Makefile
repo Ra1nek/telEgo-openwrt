@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=8
+PKG_RELEASE:=9
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -18,8 +18,9 @@ endef
 define Package/nginx-telego/description
 Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
-copies, and opt-in native shared-port or Cloudflare Tunnel ingress profiles.
-Managed listeners are disabled by default.
+copies, guarded administrator operations for foreign/custom conf.d files, and
+opt-in native shared-port or Cloudflare Tunnel ingress profiles. Managed
+listeners are disabled by default.
 endef
 
 # This package only installs configuration and helper scripts; it has no source
@@ -62,6 +63,8 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-files
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-reconcile \
 		$(1)/usr/libexec/nginx-telego-reconcile
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-admin \
+		$(1)/usr/libexec/nginx-telego-admin
 endef
 
 # Generated state is not an APK conffile. Route uninstall cleanup through the
