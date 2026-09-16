@@ -217,13 +217,16 @@ assert_installed() {
   grep -q '^\[secrets\]$' /var/etc/telego.toml
 
   test -s /www/luci-static/resources/view/telego/config.js
+  test -s /www/luci-static/resources/view/telego/nginx-files.js
   test -s /usr/share/luci/menu.d/telego.menu.json
   test -s /usr/share/rpcd/acl.d/luci-app-telego.json
   test -x /usr/share/rpcd/ucode/telego
+  test -x /usr/share/rpcd/ucode/telego-nginx
   # luci-app-telego's RPC backend calls the OpenWrt uclient package by its
   # canonical runtime path. Catch package/path mismatches in the real rootfs.
   test -x /bin/uclient-fetch
   test -s /usr/lib/lua/luci/i18n/telego.ru.lmo
+  test -s /usr/lib/lua/luci/i18n/nginx-files.ru.lmo
   test ! -e /usr/share/luci/i18n/telego.ru.lmo
 
   test -s /etc/nginx/conf.d/20-telego-core.conf
@@ -236,11 +239,16 @@ assert_installed() {
   test -x /usr/libexec/nginx-telego-files
   test -x /usr/libexec/nginx-telego-render
   test -x /usr/libexec/nginx-telego-reconcile
+  test -x /usr/libexec/nginx-telego-admin
+  test ! -e /etc/nginx-telego/quarantine
   /usr/libexec/nginx-telego-files validate
   /usr/libexec/nginx-telego-files status >/tmp/nginx-telego-status.tsv
   grep -q '^/etc/nginx/conf.d/20-telego-core.conf.*core.*package.*required.*ok' /tmp/nginx-telego-status.tsv
   grep -q '^/etc/nginx/conf.d/80-telego-ingress.conf.*ingress.*generated.*conditional.*absent' /tmp/nginx-telego-status.tsv
   grep -q '^/etc/nginx/conf.d/85-telego-fallback.conf.*fallback.*generated.*conditional.*absent' /tmp/nginx-telego-status.tsv
+  /usr/libexec/nginx-telego-admin inventory >/tmp/nginx-telego-inventory.tsv
+  grep -q '^managed.*20-telego-core.conf.*/etc/nginx/conf.d/20-telego-core.conf.*core.*package.*ok' /tmp/nginx-telego-inventory.tsv
+  grep -q '^managed.*80-telego-ingress.conf.*/etc/nginx/conf.d/80-telego-ingress.conf.*ingress.*generated.*absent' /tmp/nginx-telego-inventory.tsv
 }
 
 # Refresh the official package indexes once. Installer invocations below refresh
