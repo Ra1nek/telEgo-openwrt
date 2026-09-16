@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=9
+PKG_RELEASE:=10
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -18,9 +18,10 @@ endef
 define Package/nginx-telego/description
 Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
-copies, guarded administrator operations for foreign/custom conf.d files, and
-opt-in native shared-port or Cloudflare Tunnel ingress profiles. Managed
-listeners are disabled by default.
+copies, guarded administrator operations for foreign/custom conf.d files, a
+restricted transactional editor for existing foreign files, and opt-in native
+shared-port or Cloudflare Tunnel ingress profiles. Managed listeners are
+disabled by default.
 endef
 
 # This package only installs configuration and helper scripts; it has no source
@@ -37,9 +38,6 @@ define Package/nginx-telego/install
 	$(INSTALL_DATA) ./files/telego.locations \
 		$(1)/etc/nginx/snippets/telego.locations
 
-	# Immutable package copies live outside the active Nginx include tree. The
-	# reconciler compares active files with these canonical repair sources instead
-	# of ever adopting a hand-edited active file as the source of truth.
 	$(INSTALL_DIR) $(1)/usr/share/nginx-telego/templates
 	$(INSTALL_DATA) ./files/conf.d/20-telego-core.conf \
 		$(1)/usr/share/nginx-telego/templates/20-telego-core.conf
@@ -65,13 +63,10 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-reconcile
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-admin \
 		$(1)/usr/libexec/nginx-telego-admin
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-editor \
+		$(1)/usr/libexec/nginx-telego-editor
 endef
 
-# Generated state is not an APK conffile. Route uninstall cleanup through the
-# same reconciliation lock/transaction boundary used by LuCI and procd so two
-# mutation paths cannot race each other. Keep current generated state across
-# upgrades; the newly installed reconciler revalidates it against the same
-# 20/80/85 ownership contract.
 define Package/nginx-telego/prerm
 	#!/bin/sh
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0

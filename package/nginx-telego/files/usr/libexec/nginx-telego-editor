@@ -1,0 +1,268 @@
+#!/bin/sh
+# Restricted editor for existing foreign/administrator-owned Nginx conf.d files.
+#
+# P9 deliberately keeps editing separate from the P8 inventory/admin helper.
+# Only existing active foreign direct-child *.conf files are editable. Every
+# write shares the P7/P8 flock, uses optimistic SHA-256 concurrency control,
+# validates the full Nginx tree, reloads only after successful validation, and
+# rolls back on validation or reload failure.
+set -eu
+
+ROOT=${NGINX_TELEGO_ROOT:-}
+FILES_BIN=${NGINX_TELEGO_FILES:-${ROOT}/usr/libexec/nginx-telego-files}
+MANIFEST=${NGINX_TELEGO_MANIFEST:-${ROOT}/usr/share/nginx-telego/ownership.tsv}
+CONF_DIR=${NGINX_TELEGO_CONF_DIR:-${ROOT}/etc/nginx/conf.d}
+FLOCK_BIN=${NGINX_TELEGO_FLOCK_BIN:-${ROOT}/usr/bin/flock}
+LOCK_FILE=${NGINX_TELEGO_LOCK_FILE:-${NGINX_TELEGO_LOCK_DIR:-${ROOT}/var/lock/nginx-telego-reconcile.lock}}
+NGINX_BIN=${NGINX_BIN:-/usr/sbin/nginx}
+NGINX_CONF=${NGINX_CONF:-${ROOT}/etc/nginx/uci.conf}
+NGINX_INIT=${NGINX_INIT:-${ROOT}/etc/init.d/nginx}
+MAX_EDIT_BYTES=65536
+
+fail() {
+    echo "nginx-telego-editor: $*" >&2
+    exit 1
+}
+
+fail_code() {
+    code=$1
+    shift
+    echo "nginx-telego-editor: $*" >&2
+    exit "$code"
+}
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: nginx-telego-editor inspect NAME.conf
+       nginx-telego-editor replace NAME.conf EXPECTED_SHA256
+EOF
+    exit 2
+}
+
+case "$ROOT" in
+    ''|/*) ;;
+    *) fail 'NGINX_TELEGO_ROOT must be empty or an absolute path' ;;
+esac
+
+safe_name() {
+    value=$1
+    case "$value" in
+        ''|.*|*[!A-Za-z0-9._+-]*|*.conf.disabled) return 1 ;;
+        *.conf) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+safe_revision() {
+    value=$1
+    [ "${#value}" -eq 64 ] || return 1
+    case "$value" in
+        *[!0-9A-Fa-f]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+lock_held=0
+work=''
+tx_active=0
+active_path=''
+backup_path=''
+staged_path=''
+
+rollback_transaction() {
+    [ "$tx_active" -eq 1 ] || return 0
+
+    if [ -e "$active_path" ] || [ -L "$active_path" ]; then
+        rm -f "$active_path" || true
+    fi
+    if [ -f "$backup_path" ] && [ ! -L "$backup_path" ]; then
+        mv "$backup_path" "$active_path" || true
+    fi
+}
+
+cleanup() {
+    rc=$?
+    trap - EXIT HUP INT TERM
+    rollback_transaction
+    [ -z "$staged_path" ] || rm -f "$staged_path"
+    [ -z "$backup_path" ] || rm -f "$backup_path"
+    [ -z "$work" ] || rm -rf "$work"
+    if [ "$lock_held" -eq 1 ]; then
+        exec 9>&-
+    fi
+    exit "$rc"
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+acquire_lock() {
+    [ -x "$FLOCK_BIN" ] || fail "flock executable not found: $FLOCK_BIN"
+
+    lock_parent=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_parent"
+
+    if [ -L "$LOCK_FILE" ] || { [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; }; then
+        fail "reconciliation lock path is not a regular file: $LOCK_FILE"
+    fi
+
+    exec 9>>"$LOCK_FILE" || fail "could not open reconciliation lock: $LOCK_FILE"
+    if ! "$FLOCK_BIN" -n 9; then
+        exec 9>&-
+        fail 'another Nginx configuration operation is already running'
+    fi
+    lock_held=1
+}
+
+prepare_status() {
+    [ -x "$FILES_BIN" ] || fail "ownership helper not found: $FILES_BIN"
+    work=$(mktemp -d /tmp/nginx-telego-editor.XXXXXX)
+    status_file="$work/status.tsv"
+
+    NGINX_TELEGO_ROOT="$ROOT" \
+    NGINX_TELEGO_MANIFEST="$MANIFEST" \
+        "$FILES_BIN" validate
+
+    NGINX_TELEGO_ROOT="$ROOT" \
+    NGINX_TELEGO_MANIFEST="$MANIFEST" \
+        "$FILES_BIN" status >"$status_file"
+}
+
+managed_line_for_path() {
+    wanted=$1
+    awk -F '\t' -v path="$wanted" '$1 == path { print; exit }' "$status_file"
+}
+
+parse_managed_line() {
+    line=$1
+    IFS="$(printf '\t')" read -r managed_path managed_role managed_ownership managed_presence managed_state managed_source <<EOF
+$line
+EOF
+}
+
+validate_active_foreign() {
+    name=$1
+    safe_name "$name" || fail "invalid conf.d file name: $name"
+
+    active_path="$CONF_DIR/$name"
+    virtual_path="/etc/nginx/conf.d/$name"
+
+    if [ -L "$active_path" ]; then
+        fail "refusing to edit symlink: $virtual_path"
+    elif [ ! -e "$active_path" ]; then
+        fail "active Nginx file does not exist: $virtual_path"
+    elif [ ! -f "$active_path" ]; then
+        fail "refusing to edit non-regular file: $virtual_path"
+    fi
+
+    line=$(managed_line_for_path "$virtual_path")
+    if [ -n "$line" ]; then
+        parse_managed_line "$line"
+        if [ "$managed_ownership" != generated ] || [ "$managed_state" != foreign ]; then
+            fail "refusing to edit nginx-telego-owned path: $virtual_path ($managed_ownership/$managed_state)"
+        fi
+    fi
+}
+
+file_revision() {
+    sha256sum "$1" | awk '{ print $1 }'
+}
+
+nginx_test() {
+    [ -x "$NGINX_BIN" ] || fail "nginx executable not found: $NGINX_BIN"
+    [ -r "$NGINX_CONF" ] || fail "nginx configuration not found: $NGINX_CONF"
+    "$NGINX_BIN" -t -c "$NGINX_CONF"
+}
+
+reload_nginx() {
+    [ -x "$NGINX_INIT" ] || return 0
+    if "$NGINX_INIT" status >/dev/null 2>&1; then
+        "$NGINX_INIT" reload
+    fi
+}
+
+inspect_active() {
+    name=$1
+    validate_active_foreign "$name"
+
+    size=$(wc -c <"$active_path")
+    [ "$size" -le "$MAX_EDIT_BYTES" ] || fail_code 4 "file exceeds $MAX_EDIT_BYTES bytes: /etc/nginx/conf.d/$name"
+    revision=$(file_revision "$active_path")
+    printf '%s\t%s\n' "$revision" "$size"
+    cat "$active_path"
+}
+
+replace_active() {
+    name=$1
+    expected=$2
+
+    safe_name "$name" || fail "invalid conf.d file name: $name"
+    safe_revision "$expected" || fail "invalid expected SHA-256 revision"
+
+    content_path="$work/content"
+    head -c $((MAX_EDIT_BYTES + 1)) >"$content_path"
+    size=$(wc -c <"$content_path")
+    [ "$size" -le "$MAX_EDIT_BYTES" ] || fail_code 4 "edited file exceeds $MAX_EDIT_BYTES bytes"
+
+    validate_active_foreign "$name"
+    current=$(file_revision "$active_path")
+    [ "$current" = "$expected" ] || fail_code 3 'file changed since it was opened; refresh before saving'
+
+    staged_path="$CONF_DIR/.$name.edit.$$"
+    backup_path="$CONF_DIR/.$name.backup.$$"
+    for candidate in "$staged_path" "$backup_path"; do
+        if [ -e "$candidate" ] || [ -L "$candidate" ]; then
+            fail "temporary editor path already exists: $candidate"
+        fi
+    done
+
+    cp -p "$active_path" "$staged_path"
+    cat "$content_path" >"$staged_path"
+
+    validate_active_foreign "$name"
+    current=$(file_revision "$active_path")
+    [ "$current" = "$expected" ] || fail_code 3 'file changed while the edit was being submitted; refresh before saving'
+
+    if cmp -s "$staged_path" "$active_path"; then
+        rm -f "$staged_path"
+        staged_path=''
+        echo 'unchanged'
+        return 0
+    fi
+
+    mv "$active_path" "$backup_path"
+    mv "$staged_path" "$active_path"
+    staged_path=''
+    tx_active=1
+
+    if ! nginx_test; then
+        fail 'nginx -t failed; edited file was rolled back'
+    fi
+    if ! reload_nginx; then
+        fail 'nginx reload failed; edited file was rolled back'
+    fi
+
+    tx_active=0
+    rm -f "$backup_path"
+    backup_path=''
+    echo 'updated'
+}
+
+action=${1:-}
+case "$action" in
+    inspect)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        inspect_active "$2"
+        ;;
+    replace)
+        [ "$#" -eq 3 ] || usage
+        acquire_lock
+        prepare_status
+        replace_active "$2" "$3"
+        ;;
+    *) usage ;;
+esac

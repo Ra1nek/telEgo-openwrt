@@ -13,10 +13,12 @@ sh -n package/nginx-telego/files/usr/libexec/nginx-telego-render
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-files
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-reconcile
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-admin
+sh -n package/nginx-telego/files/usr/libexec/nginx-telego-editor
 bash .github/tests/nginx-telego.sh
 bash .github/tests/nginx-telego-ownership.sh
 bash .github/tests/nginx-telego-reconcile.sh
 bash .github/tests/nginx-telego-admin.sh
+bash .github/tests/nginx-telego-editor.sh
 bash .github/tests/nginx-telego-service.sh
 sh .github/tests/service-account.sh
 sh .github/tests/telego-config-render.sh
@@ -27,9 +29,6 @@ bash .github/tests/service-definition.sh
 python3 .github/tests/test_installer.py
 python3 .github/scripts/check-luci-i18n.py
 
-# Match the ucode revision shipped by the target OpenWrt SDK. Cache the small
-# runtime set (ucode + libucode) instead of the whole source/build tree.
-# Set UCODE explicitly to bypass this cache and use another interpreter.
 UCODE_REVISION=85922056ef7abeace3cca3ab28bc1ac2d88e31b1
 UCODE_CACHE_ROOT="${UCODE_CACHE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache/telego/ucode}}"
 
@@ -51,10 +50,8 @@ if [[ -z ${UCODE:-} ]]; then
 		cp -a "$test_dir/build"/libucode.so* "$runtime_dir/"
 	fi
 
-	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-		"$UCODE" .github/tests/rpcd-status.uc
-	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-		"$UCODE" .github/tests/rpcd-nginx.uc
+	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$UCODE" .github/tests/rpcd-status.uc
+	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$UCODE" .github/tests/rpcd-nginx.uc
 else
 	"$UCODE" .github/tests/rpcd-status.uc
 	"$UCODE" .github/tests/rpcd-nginx.uc
