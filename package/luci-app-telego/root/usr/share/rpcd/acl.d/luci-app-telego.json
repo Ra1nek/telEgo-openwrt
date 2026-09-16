@@ -1,15 +1,19 @@
 {
   "luci-app-telego": {
-    "description": "Grant access to telEgo configuration, Nginx ingress and service telemetry",
+    "description": "Grant access to telEgo configuration, Nginx ingress/file administration and service telemetry",
     "read": {
       "uci": ["telego", "nginx_telego"],
       "ubus": {
         "service": ["list"],
-        "telego": ["status"]
+        "telego": ["status"],
+        "telego.nginx": ["inventory", "managed_content"]
       }
     },
     "write": {
-      "uci": ["telego", "nginx_telego"]
+      "uci": ["telego", "nginx_telego"],
+      "ubus": {
+        "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "repair"]
+      }
     }
   }
 }
