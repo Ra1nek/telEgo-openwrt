@@ -48,6 +48,7 @@
       "acl": ["luci-app-telego"],
       "fs": {
         "/usr/libexec/nginx-telego-admin": "executable",
+        "/usr/libexec/nginx-telego-editor": "executable",
         "/usr/share/nginx-telego/ownership.tsv": "file"
       }
     }

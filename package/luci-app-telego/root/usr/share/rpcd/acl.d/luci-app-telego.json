@@ -6,13 +6,13 @@
       "ubus": {
         "service": ["list"],
         "telego": ["status"],
-        "telego.nginx": ["inventory", "managed_content"]
+        "telego.nginx": ["inventory", "managed_content", "foreign_content"]
       }
     },
     "write": {
       "uci": ["telego", "nginx_telego"],
       "ubus": {
-        "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "repair"]
+        "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "replace_active", "repair"]
       }
     }
   }

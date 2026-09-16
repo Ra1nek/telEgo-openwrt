@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-i18n-telego-ru
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -24,9 +24,6 @@ define Package/luci-i18n-telego-ru/description
 Russian translation for luci-app-telego.
 endef
 
-# This package only installs compiled translations and has no source tree to compile.
-# Match LuCI's normal translation-package behavior: every po/ru/*.po catalog is
-# compiled into its own domain and LuCI merges all *.ru.lmo catalogs at runtime.
 define Build/Compile
 	true
 endef
