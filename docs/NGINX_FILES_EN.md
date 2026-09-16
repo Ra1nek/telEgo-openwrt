@@ -1,8 +1,8 @@
-# `nginx-telego` Nginx ownership and reconciliation
+# `nginx-telego` Nginx ownership, reconciliation, and P8 administration
 
 [Русский](NGINX_FILES.md) · **English**
 
-This document defines the final **P6 — Managed Nginx File Ownership** and **P7 — Reconciliation Engine** contract. P6 identifies ownership and drift; P7 safely reconciles package-owned/generated state to the desired UCI state.
+This document defines the final **P6 — Managed Nginx File Ownership**, **P7 — Reconciliation Engine**, and **P8 — Nginx File Inventory & Administration** contracts. P6 identifies ownership and drift, P7 safely reconciles package-owned/generated state to the desired UCI state, and P8 exposes explicit administrator operations for custom/foreign `.conf` files without weakening the P6/P7 boundary.
 
 ## Source of truth
 
@@ -25,6 +25,14 @@ Canonical static package copies:
 ├── 20-telego-core.conf
 └── telego.locations
 ```
+
+P8 quarantine lives outside the active Nginx include tree:
+
+```text
+/etc/nginx-telego/quarantine/
+```
+
+The quarantine directory is created only when needed by an explicit administrator action and is not active Nginx configuration.
 
 An active file never becomes canonical merely because it was edited by hand. `package` files are authoritative from their canonical copies; `generated` files are authoritative from UCI/runtime state rendered by nginx-telego.
 
@@ -54,7 +62,7 @@ package/nginx-telego/files/conf.d/
 └── 20-telego-core.conf
 ```
 
-`80-telego-ingress.conf` and `85-telego-fallback.conf` are **not static package source files**. They are conditional runtime state created or removed by `/usr/libexec/nginx-telego-render` from UCI. On a clean installation with managed ingress disabled, both files are absent. This is already part of P7, not deferred to P8.
+`80-telego-ingress.conf` and `85-telego-fallback.conf` are **not static package source files**. They are conditional runtime state created or removed by `/usr/libexec/nginx-telego-render` from UCI. On a clean installation with managed ingress disabled, both files are absent. This is part of P7, not P8.
 
 ## Ownership
 
@@ -104,7 +112,7 @@ Generated states:
 | `foreign` | regular file occupies the reserved path without proven ownership |
 | `invalid-type` | reserved path has an unsupported type |
 
-## Read-only inventory
+## P6 read-only inventory
 
 ```sh
 /usr/libexec/nginx-telego-files validate
@@ -120,7 +128,7 @@ path    role    ownership    presence    state    source
 
 The helper remains read-only: it does not perform `rm`, `mv`, rewrites, Nginx reloads, or UCI mutations.
 
-## Reconciliation Engine
+## P7 Reconciliation Engine
 
 Normal apply path:
 
@@ -156,31 +164,135 @@ commit
 
 If rendering, final `nginx -t`, or reload fails, managed filesystem state is rolled back to its pre-transaction bytes.
 
-Only one reconciler may run at a time. The mutex uses kernel `flock(2)` through `/usr/bin/flock`: a second writer is rejected, while owner exit or failure releases the lock automatically in the kernel. The lock inode may remain on disk; no PID file or unsafe manual stale-lock deletion is used.
+Only one writer may enter this mutation boundary at a time. The mutex uses kernel `flock(2)` through `/usr/bin/flock`: a second writer is rejected, while process exit releases the kernel lock. The lock inode may remain on disk; no PID file or unsafe stale-lock deletion is used.
+
+## P8 — Nginx File Inventory & Administration
+
+P8 adds a dedicated root helper:
+
+```text
+/usr/libexec/nginx-telego-admin
+```
+
+LuCI and rpcd do not perform direct root filesystem mutations in `/etc/nginx/conf.d/`. All P8 write operations go through this helper. `nginx-telego-files` remains read-only, while managed-state repair is delegated to the existing P7 reconciler.
+
+### Inventory
+
+P8 inventory combines three classes:
+
+- managed entries from `ownership.tsv` with P6 state;
+- foreign/custom direct-child `.conf` files from `/etc/nginx/conf.d/`;
+- quarantined `.conf` files from `/etc/nginx-telego/quarantine/`.
+
+Foreign/quarantine actions intentionally accept only safe direct-child `*.conf` names. Path traversal, nested paths, symlinks, and other unsafe path types are not accepted as administrator targets.
+
+### Explicit administrator operations
+
+P8 provides:
+
+```text
+inventory
+quarantine
+restore
+delete-active
+delete-quarantined
+inspect-managed
+repair
+```
+
+Semantics:
+
+- **quarantine** moves an explicitly selected foreign/custom `.conf` from active `conf.d` into `/etc/nginx-telego/quarantine/`;
+- **restore** returns a quarantined `.conf` to active `conf.d` only when the destination is free and safe;
+- **delete-active** deletes only an explicitly selected active foreign/custom regular file;
+- **delete-quarantined** deletes only an explicitly selected quarantined regular file;
+- **inspect-managed** is read-only access to active/canonical package-owned content for LuCI diff;
+- **repair** invokes P7 reconciliation instead of duplicating ownership/repair rules.
+
+P8 never deletes, quarantines, or adopts package-owned files. A reserved generated path (`80/85`) becomes actionable only when P6 classifies its actual occupant as `foreign`; `managed` generated state remains under P7.
+
+### Transaction safety
+
+P8 uses the same lock file/kernel `flock` as P7. Therefore P7 reconciliation and P8 foreign-file mutation cannot alter the active Nginx tree concurrently.
+
+Active-tree mutations follow this boundary:
+
+```text
+shared kernel flock
+ ↓
+validate target / ownership boundary
+ ↓
+backup or staged move
+ ↓
+mutation
+ ↓
+nginx -t
+ ↓
+reload if nginx is running
+ ↓
+commit
+```
+
+If `nginx -t` or reload fails, P8 restores the pre-operation filesystem state.
+
+Deleting a file already quarantined outside the active include tree does not require an Nginx reload.
+
+### LuCI / rpcd boundary
+
+P8 exposes a separate ubus object:
+
+```text
+telego.nginx
+```
+
+Read RPC:
+
+```text
+inventory
+managed_content
+```
+
+Write RPC:
+
+```text
+quarantine
+restore
+delete_active
+delete_quarantined
+repair
+```
+
+LuCI page:
+
+```text
+Services → telEgo → Nginx Files
+```
+
+ACL separates read/write methods, and the rpcd backend delegates filesystem access to `nginx-telego-admin` instead of operating on arbitrary paths.
+
+### Diff and editor boundary
+
+LuCI diff is available only for `package-owned + modified` state and compares active bytes with the canonical package source. It is diagnostic only and does not change the source of truth.
+
+**A general/restricted Nginx editor is not part of the current P8 contract.** It must not be smuggled in as an inventory extension: arbitrary editing is a distinct write primitive with a different threat model and requires a separate design and validation pass.
 
 ## Alpha baseline: old names are not migrated
 
-At the current alpha stage, P7 deliberately establishes a clean baseline and contains **no in-place migration** for the old experimental paths:
+P7/P8 deliberately keep the clean alpha baseline and contain **no in-place migration** for the old experimental paths:
 
 ```text
 /etc/nginx/conf.d/telego.conf
 /etc/nginx/conf.d/zz-telego-managed.conf
 ```
 
-They are not part of `ownership.tsv`, are not recognized by the reconciler/renderer as managed state, and are not automatically deleted by the package. This keeps hidden compatibility rules out of the new filesystem model.
+They are not part of `ownership.tsv` and are not recognized by the reconciler/renderer as managed state. P8 may display a safe old direct-child `.conf` as foreign, but it does not infer telEgo ownership from the filename and never deletes it automatically.
 
-If these files remain on a test router from an earlier alpha build, first verify that they are obsolete telEgo files and contain no administrator changes you still need, then remove them manually before adopting the P7 baseline:
-
-```sh
-rm -f /etc/nginx/conf.d/telego.conf
-rm -f /etc/nginx/conf.d/zz-telego-managed.conf
-/etc/init.d/nginx-telego reload
-```
+If such files remain on a test router from an earlier alpha build, first verify that they are obsolete telEgo files and contain no administrator changes you still need. Then quarantine/delete them explicitly through P8 or remove them manually.
 
 > [!CAUTION]
 > Do not delete a file merely because its name matches if you are unsure of its origin. `nginx-telego` intentionally does not perform that deletion automatically.
 
-From this baseline onward, the authoritative telEgo namespace is only `20-telego-core.conf`, conditional `80-telego-ingress.conf`, conditional `85-telego-fallback.conf`, and `telego.locations`.
+The authoritative telEgo namespace is only `20-telego-core.conf`, conditional `80-telego-ingress.conf`, conditional `85-telego-fallback.conf`, and `telego.locations`.
 
 ## Uninstall
 
@@ -190,11 +302,11 @@ Generated cleanup is coordinated through the reconciler:
 /usr/libexec/nginx-telego-reconcile remove-generated
 ```
 
-The package `prerm` uses this path instead of mutating generated files directly through the renderer. LuCI/procd/uninstall therefore share one lock and one outer `nginx -t` / rollback boundary.
+The package `prerm` uses this path instead of mutating generated files directly through the renderer. LuCI/procd/uninstall/P8 therefore share one lock boundary.
 
-Foreign files on reserved paths are preserved.
+Foreign and quarantined administrator-owned files do not become package-owned state and must not be removed as managed state by package lifecycle hooks.
 
-## Registry security boundary
+## Registry and P8 security boundaries
 
 The registry is not an arbitrary root-filesystem manifest. Validation requires:
 
@@ -206,7 +318,7 @@ The registry is not an arbitrary root-filesystem manifest. Validation requires:
 - no duplicate managed paths;
 - a non-empty source.
 
-P7 write operations therefore inherit the already constrained P6 namespace.
+P8 separately restricts administrator targets to safe direct-child `.conf` names and does not accept arbitrary absolute paths from browser/rpcd input. P7 writes only within the validated P6 namespace; P8 writes only within the validated foreign/quarantine namespace.
 
 ## CI
 
@@ -214,10 +326,9 @@ The contract is verified at multiple levels:
 
 1. ownership tests: drift, canonical-source failures, symlink/directory/FIFO cases, path boundaries, and canonical role markers;
 2. renderer tests: Cloudflare/Native contracts, conflicts, strict role-aware ownership, and atomic rollback;
-3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transitions, a real concurrent apply under kernel flock, lock release after owner exit, and uninstall cleanup;
-4. APK layout verification: final package paths, modes, ownership, absence of generated payloads, and absence of old alpha payload paths;
-5. OpenWrt rootfs smoke: real APK installation, `nginx-telego-files validate/status`, the clean 20/80/85 baseline, and remove/reinstall lifecycle.
-
-## P8 boundary
-
-P6/P7 mutate only files owned by `nginx-telego` and preserve foreign state. P8 will add LuCI inventory plus explicit administrator operations for custom/foreign `.conf` files: disable/quarantine, restore, delete, diff, repair, and a later restricted editor. P8 does not create the 20/80/85 model; that model is already fully defined by P7.
+3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transitions, real concurrent apply under kernel flock, and uninstall cleanup;
+4. P8 admin tests: inventory, ownership protection, quarantine/restore/delete, collision handling, symlink/unsafe targets, shared flock with P7, rollback on `nginx -t`/reload failure, and `repair → reconciler` delegation;
+5. rpcd/LuCI tests: `telego.nginx` parsing/shell quoting, ACL/menu/RPC/UI contract, no direct rpcd access to `/etc/nginx/conf.d`, and no arbitrary editor;
+6. APK layout verification: final package paths/modes, executable `nginx-telego-admin`, no generated payloads, and no old alpha payload paths;
+7. OpenWrt rootfs smoke: real APK installation, `nginx-telego-files validate/status`, P8 helper/RPC/LuCI/i18n runtime files, clean 20/80/85 baseline, and remove/reinstall lifecycle;
+8. compatibility matrix: the same package/rootfs checks run on every discovered stable OpenWrt `25.12.x` release.
