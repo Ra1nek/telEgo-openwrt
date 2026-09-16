@@ -5,14 +5,19 @@
 `telEgo-openwrt` предоставляет **локальную интеграционную поверхность OpenWrt**, а не публичный REST management API.
 
 > [!IMPORTANT]
-> Текущий fork **не реализует** исторические `/api/v1/status`, `/users`, `/config/reload` или management API на порту `9091`, которые ранее описывались в репозитории. Конфигурация управляется через UCI/LuCI/procd. Статус доступен через локальный `ubus`/rpcd и Prometheus metrics.
+> Текущий fork **не реализует** исторические `/api/v1/status`, `/users`, `/config/reload` или management API на порту `9091`, которые ранее описывались в репозитории. Конфигурация управляется через UCI/LuCI/procd. Service telemetry и ограниченное Nginx file administration доступны через локальный `ubus`/rpcd; runtime counters также экспортируются через Prometheus metrics.
 
 ## Интерфейсы
 
 | Интерфейс | Назначение | Scope |
 |---|---|---|
-| `ubus call telego status` | Состояние сервиса + выбранные counters | Локальный OpenWrt rpcd |
-| UCI `telego` | Чтение/запись конфигурации | Локальная конфигурация OpenWrt |
+| `ubus call telego status` | Состояние сервиса + выбранные counters | Локальный OpenWrt rpcd, read-only |
+| `ubus call telego.nginx inventory` | Inventory managed/foreign/quarantined Nginx files | Локальный OpenWrt rpcd, read-only |
+| `telego.nginx managed_content` | Чтение package-owned active/canonical content для diff | Локальный OpenWrt rpcd, read-only |
+| `telego.nginx quarantine/restore/delete_*` | Явные guarded operations над foreign/custom `.conf` | Локальный OpenWrt rpcd, write |
+| `telego.nginx repair` | Делегирование managed-state repair в P7 reconciler | Локальный OpenWrt rpcd, write |
+| UCI `telego` | Чтение/запись основной конфигурации | Локальная конфигурация OpenWrt |
+| UCI `nginx_telego` | Desired state managed Nginx ingress/fallback | Локальная конфигурация OpenWrt |
 | Prometheus metrics endpoint | Подробные runtime metrics | HTTP endpoint из `metrics.bind_to`/`metrics.path` |
 | `service.list` | Состояние procd service instance | Локальный ubus |
 
@@ -71,6 +76,132 @@ flowchart LR
 
 Состояние сервиса и PID берутся из `service.list`; uptime процесса рассчитывается по `/proc`; counters парсятся из настроенного metrics endpoint.
 
+## Nginx file API: `telego.nginx`
+
+P8 публикует отдельный локальный ubus object:
+
+```text
+telego.nginx
+```
+
+Backend находится в:
+
+```text
+package/luci-app-telego/root/usr/share/rpcd/ucode/telego-nginx
+```
+
+Он **не выполняет прямые filesystem mutations**. Все privileged Nginx file operations делегируются фиксированному helper:
+
+```text
+/usr/libexec/nginx-telego-admin
+```
+
+Browser/rpcd передаёт helper только ограниченные method arguments, а не произвольные absolute paths. Полный ownership/admin contract описан в [NGINX_FILES.md](NGINX_FILES.md).
+
+### `inventory`
+
+Вызов:
+
+```sh
+ubus call telego.nginx inventory
+```
+
+Response shape:
+
+```json
+{
+  "ok": true,
+  "files": [
+    {
+      "kind": "managed",
+      "name": "20-telego-core.conf",
+      "path": "/etc/nginx/conf.d/20-telego-core.conf",
+      "role": "core",
+      "ownership": "package",
+      "state": "ok",
+      "source": "/usr/share/nginx-telego/templates/20-telego-core.conf"
+    }
+  ],
+  "unsafe_count": 0,
+  "error": ""
+}
+```
+
+`kind` может быть `managed`, `foreign` или `quarantined`. `unsafe_count` сообщает число entries, которые helper намеренно не выставляет как actionable из-за небезопасного имени/path type.
+
+### `managed_content`
+
+Метод предназначен только для package-owned diff в LuCI.
+
+```sh
+ubus call telego.nginx managed_content '{"role":"core","side":"source"}'
+ubus call telego.nginx managed_content '{"role":"core","side":"active"}'
+```
+
+Параметры:
+
+- `role`: только `core` или `locations`;
+- `side`: только `active` или `source`.
+
+Успешный ответ:
+
+```json
+{
+  "ok": true,
+  "content": "...",
+  "error": ""
+}
+```
+
+Generated roles `ingress`/`fallback` через этот method не читаются.
+
+### Mutation methods
+
+Все mutation methods принимают logical file name, а не path:
+
+```sh
+ubus call telego.nginx quarantine '{"name":"50-custom.conf"}'
+ubus call telego.nginx restore '{"name":"50-custom.conf"}'
+ubus call telego.nginx delete_active '{"name":"50-custom.conf"}'
+ubus call telego.nginx delete_quarantined '{"name":"50-custom.conf"}'
+```
+
+Успешный ответ имеет общий shape:
+
+```json
+{
+  "ok": true,
+  "message": "...",
+  "error": ""
+}
+```
+
+При отказе helper:
+
+```json
+{
+  "ok": false,
+  "message": "",
+  "error": "nginx-telego-admin: ..."
+}
+```
+
+Граница безопасности остаётся в `nginx-telego-admin`: безопасные direct-child `*.conf` names, ownership preflight, запрет package-owned mutations, shared kernel `flock(2)`, `nginx -t`, reload-if-running и rollback для active-tree changes.
+
+### `repair`
+
+```sh
+ubus call telego.nginx repair
+```
+
+`repair` не реализует второй repair engine. Helper делегирует операцию существующему P7 path:
+
+```text
+/usr/libexec/nginx-telego-reconcile apply
+```
+
+Это сохраняет один ownership model, один lock boundary и один reconciliation contract.
+
 ## Metrics endpoint
 
 Default UCI configuration:
@@ -124,19 +255,23 @@ Fetch выполняется через `uclient-fetch` с коротким time
 ```json
 {
   "read": {
-    "uci": ["telego"],
+    "uci": ["telego", "nginx_telego"],
     "ubus": {
       "service": ["list"],
-      "telego": ["status"]
+      "telego": ["status"],
+      "telego.nginx": ["inventory", "managed_content"]
     }
   },
   "write": {
-    "uci": ["telego"]
+    "uci": ["telego", "nginx_telego"],
+    "ubus": {
+      "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "repair"]
+    }
   }
 }
 ```
 
-Сам RPC method статуса read-only; изменения конфигурации сохраняются через UCI.
+`telego.status` остаётся read-only. `telego.nginx` намеренно разделяет read и write methods. Обычная конфигурация сохраняется через UCI; P8 write methods используются только для явных Nginx file administration operations.
 
 ## Управление конфигурацией через UCI
 
@@ -154,7 +289,9 @@ uci commit telego
 /etc/init.d/telego reload
 ```
 
-Полное соответствие options описано в [CONFIGURATION.md](CONFIGURATION.md).
+Managed Nginx desired state хранится отдельно в `/etc/config/nginx_telego` и применяется через `/etc/init.d/nginx-telego reload`, который вызывает P7 reconciler.
+
+Полное соответствие options описано в [CONFIGURATION.md](CONFIGURATION.md); ownership/reconciliation/admin semantics — в [NGINX_FILES.md](NGINX_FILES.md).
 
 ## Информация procd
 
@@ -170,16 +307,21 @@ ubus call service list '{"name":"telego"}'
 
 Страница LuCI остаётся пригодной для настройки даже при проблемах telemetry. Типичные сценарии:
 
-- rpcd backend отсутствует или требует restart → status call завершается ошибкой;
+- rpcd telemetry backend отсутствует или требует restart → status call завершается ошибкой;
 - daemon остановлен → `running=false`, `pid=0`;
 - metrics endpoint недоступен → service state может вернуться, counters становятся нулевыми;
-- metrics address не loopback → rpcd намеренно отказывается выполнять fetch.
+- metrics address не loopback → rpcd намеренно отказывается выполнять fetch;
+- `nginx-telego-admin` недоступен → `telego.nginx` возвращает `ok=false` / `admin-helper-unavailable`;
+- unsafe/owned/colliding Nginx target → helper отказывает операции и возвращает текст ошибки через `error`;
+- `nginx -t` или reload не проходит после active-tree mutation → helper выполняет rollback и возвращает ошибку.
 
-См. [TROUBLESHOOTING.md](TROUBLESHOOTING.md#статус-luci-или-telemetry-недоступны).
+См. [TROUBLESHOOTING.md](TROUBLESHOOTING.md#статус-luci-или-telemetry-недоступны) и [NGINX_FILES.md](NGINX_FILES.md).
 
 ## Замечания по безопасности
 
 - Не публикуйте ubus/rpcd напрямую в Internet.
 - Не добавляйте write operations в `telego.status`; конфигурация должна оставаться в UCI и существующем LuCI ACL.
+- Не добавляйте arbitrary-path filesystem access в `telego.nginx`; root mutation boundary должна оставаться в `nginx-telego-admin`.
+- Не обходите ownership checks, shared flock, `nginx -t` и rollback P8 прямыми `rm`/`mv` из rpcd/LuCI.
 - Не заменяйте loopback-only guard для metrics произвольным URL fetch.
 - Не публикуйте вывод `uci show telego`: в UCI хранятся secrets.
