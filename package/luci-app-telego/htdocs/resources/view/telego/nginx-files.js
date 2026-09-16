@@ -71,7 +71,7 @@ function ownershipLabel(file) {
 
 function stateLabel(state) {
 	const labels = {
-		'ok': _('OK'),
+		'ok': _('In sync'),
 		'modified': _('Modified'),
 		'missing': _('Missing'),
 		'managed': _('Managed'),
@@ -173,7 +173,7 @@ return view.extend({
 					return callRepair().then(function (result) {
 						if (!result || !result.ok)
 							throw new Error(resultError(result));
-						ui.addNotification(null, E('p', {}, result.message || _('Managed Nginx state repaired.')), 'info');
+						ui.addNotification(null, E('p', {}, _('Managed Nginx state repaired.')), 'info');
 						return refresh();
 					}).catch(notifyError);
 				})

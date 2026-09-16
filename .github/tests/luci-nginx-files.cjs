@@ -5,6 +5,7 @@ const view = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/tele
 const menu = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/luci/menu.d/telego.menu.json', 'utf8'));
 const acl = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/rpcd/acl.d/luci-app-telego.json', 'utf8'))['luci-app-telego'];
 const makefile = fs.readFileSync('package/luci-app-telego/Makefile', 'utf8');
+const i18nMakefile = fs.readFileSync('package/luci-i18n-telego-ru/Makefile', 'utf8');
 const rpc = fs.readFileSync('package/luci-app-telego/root/usr/share/rpcd/ucode/telego-nginx', 'utf8');
 
 const page = menu['admin/services/telego/nginx-files'];
@@ -19,7 +20,8 @@ assert.deepEqual(acl.write.ubus['telego.nginx'], [
   'quarantine', 'restore', 'delete_active', 'delete_quarantined', 'repair'
 ]);
 
-assert.match(makefile, /PKG_RELEASE:=6/);
+assert.match(makefile, /PKG_RELEASE:=7/);
+assert.match(i18nMakefile, /PKG_RELEASE:=6/);
 assert.match(makefile, /root\/usr\/share\/rpcd\/ucode\/telego-nginx/);
 assert.match(makefile, /www\/luci-static\/resources\/view\/telego/);
 
@@ -33,6 +35,10 @@ assert.ok(!rpc.includes("import { open"), 'P8 RPC delegates filesystem access to
 for (const method of ['inventory', 'managed_content', 'quarantine', 'restore', 'delete_active', 'delete_quarantined', 'repair'])
   assert.ok(view.includes(`method: '${method}'`), `view declares ${method}`);
 
+assert.ok(view.includes("'ok': _('In sync')"), 'package-owned OK state uses a collision-resistant LuCI msgid');
+assert.ok(!view.includes("'ok': _('OK')"), 'generic OK msgid is not used for inventory state');
+assert.ok(view.includes("E('p', {}, _('Managed Nginx state repaired.'))"), 'repair success notification is localized');
+assert.ok(!view.includes("result.message || _('Managed Nginx state repaired.')"), 'repair success does not leak raw helper stdout into LuCI');
 assert.ok(view.includes("file.ownership === 'package' && file.state === 'modified'"), 'diff is limited to modified package-owned files');
 assert.ok(view.includes("file.ownership === 'generated' && file.state === 'foreign'"), 'foreign occupants on generated reserved paths are actionable');
 assert.ok(view.includes("file.kind === 'quarantined' && file.state === 'quarantined'"), 'quarantined files have their own action set');

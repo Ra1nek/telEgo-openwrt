@@ -33,8 +33,8 @@ msgstr "Сгенерирован telEgo"
 msgid "Foreign / administrator-owned"
 msgstr "Чужой / принадлежит администратору"
 
-msgid "OK"
-msgstr "Норма"
+msgid "In sync"
+msgstr "В порядке"
 
 msgid "Modified"
 msgstr "Изменён"
