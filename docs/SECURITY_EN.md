@@ -7,7 +7,7 @@ This document describes the security boundaries implemented by the OpenWrt integ
 
 ## Milestone 2 — Security Hardening
 
-The hardened OpenWrt runtime is built around three independent controls:
+The hardened OpenWrt runtime is built around several independent controls:
 
 | Control | What it does | Security value |
 |---|---|---|
@@ -166,7 +166,48 @@ The LuCI rpcd adapter is deliberately stricter than a generic HTTP client. It on
 
 This prevents an administrator-controlled metrics setting from turning the LuCI status RPC into a generic server-side URL-fetch primitive.
 
-The `telego.status` method is read-only. LuCI configuration writes are performed through UCI under the application ACL.
+The `telego.status` method remains read-only. Normal LuCI configuration writes go through UCI under the application ACL. Separate P8 Nginx write operations live under a different ubus object, `telego.nginx`, with their own filesystem security boundary described below.
+
+## P8 Nginx administration privilege boundary
+
+P8 deliberately does **not** turn rpcd into a generic root file API. LuCI calls a separate local `telego.nginx` object and the backend delegates privileged filesystem operations only to the fixed helper:
+
+```text
+/usr/libexec/nginx-telego-admin
+```
+
+```mermaid
+flowchart LR
+    BROWSER["LuCI browser"] --> ACL["rpcd ACL<br/>telego.nginx"]
+    ACL --> RPC["telego-nginx ucode"]
+    RPC --> ADMIN["nginx-telego-admin"]
+    ADMIN --> OWN["P6 ownership/status preflight"]
+    OWN --> LOCK["shared kernel flock"]
+    LOCK --> MUT["guarded foreign-file mutation"]
+    MUT --> TEST["nginx -t"]
+    TEST --> RELOAD["reload if running"]
+```
+
+Security properties of this boundary:
+
+- read and write RPC methods are separated by the LuCI ACL;
+- browser/rpcd input supplies a logical file name/role, not an arbitrary absolute filesystem path;
+- foreign/quarantine targets are restricted to safe direct-child `*.conf` names;
+- symlinks, directories, and other unsupported path types are not accepted as mutation targets;
+- package-owned paths cannot be quarantined, deleted, or overwritten through P8;
+- an active occupant on generated reserved path `80/85` is actionable only when P6 classifies it as `foreign`;
+- restore onto a generated reserved path is allowed only while the current state is `absent`, without overwriting an existing target;
+- quarantine storage lives outside the active Nginx include tree at `/etc/nginx-telego/quarantine/` and is created on demand with restrictive permissions;
+- the P7 reconciler and P8 admin helper share one kernel `flock(2)` lock file, preventing concurrent writers from mutating the Nginx tree;
+- an active-tree mutation commits only after successful `nginx -t` and reload-if-running; failures trigger filesystem rollback;
+- `repair` delegates to `/usr/libexec/nginx-telego-reconcile apply` instead of implementing a second ownership/repair engine.
+
+The RPC backend shell-quotes method arguments before invoking the helper, but that is not a substitute for helper-side validation. The security boundary is intentionally layered: a constrained RPC contract plus root-side path/ownership checks.
+
+> [!IMPORTANT]
+> Do not move `rm`, `mv`, arbitrary file read/write, or path construction from `nginx-telego-admin` into browser/rpcd code. That shortcut would bypass P6 ownership, the shared lock, `nginx -t`, and the rollback boundary.
+
+See [API_EN.md](API_EN.md) for the complete method/response contract and [NGINX_FILES_EN.md](NGINX_FILES_EN.md) for the ownership state machine.
 
 ## WEB Proxy private listener
 
@@ -254,7 +295,8 @@ For a suspected vulnerability, avoid posting working credentials, private keys, 
 
 ## Related documents
 
-- [Architecture](ARCHITECTURE.md)
-- [Configuration](CONFIGURATION.md)
-- [Installation](INSTALL.md)
-- [Local telemetry API](API.md)
+- [Architecture](ARCHITECTURE_EN.md)
+- [Configuration](CONFIGURATION_EN.md)
+- [Installation](INSTALL_EN.md)
+- [Local integration / API](API_EN.md)
+- [Nginx ownership / administration](NGINX_FILES_EN.md)
