@@ -6,7 +6,7 @@ mapfile -t matches < <(find "$FEED_ROOT" -type f -name 'nginx-telego-*.apk' -pri
 if [[ ${#matches[@]} -ne 1 ]]; then
   printf 'Expected exactly one nginx-telego APK below %s, found %d\n' \
     "$FEED_ROOT" "${#matches[@]}" >&2
-  exit 1
+    exit 1
 fi
 apk_file=$(realpath "${matches[0]}")
 
@@ -71,11 +71,13 @@ assert_regular /usr/share/nginx-telego/ownership.tsv 644
 assert_regular /usr/libexec/nginx-telego-files 755
 assert_regular /usr/libexec/nginx-telego-render 755
 assert_regular /usr/libexec/nginx-telego-reconcile 755
+assert_regular /usr/libexec/nginx-telego-admin 755
 
 assert_absent /etc/nginx/conf.d/telego.conf
 assert_absent /etc/nginx/conf.d/80-telego-ingress.conf
 assert_absent /etc/nginx/conf.d/85-telego-fallback.conf
 assert_absent /etc/nginx/conf.d/zz-telego-managed.conf
 assert_absent /usr/share/nginx-telego/templates/telego.conf
+assert_absent /etc/nginx-telego/quarantine
 
-printf 'nginx-telego final P6/P7 APK layout verified: %s\n' "$apk_file"
+printf 'nginx-telego final P6/P7/P8 APK layout verified: %s\n' "$apk_file"
