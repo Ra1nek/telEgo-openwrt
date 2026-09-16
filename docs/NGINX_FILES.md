@@ -164,7 +164,7 @@ commit
 
 При ошибке renderer, `nginx -t` или reload filesystem state откатывается к pre-transaction состоянию.
 
-Одновременно может работать только один writer в этой mutation boundary. Mutex реализован kernel `flock(2)` через `/usr/bin/flock`: второй writer получает отказ, а после нормального завершения или завершения процесса-владельца блокировка освобождается ядром. Lock inode может оставаться на диске; PID-файлы и опасное ручное удаление «stale lock» не используются.
+Одновременно может работать только один writer в этой mutation boundary. Mutex реализован kernel `flock(2)` через `/usr/bin/flock`: второй writer получает отказ, а kernel lock освобождается после закрытия всех file descriptors, которые держат lock, включая унаследованные дочерними процессами. Lock inode может оставаться на диске; PID-файлы и опасное ручное удаление «stale lock» не используются.
 
 ## P8 — Nginx File Inventory & Administration
 
@@ -209,7 +209,7 @@ repair
 - **inspect-managed** — read-only чтение active/canonical package-owned content для diff в LuCI;
 - **repair** — вызывает P7 reconciliation вместо повторной реализации ownership/repair правил.
 
-Package-owned файлы P8 не удаляет, не quarantine и не «усыновляет». Generated reserved path `80/85` становится доступен для foreign-file операции только когда P6 классифицировал фактического occupant как `foreign`; `managed` generated state остаётся под P7.
+Package-owned файлы P8 не удаляет, не quarantine и не «усыновляет». Активный occupant reserved generated path `80/85` можно quarantine/delete только когда P6 классифицировал его как `foreign`. Restore одноимённого файла из quarantine на reserved generated path разрешён только когда P6 видит этот target как `absent`; существующий `managed`, `foreign` или unsafe occupant никогда не перезаписывается. `managed` generated state остаётся под P7.
 
 ### Transaction safety
 
