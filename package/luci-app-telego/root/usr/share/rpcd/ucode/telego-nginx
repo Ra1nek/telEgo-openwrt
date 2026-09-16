@@ -33,9 +33,9 @@ function valid_name(name) {
 }
 
 function editor_command(args) {
-	const command = [ EDITOR ];
+	let command = EDITOR;
 	for (let arg in args)
-		push(command, arg);
+		command += ' ' + shell_quote(arg);
 	return command;
 }
 

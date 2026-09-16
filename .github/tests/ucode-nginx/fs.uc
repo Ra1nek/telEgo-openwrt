@@ -1,11 +1,11 @@
 function popen(command, mode) {
-	if (type(command) == 'array' && command[0] == '/usr/libexec/nginx-telego-editor') {
+	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-editor ') == 0) {
 		global.editor_command = command;
 		if (global.fixture?.mode == 'popen-failed') return null;
 		if (mode == 'r') {
 			let output = '';
 			let exit_code = global.fixture?.mode == 'editor-failed' ? 1 : (global.fixture?.mode == 'editor-too-large' ? 4 : 0);
-			if (command[1] == 'inspect') {
+			if (index(command, " 'inspect' ") >= 0) {
 				const content = global.fixture?.editor_content || '# custom\n';
 				const revision = global.fixture?.editor_revision || 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 				output = revision + '\t' + length(content) + '\n' + content;
