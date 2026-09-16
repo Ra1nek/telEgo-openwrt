@@ -1,0 +1,432 @@
+#!/bin/sh
+# Explicit administrator operations for foreign/custom Nginx conf.d files.
+#
+# P8 keeps the P6 inventory helper read-only and routes every mutation through
+# this narrow root helper. The helper shares P7's reconciliation flock, protects
+# nginx-telego-owned files, validates the complete Nginx tree before commit, and
+# rolls active-tree changes back if validation or reload fails.
+set -eu
+
+ROOT=${NGINX_TELEGO_ROOT:-}
+FILES_BIN=${NGINX_TELEGO_FILES:-${ROOT}/usr/libexec/nginx-telego-files}
+RECONCILE_BIN=${NGINX_TELEGO_RECONCILE:-${ROOT}/usr/libexec/nginx-telego-reconcile}
+MANIFEST=${NGINX_TELEGO_MANIFEST:-${ROOT}/usr/share/nginx-telego/ownership.tsv}
+CONF_DIR=${NGINX_TELEGO_CONF_DIR:-${ROOT}/etc/nginx/conf.d}
+QUARANTINE_DIR=${NGINX_TELEGO_QUARANTINE_DIR:-${ROOT}/etc/nginx-telego/quarantine}
+FLOCK_BIN=${NGINX_TELEGO_FLOCK_BIN:-${ROOT}/usr/bin/flock}
+LOCK_FILE=${NGINX_TELEGO_LOCK_FILE:-${NGINX_TELEGO_LOCK_DIR:-${ROOT}/var/lock/nginx-telego-reconcile.lock}}
+NGINX_BIN=${NGINX_BIN:-/usr/sbin/nginx}
+NGINX_CONF=${NGINX_CONF:-${ROOT}/etc/nginx/uci.conf}
+NGINX_INIT=${NGINX_INIT:-${ROOT}/etc/init.d/nginx}
+MAX_INVENTORY=256
+MAX_INSPECT_BYTES=131072
+
+fail() {
+    echo "nginx-telego-admin: $*" >&2
+    exit 1
+}
+
+usage() {
+    cat >&2 <<'EOF'
+Usage: nginx-telego-admin inventory
+       nginx-telego-admin quarantine NAME.conf
+       nginx-telego-admin restore NAME.conf
+       nginx-telego-admin delete-active NAME.conf
+       nginx-telego-admin delete-quarantined NAME.conf
+       nginx-telego-admin inspect-managed ROLE active|source
+       nginx-telego-admin repair
+EOF
+    exit 2
+}
+
+case "$ROOT" in
+    ''|/*) ;;
+    *) fail 'NGINX_TELEGO_ROOT must be empty or an absolute path' ;;
+esac
+
+safe_name() {
+    value=$1
+    case "$value" in
+        ''|.*|*[!A-Za-z0-9._+-]*|*.conf.disabled) return 1 ;;
+        *.conf) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+safe_role() {
+    case "$1" in
+        core|locations) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+lock_held=0
+work=''
+tx_active=0
+tx_mode=''
+tx_active_path=''
+tx_quarantine_path=''
+
+rollback_transaction() {
+    [ "$tx_active" -eq 1 ] || return 0
+
+    case "$tx_mode" in
+        quarantine|delete-active)
+            if [ ! -e "$tx_active_path" ] && [ ! -L "$tx_active_path" ] && [ -f "$tx_quarantine_path" ] && [ ! -L "$tx_quarantine_path" ]; then
+                mv "$tx_quarantine_path" "$tx_active_path" || true
+            fi
+            ;;
+        restore)
+            if [ ! -e "$tx_quarantine_path" ] && [ ! -L "$tx_quarantine_path" ] && [ -f "$tx_active_path" ] && [ ! -L "$tx_active_path" ]; then
+                mv "$tx_active_path" "$tx_quarantine_path" || true
+            fi
+            ;;
+    esac
+}
+
+cleanup() {
+    rc=$?
+    trap - EXIT HUP INT TERM
+    rollback_transaction
+    [ -z "$work" ] || rm -rf "$work"
+    if [ "$lock_held" -eq 1 ]; then
+        exec 9>&-
+    fi
+    exit "$rc"
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+acquire_lock() {
+    [ -x "$FLOCK_BIN" ] || fail "flock executable not found: $FLOCK_BIN"
+
+    lock_parent=$(dirname "$LOCK_FILE")
+    mkdir -p "$lock_parent"
+
+    if [ -L "$LOCK_FILE" ] || { [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; }; then
+        fail "reconciliation lock path is not a regular file: $LOCK_FILE"
+    fi
+
+    exec 9>>"$LOCK_FILE" || fail "could not open reconciliation lock: $LOCK_FILE"
+    if ! "$FLOCK_BIN" -n 9; then
+        exec 9>&-
+        fail 'another Nginx configuration operation is already running'
+    fi
+
+    lock_held=1
+}
+
+prepare_status() {
+    [ -x "$FILES_BIN" ] || fail "ownership helper not found: $FILES_BIN"
+    work=$(mktemp -d /tmp/nginx-telego-admin.XXXXXX)
+    status_file="$work/status.tsv"
+
+    NGINX_TELEGO_ROOT="$ROOT" \
+    NGINX_TELEGO_MANIFEST="$MANIFEST" \
+        "$FILES_BIN" validate
+
+    NGINX_TELEGO_ROOT="$ROOT" \
+    NGINX_TELEGO_MANIFEST="$MANIFEST" \
+        "$FILES_BIN" status >"$status_file"
+}
+
+managed_line_for_path() {
+    wanted=$1
+    awk -F '\t' -v path="$wanted" '$1 == path { print; exit }' "$status_file"
+}
+
+managed_line_for_role() {
+    wanted=$1
+    awk -F '\t' -v role="$wanted" '$2 == role { print; exit }' "$status_file"
+}
+
+parse_managed_line() {
+    line=$1
+    IFS="$(printf '\t')" read -r managed_path managed_role managed_ownership managed_presence managed_state managed_source <<EOF
+$line
+EOF
+}
+
+ensure_quarantine_dir() {
+    parent=$(dirname "$QUARANTINE_DIR")
+
+    if [ -L "$parent" ] || { [ -e "$parent" ] && [ ! -d "$parent" ]; }; then
+        fail "quarantine parent is not a real directory: $parent"
+    fi
+    mkdir -p "$parent"
+
+    if [ -L "$QUARANTINE_DIR" ] || { [ -e "$QUARANTINE_DIR" ] && [ ! -d "$QUARANTINE_DIR" ]; }; then
+        fail "quarantine path is not a real directory: $QUARANTINE_DIR"
+    fi
+    mkdir -p "$QUARANTINE_DIR"
+    chmod 0700 "$QUARANTINE_DIR"
+}
+
+nginx_test() {
+    [ -x "$NGINX_BIN" ] || fail "nginx executable not found: $NGINX_BIN"
+    [ -r "$NGINX_CONF" ] || fail "nginx configuration not found: $NGINX_CONF"
+    "$NGINX_BIN" -t -c "$NGINX_CONF"
+}
+
+reload_nginx() {
+    [ -x "$NGINX_INIT" ] || return 0
+    if "$NGINX_INIT" status >/dev/null 2>&1; then
+        "$NGINX_INIT" reload
+    fi
+}
+
+validate_active_foreign() {
+    name=$1
+    safe_name "$name" || fail "invalid conf.d file name: $name"
+
+    active_path="$CONF_DIR/$name"
+    virtual_path="/etc/nginx/conf.d/$name"
+
+    if [ -L "$active_path" ]; then
+        fail "refusing to mutate symlink: $virtual_path"
+    elif [ ! -e "$active_path" ]; then
+        fail "active Nginx file does not exist: $virtual_path"
+    elif [ ! -f "$active_path" ]; then
+        fail "refusing to mutate non-regular file: $virtual_path"
+    fi
+
+    line=$(managed_line_for_path "$virtual_path")
+    if [ -n "$line" ]; then
+        parse_managed_line "$line"
+        if [ "$managed_ownership" != generated ] || [ "$managed_state" != foreign ]; then
+            fail "refusing to mutate nginx-telego-owned path: $virtual_path ($managed_ownership/$managed_state)"
+        fi
+    fi
+}
+
+validate_restore_target() {
+    name=$1
+    safe_name "$name" || fail "invalid conf.d file name: $name"
+
+    active_path="$CONF_DIR/$name"
+    virtual_path="/etc/nginx/conf.d/$name"
+
+    if [ -e "$active_path" ] || [ -L "$active_path" ]; then
+        fail "restore target already exists: $virtual_path"
+    fi
+
+    line=$(managed_line_for_path "$virtual_path")
+    if [ -n "$line" ]; then
+        parse_managed_line "$line"
+        if [ "$managed_ownership" = package ]; then
+            fail "refusing to restore a foreign file onto package-owned path: $virtual_path"
+        fi
+        [ "$managed_ownership" = generated ] || fail "unsupported managed ownership at $virtual_path"
+        [ "$managed_state" = absent ] || fail "generated restore target is not absent: $virtual_path ($managed_state)"
+    fi
+}
+
+commit_active_change() {
+    if ! nginx_test; then
+        fail 'nginx -t failed; active-tree change was rolled back'
+    fi
+    if ! reload_nginx; then
+        fail 'nginx reload failed; active-tree change was rolled back'
+    fi
+    tx_active=0
+}
+
+emit_inventory() {
+    count=0
+    unsafe_count=0
+
+    while IFS="$(printf '\t')" read -r path role ownership presence state source || [ -n "${path:-}" ]; do
+        [ -n "${path:-}" ] || continue
+        name=${path##*/}
+        printf 'managed\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$name" "$path" "$role" "$ownership" "$state" "$source"
+        count=$((count + 1))
+        [ "$count" -le "$MAX_INVENTORY" ] || fail "inventory exceeds $MAX_INVENTORY entries"
+    done <"$status_file"
+
+    for candidate in "$CONF_DIR"/*.conf "$CONF_DIR"/.*.conf; do
+        [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+        name=${candidate##*/}
+        safe_name "$name" || {
+            unsafe_count=$((unsafe_count + 1))
+            continue
+        }
+        virtual_path="/etc/nginx/conf.d/$name"
+        [ -z "$(managed_line_for_path "$virtual_path")" ] || continue
+
+        if [ -L "$candidate" ] || [ ! -f "$candidate" ]; then
+            state=invalid-type
+        else
+            state=active
+        fi
+        printf 'foreign\t%s\t%s\t-\tforeign\t%s\t-\n' \
+            "$name" "$virtual_path" "$state"
+        count=$((count + 1))
+        [ "$count" -le "$MAX_INVENTORY" ] || fail "inventory exceeds $MAX_INVENTORY entries"
+    done
+
+    if [ -d "$QUARANTINE_DIR" ] && [ ! -L "$QUARANTINE_DIR" ]; then
+        for candidate in "$QUARANTINE_DIR"/*.conf.disabled "$QUARANTINE_DIR"/.*.conf.disabled; do
+            [ -e "$candidate" ] || [ -L "$candidate" ] || continue
+            stored=${candidate##*/}
+            name=${stored%.disabled}
+            safe_name "$name" || {
+                unsafe_count=$((unsafe_count + 1))
+                continue
+            }
+            if [ -L "$candidate" ] || [ ! -f "$candidate" ]; then
+                state=invalid-type
+            else
+                state=quarantined
+            fi
+            printf 'quarantined\t%s\t/etc/nginx-telego/quarantine/%s\t-\tforeign\t%s\t-\n' \
+                "$name" "$stored" "$state"
+            count=$((count + 1))
+            [ "$count" -le "$MAX_INVENTORY" ] || fail "inventory exceeds $MAX_INVENTORY entries"
+        done
+    elif [ -e "$QUARANTINE_DIR" ] || [ -L "$QUARANTINE_DIR" ]; then
+        unsafe_count=$((unsafe_count + 1))
+    fi
+
+    if [ "$unsafe_count" -gt 0 ]; then
+        printf 'meta\t-\t-\t-\t-\tunsafe-name\t%s\n' "$unsafe_count"
+    fi
+}
+
+inspect_managed() {
+    role=$1
+    side=$2
+    safe_role "$role" || fail "invalid managed role: $role"
+    case "$side" in
+        active|source) ;;
+        *) fail "invalid managed inspection side: $side" ;;
+    esac
+
+    line=$(managed_line_for_role "$role")
+    [ -n "$line" ] || fail "managed role not found: $role"
+    parse_managed_line "$line"
+    [ "$managed_ownership" = package ] || fail "managed role has no package source: $role"
+
+    case "$side" in
+        active) virtual_path=$managed_path ;;
+        source) virtual_path=$managed_source ;;
+    esac
+    case "$virtual_path" in
+        /*) inspect_path="${ROOT}${virtual_path}" ;;
+        *) fail "managed inspection path is not absolute: $virtual_path" ;;
+    esac
+
+    if [ -L "$inspect_path" ]; then
+        fail "refusing to inspect symlink managed path: $virtual_path"
+    elif [ ! -f "$inspect_path" ]; then
+        fail "managed inspection path is not a regular file: $virtual_path"
+    fi
+
+    size=$(wc -c <"$inspect_path")
+    [ "$size" -le "$MAX_INSPECT_BYTES" ] || fail "managed file exceeds $MAX_INSPECT_BYTES bytes: $virtual_path"
+    cat "$inspect_path"
+}
+
+action=${1:-inventory}
+case "$action" in
+    repair)
+        [ "$#" -eq 1 ] || usage
+        [ -x "$RECONCILE_BIN" ] || fail "reconciler not found: $RECONCILE_BIN"
+        exec "$RECONCILE_BIN" apply
+        ;;
+    inventory)
+        [ "$#" -eq 1 ] || usage
+        acquire_lock
+        prepare_status
+        emit_inventory
+        ;;
+    inspect-managed)
+        [ "$#" -eq 3 ] || usage
+        acquire_lock
+        prepare_status
+        inspect_managed "$2" "$3"
+        ;;
+    quarantine)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        ensure_quarantine_dir
+        validate_active_foreign "$2"
+        quarantine_path="$QUARANTINE_DIR/$2.disabled"
+        if [ -e "$quarantine_path" ] || [ -L "$quarantine_path" ]; then
+            fail "quarantine destination already exists for $2"
+        fi
+        mv "$active_path" "$quarantine_path"
+        tx_active=1
+        tx_mode=quarantine
+        tx_active_path=$active_path
+        tx_quarantine_path=$quarantine_path
+        commit_active_change
+        echo "quarantined: $2"
+        ;;
+    restore)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        ensure_quarantine_dir
+        validate_restore_target "$2"
+        quarantine_path="$QUARANTINE_DIR/$2.disabled"
+        if [ -L "$quarantine_path" ]; then
+            fail "refusing to restore symlink quarantine entry: $2"
+        elif [ ! -e "$quarantine_path" ]; then
+            fail "quarantined Nginx file does not exist: $2"
+        elif [ ! -f "$quarantine_path" ]; then
+            fail "refusing to restore non-regular quarantine entry: $2"
+        fi
+        mkdir -p "$CONF_DIR"
+        mv "$quarantine_path" "$active_path"
+        tx_active=1
+        tx_mode=restore
+        tx_active_path=$active_path
+        tx_quarantine_path=$quarantine_path
+        commit_active_change
+        echo "restored: $2"
+        ;;
+    delete-active)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        ensure_quarantine_dir
+        validate_active_foreign "$2"
+        staged="$QUARANTINE_DIR/.$2.delete.$$"
+        if [ -e "$staged" ] || [ -L "$staged" ]; then
+            fail "temporary delete path already exists for $2"
+        fi
+        mv "$active_path" "$staged"
+        tx_active=1
+        tx_mode=delete-active
+        tx_active_path=$active_path
+        tx_quarantine_path=$staged
+        commit_active_change
+        if ! rm -f "$staged"; then
+            echo "nginx-telego-admin: warning: active delete committed but temporary file cleanup failed: $staged" >&2
+        fi
+        echo "deleted active foreign file: $2"
+        ;;
+    delete-quarantined)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        ensure_quarantine_dir
+        safe_name "$2" || fail "invalid conf.d file name: $2"
+        quarantine_path="$QUARANTINE_DIR/$2.disabled"
+        if [ -L "$quarantine_path" ]; then
+            fail "refusing to delete symlink quarantine entry: $2"
+        elif [ ! -e "$quarantine_path" ]; then
+            fail "quarantined Nginx file does not exist: $2"
+        elif [ ! -f "$quarantine_path" ]; then
+            fail "refusing to delete non-regular quarantine entry: $2"
+        fi
+        rm -f "$quarantine_path"
+        echo "deleted quarantined file: $2"
+        ;;
+    *) usage ;;
+esac
