@@ -168,7 +168,48 @@ LuCI rpcd adapter намеренно строже generic HTTP client. Он по
 
 Это не позволяет administrator-controlled metrics setting превратить LuCI status RPC в generic server-side URL fetch primitive.
 
-Метод `telego.status` read-only. Запись LuCI configuration выполняется через UCI под application ACL.
+Метод `telego.status` остаётся read-only. Обычная запись LuCI configuration выполняется через UCI под application ACL. Отдельные P8 Nginx write operations находятся в другом ubus object — `telego.nginx` — и имеют собственную filesystem security boundary, описанную ниже.
+
+## P8 Nginx administration privilege boundary
+
+P8 намеренно **не** превращает rpcd в generic root file API. LuCI вызывает отдельный локальный object `telego.nginx`, а backend делегирует privileged filesystem operation только фиксированному helper:
+
+```text
+/usr/libexec/nginx-telego-admin
+```
+
+```mermaid
+flowchart LR
+    BROWSER["LuCI browser"] --> ACL["rpcd ACL<br/>telego.nginx"]
+    ACL --> RPC["telego-nginx ucode"]
+    RPC --> ADMIN["nginx-telego-admin"]
+    ADMIN --> OWN["P6 ownership/status preflight"]
+    OWN --> LOCK["shared kernel flock"]
+    LOCK --> MUT["guarded foreign-file mutation"]
+    MUT --> TEST["nginx -t"]
+    TEST --> RELOAD["reload if running"]
+```
+
+Security properties этой boundary:
+
+- read и write RPC методы разделены в LuCI ACL;
+- browser/rpcd передаёт logical file name/role, а не произвольный absolute filesystem path;
+- foreign/quarantine targets ограничены безопасными direct-child `*.conf` names;
+- symlink, directory и другие unsupported path types не принимаются как mutation target;
+- package-owned paths нельзя quarantine/delete/overwrite через P8;
+- active occupant на generated reserved path `80/85` можно менять только если P6 классифицирует его как `foreign`;
+- restore на generated reserved path разрешён только при текущем state `absent`, без overwrite существующего target;
+- quarantine хранится вне active Nginx include tree в `/etc/nginx-telego/quarantine/` и создаётся по необходимости с restrictive permissions;
+- P7 reconciler и P8 admin helper используют один kernel `flock(2)` lock file, поэтому два writer path не меняют Nginx tree одновременно;
+- active-tree mutation завершается только после успешного `nginx -t` и reload-if-running; при failure filesystem state откатывается;
+- `repair` делегируется `/usr/libexec/nginx-telego-reconcile apply`, а не реализует второй ownership/repair engine.
+
+RPC backend shell-quotes method arguments перед запуском helper, но это не заменяет helper-side validation: security boundary должна оставаться двухслойной — constrained RPC contract плюс root-side path/ownership checks.
+
+> [!IMPORTANT]
+> Не переносите `rm`, `mv`, arbitrary file read/write или path construction из `nginx-telego-admin` напрямую в browser/rpcd. Такой shortcut обошёл бы P6 ownership, shared lock, `nginx -t` и rollback boundary.
+
+Полный method/response contract описан в [API.md](API.md), а ownership state machine — в [NGINX_FILES.md](NGINX_FILES.md).
 
 ## Private listener WEB Proxy
 
@@ -257,4 +298,5 @@ Stable release tag должен совпадать с `PKG_VERSION`. Release wor
 - [Архитектура](ARCHITECTURE.md)
 - [Конфигурация](CONFIGURATION.md)
 - [Установка](INSTALL.md)
-- [Local telemetry API](API.md)
+- [Local integration / API](API.md)
+- [Nginx ownership / administration](NGINX_FILES.md)
