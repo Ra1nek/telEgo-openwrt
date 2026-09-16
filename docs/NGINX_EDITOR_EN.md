@@ -44,7 +44,7 @@ Supported commands:
 
 `replace` receives the new configuration bytes through **stdin**. Configuration content is never passed as a shell argument.
 
-RPC invokes the editor helper through argv-array `popen()`, without `/bin/sh -c` for the editor path. The file name is still checked against a separate allowlist.
+For OpenWrt 25.12 ucode/rpcd compatibility, RPC invokes the editor helper through string-form `fs.popen()`. The file name and SHA-256 revision are strictly allowlist-validated and shell-quoted before they are appended to the command string; configuration bytes are never included in that command string and are streamed to the helper only through stdin.
 
 ## Concurrency and revision contract
 
@@ -193,7 +193,7 @@ P9 must preserve these properties:
 P9 is covered by at least these layers:
 
 - shell regression for `nginx-telego-editor`: edit, unchanged, stale revision, managed deny, reserved foreign, symlink, size limit, shared flock, `nginx -t` rollback and reload rollback;
-- native ucode RPC tests: argv-safe helper invocation, stdin content transfer, revision/error mapping;
+- native ucode RPC tests: OpenWrt-compatible quoted helper invocation, stdin content transfer, revision/error mapping;
 - LuCI contract tests: ACL/RPC/menu/editor visibility and absence of edit actions on managed rows;
 - i18n coverage;
 - APK layout: editor helper must be installed executable `0755`;
