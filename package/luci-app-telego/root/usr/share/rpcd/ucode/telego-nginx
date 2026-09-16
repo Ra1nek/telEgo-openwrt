@@ -5,8 +5,7 @@ import { popen } from 'fs';
 const ADMIN = '/usr/libexec/nginx-telego-admin';
 
 function shell_quote(value) {
-	value = String(value || '');
-	return "'" + replace(value, /'/g, function() { return "'\\''"; }) + "'";
+	return "'" + replace(value || '', /'/g, function() { return "'\\''"; }) + "'";
 }
 
 function run_admin(args) {
