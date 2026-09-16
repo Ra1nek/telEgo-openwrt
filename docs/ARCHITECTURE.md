@@ -27,10 +27,10 @@ flowchart LR
 | Upstream application | MTProxy/WEB Proxy core, FakeTLS, Middle-End, metrics, Go runtime | `telego-src/` |
 | OpenWrt source delta | Небольшой patch, применяемый к pinned upstream до build | `.github/scripts/apply-upstream-patches.py` |
 | Daemon package | Установка binary, UCI defaults, procd/ujail runtime, capability profile | `package/telego-pkg/` |
-| LuCI | Configuration UI и status view | `package/luci-app-telego/htdocs/` |
-| Local telemetry | Read-only `ubus` method на основе service state + Prometheus metrics | `package/luci-app-telego/root/usr/share/rpcd/` |
+| LuCI | Configuration UI, status view и scoped Nginx file administration | `package/luci-app-telego/htdocs/` |
+| Local telemetry / RPC | Read-only service telemetry плюс отдельный `telego.nginx` admin API | `package/luci-app-telego/root/usr/share/rpcd/` |
 | Translation | Русский перевод LuCI | `package/luci-i18n-telego-ru/` |
-| WEB Proxy edge | Nginx ownership, reconciliation, generated ingress/fallback и reusable location snippet | `package/nginx-telego/` |
+| WEB Proxy edge | Nginx ownership, reconciliation, foreign-file administration, generated ingress/fallback и reusable location snippet | `package/nginx-telego/` |
 | CI/release | Validation, Go build, OpenWrt SDK APK build, feed/release publishing | `.github/workflows/` |
 | Installation | Preview/stable download, integrity/trust checks, установка на router | `install.sh`, `scripts/install-on-router.sh` |
 
@@ -42,7 +42,7 @@ flowchart LR
 |---|---|---|
 | Control plane | LuCI JS, UCI, init script, procd, rpcd | Настройка, start/stop, генерация runtime state, локальный status |
 | Data plane | telEgo Go/gnet core, FakeTLS, WEB frontend, Middle-End/direct DC routes | Передача Telegram traffic |
-| Edge integration | Nginx TLS + `telego.locations` + reconciliation | Real TLS termination, WEB ingress, fallback на ordinary site и целостность managed filesystem |
+| Edge integration | Nginx TLS + `telego.locations` + reconciliation + guarded file administration | Real TLS termination, WEB ingress, fallback на ordinary site, целостность managed filesystem и безопасные операции над foreign `.conf` |
 
 ```mermaid
 flowchart TB
@@ -245,13 +245,15 @@ flowchart LR
 
 `telego.status` возвращает service state, PID, process uptime и выбранные counters. rpcd backend намеренно отказывается получать administrator-supplied remote metrics endpoint: для LuCI telemetry configured metrics address должен быть literal loopback (`127.0.0.1` или `[::1]`).
 
+Nginx file administration вынесено в отдельный `telego.nginx` ubus object. Read-методы показывают inventory и package-owned content для diff; write-методы делегируют quarantine/restore/delete/repair в `/usr/libexec/nginx-telego-admin`. Browser/rpcd не получают произвольный absolute path для root filesystem mutation.
+
 См. [API.md](API.md).
 
 ## Native WEB Proxy и Nginx
 
-Package `nginx-telego` владеет небольшим явно ограниченным подмножеством Nginx state и транзакционно приводит его к desired state. Пакет **не** объявляет собственностью весь `/etc/nginx/conf.d/` и не принимает автоматически administrator/application files под своё управление.
+Package `nginx-telego` владеет небольшим явно ограниченным подмножеством Nginx state и транзакционно приводит его к desired state. Пакет **не** объявляет собственностью весь `/etc/nginx/conf.d/` и не принимает автоматически administrator/application files под своё управление. P8 добавляет отдельную guarded boundary для явных операций над foreign/custom `.conf`, не меняя ownership managed state.
 
-Финальный managed layout P6/P7:
+Финальный managed layout P6/P7 и P8 admin boundary:
 
 ```text
 /etc/nginx/conf.d/20-telego-core.conf          # package-owned, required
@@ -259,9 +261,11 @@ Package `nginx-telego` владеет небольшим явно огранич
 /etc/nginx/conf.d/80-telego-ingress.conf       # generated, conditional
 /etc/nginx/conf.d/85-telego-fallback.conf      # generated, conditional
 /usr/share/nginx-telego/ownership.tsv
-/usr/libexec/nginx-telego-files
-/usr/libexec/nginx-telego-reconcile
-/usr/libexec/nginx-telego-render
+/usr/libexec/nginx-telego-files                # read-only ownership inventory
+/usr/libexec/nginx-telego-reconcile            # managed-state transaction coordinator
+/usr/libexec/nginx-telego-render               # generated-state renderer
+/usr/libexec/nginx-telego-admin                # guarded foreign/custom administration
+/etc/nginx-telego/quarantine/                  # created on demand, outside active include tree
 ```
 
 `20-telego-core.conf` подключается из Nginx `http {}` и определяет:
@@ -272,9 +276,9 @@ Package `nginx-telego` владеет небольшим явно огранич
 
 `telego.locations` — reusable snippet для подключения внутри TLS `server {}` block. Managed Cloudflare ingress его не использует, потому что Cloudflare требует отдельной обработки client IP.
 
-Generated `80-*` и `85-*` требуют одновременно общего ownership marker `nginx-telego` и корректного role marker. Regular file на reserved path без правильной роли считается `foreign` и не перезаписывается.
+Generated `80-*` и `85-*` требуют одновременно общего ownership marker `nginx-telego` и корректного role marker. Regular file на reserved path без правильной роли считается `foreign` и не перезаписывается. P8 может quarantine/delete такой active foreign occupant; restore на reserved generated path разрешён только когда текущий P6 state — `absent`, без overwrite существующего managed/foreign/unsafe target.
 
-### Reconciliation control path
+### Reconciliation и P8 administration control path
 
 ```mermaid
 flowchart LR
@@ -285,13 +289,18 @@ flowchart LR
     REPAIR --> RENDER["renderer --no-reload"]
     RENDER --> TEST["final nginx -t"]
     TEST --> RELOAD["reload only when changed"]
+
+    LUCI["LuCI Nginx Files"] --> RPCN["telego.nginx"]
+    RPCN --> ADMINH["nginx-telego-admin"]
+    ADMINH --> FOREIGN["foreign/custom .conf"]
+    ADMINH --> TEST
 ```
 
-Reconciler сериализует writers process lock'ом, создаёт backup managed paths, восстанавливает только безопасный package drift и откатывает filesystem, если renderer, финальный `nginx -t` или reload Nginx завершается ошибкой. Cleanup generated state при удалении APK проходит через тот же coordinator с режимом `remove-generated`.
+Reconciler и P8 admin helper используют один kernel `flock(2)` lock file, поэтому managed reconciliation и foreign-file mutation не выполняются одновременно. Reconciler создаёт backup managed paths, восстанавливает только безопасный package drift и откатывает filesystem при ошибке renderer, финального `nginx -t` или reload. P8 active-tree операции также проходят `nginx -t` и reload-if-running с rollback; удаление уже quarantined файла не затрагивает active include tree. Cleanup generated state при удалении APK проходит через reconciler с режимом `remove-generated`.
 
-Старые alpha-пути `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` не входят в ownership registry и не мигрируются автоматически. Если они остались на тестовой системе, их нужно отдельно проверить и удалить вручную перед переходом на baseline P7.
+Старые alpha-пути `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` не входят в ownership registry и не мигрируются автоматически. Если они остались на тестовой системе, сначала нужно проверить их происхождение и содержимое. Безопасный direct-child `.conf` может быть явно quarantine/delete через P8; ручное удаление по SSH также остаётся допустимым после проверки. Имя файла само по себе не доказывает telEgo ownership.
 
-Полная state machine ownership описана в [NGINX_FILES.md](NGINX_FILES.md).
+Полная state machine ownership и P8 operations описаны в [NGINX_FILES.md](NGINX_FILES.md).
 
 ### Shared-port topology
 
