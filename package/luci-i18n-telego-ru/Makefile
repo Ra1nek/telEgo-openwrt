@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-i18n-telego-ru
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=4
+PKG_RELEASE:=5
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -24,7 +24,9 @@ define Package/luci-i18n-telego-ru/description
 Russian translation for luci-app-telego.
 endef
 
-# This package only installs the compiled translation and has no source tree to compile.
+# This package only installs compiled translations and has no source tree to compile.
+# Match LuCI's normal translation-package behavior: every po/ru/*.po catalog is
+# compiled into its own domain and LuCI merges all *.ru.lmo catalogs at runtime.
 define Build/Compile
 	true
 endef
@@ -37,9 +39,9 @@ define Package/luci-i18n-telego-ru/install
 	chmod 0755 $(1)/etc/uci-defaults/luci-i18n-telego-ru
 
 	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
-	$(PO2LMO) \
-		./po/ru/telego.po \
-		$(1)/usr/lib/lua/luci/i18n/telego.ru.lmo
+	$(foreach po,$(wildcard ./po/ru/*.po), \
+		$(PO2LMO) $(po) \
+			$(1)/usr/lib/lua/luci/i18n/$(basename $(notdir $(po))).ru.lmo;)
 endef
 
 define Package/luci-i18n-telego-ru/postinst

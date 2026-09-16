@@ -12,15 +12,18 @@ sh -n package/nginx-telego/files/init.d/nginx-telego
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-render
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-files
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-reconcile
+sh -n package/nginx-telego/files/usr/libexec/nginx-telego-admin
 bash .github/tests/nginx-telego.sh
 bash .github/tests/nginx-telego-ownership.sh
 bash .github/tests/nginx-telego-reconcile.sh
+bash .github/tests/nginx-telego-admin.sh
 bash .github/tests/nginx-telego-service.sh
 sh .github/tests/service-account.sh
 sh .github/tests/telego-config-render.sh
 bash .github/tests/service-definition.sh
 "${NODE:-node}" .github/tests/luci-config.cjs
 "${NODE:-node}" .github/tests/luci-ingress.cjs
+"${NODE:-node}" .github/tests/luci-nginx-files.cjs
 python3 .github/tests/test_installer.py
 python3 .github/scripts/check-luci-i18n.py
 
@@ -50,6 +53,9 @@ if [[ -z ${UCODE:-} ]]; then
 
 	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
 		"$UCODE" .github/tests/rpcd-status.uc
+	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+		"$UCODE" .github/tests/rpcd-nginx.uc
 else
 	"$UCODE" .github/tests/rpcd-status.uc
+	"$UCODE" .github/tests/rpcd-nginx.uc
 fi

@@ -5,7 +5,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 JS_FILES = sorted((ROOT / 'package/luci-app-telego/htdocs/resources/view/telego').glob('*.js'))
-PO_FILE = ROOT / 'package/luci-i18n-telego-ru/po/ru/telego.po'
+PO_DIR = ROOT / 'package/luci-i18n-telego-ru/po/ru'
+PO_FILES = sorted(PO_DIR.glob('*.po'))
 I18N_MAKEFILE = ROOT / 'package/luci-i18n-telego-ru/Makefile'
 
 
@@ -87,9 +88,25 @@ msgids = set()
 for path in JS_FILES:
     msgids.update(parse_js_msgids(path.read_text(encoding='utf-8'), path))
 
-po_entries = parse_po_entries(PO_FILE.read_text(encoding='utf-8'))
+if not PO_FILES:
+    raise SystemExit(f'No Russian PO catalogs found below {PO_DIR}')
+
+po_entries = {}
+po_sources = {}
+for path in PO_FILES:
+    for msgid, msgstr in parse_po_entries(path.read_text(encoding='utf-8')).items():
+        if not msgid:
+            continue
+        if msgid in po_entries and po_entries[msgid] != msgstr:
+            raise SystemExit(
+                f'Conflicting Russian translation for {msgid!r}: '
+                f'{po_sources[msgid]} vs {path}'
+            )
+        po_entries[msgid] = msgstr
+        po_sources[msgid] = path
+
 po_ids = set(po_entries)
-translated = {msgid for msgid, msgstr in po_entries.items() if msgid and msgstr}
+translated = {msgid for msgid, msgstr in po_entries.items() if msgstr}
 
 missing = sorted(msgids - po_ids)
 untranslated = sorted(msgids & po_ids - translated)
@@ -104,14 +121,18 @@ if missing or untranslated:
     raise SystemExit(1)
 
 makefile = I18N_MAKEFILE.read_text(encoding='utf-8')
-active_catalog = '$(1)/usr/lib/lua/luci/i18n/telego.ru.lmo'
-legacy_catalog = '$(1)/usr/share/luci/i18n/telego.ru.lmo'
-if active_catalog not in makefile:
-    raise SystemExit(f'LuCI catalog is not installed to the active runtime path: {active_catalog}')
-if legacy_catalog in makefile:
-    raise SystemExit(f'Legacy inactive LuCI catalog path must not be used: {legacy_catalog}')
+active_dir = '$(1)/usr/lib/lua/luci/i18n'
+legacy_dir = '$(1)/usr/share/luci/i18n'
+po_glob = '$(wildcard ./po/ru/*.po)'
+output_pattern = '$(basename $(notdir $(po))).ru.lmo'
+if active_dir not in makefile:
+    raise SystemExit(f'LuCI catalogs are not installed to the active runtime path: {active_dir}')
+if po_glob not in makefile or output_pattern not in makefile:
+    raise SystemExit('LuCI translation package must compile every po/ru/*.po catalog')
+if legacy_dir in makefile:
+    raise SystemExit(f'Legacy inactive LuCI catalog path must not be used: {legacy_dir}')
 
 print(
     f'i18n OK: {len(msgids)} JavaScript msgids have Russian translations '
-    'and the catalog uses the active LuCI runtime path.'
+    f'across {len(PO_FILES)} catalogs and use the active LuCI runtime path.'
 )

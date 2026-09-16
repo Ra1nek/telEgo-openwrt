@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -18,7 +18,7 @@ endef
 
 define Package/luci-app-telego/description
 LuCI JavaScript interface for telEgo MTProxy, WEB Proxy, optional managed Nginx
-ingress, Middle-End and live runtime telemetry.
+ingress and file administration, Middle-End and live runtime telemetry.
 endef
 
 # This package only installs LuCI files and has no source tree to compile.
@@ -46,6 +46,8 @@ define Package/luci-app-telego/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/telego \
 		$(1)/usr/share/rpcd/ucode/telego
+	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/telego-nginx \
+		$(1)/usr/share/rpcd/ucode/telego-nginx
 endef
 
 define Package/luci-app-telego/postinst
