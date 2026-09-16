@@ -1,0 +1,135 @@
+'use strict';
+
+import { popen } from 'fs';
+
+const ADMIN = '/usr/libexec/nginx-telego-admin';
+
+function shell_quote(value) {
+	value = String(value || '');
+	return "'" + replace(value, /'/g, function() { return "'\\''"; }) + "'";
+}
+
+function run_admin(args) {
+	let command = ADMIN;
+	for (let arg in args)
+		command += ' ' + shell_quote(arg);
+	command += ' 2>&1';
+
+	const proc = popen(command, 'r');
+	if (!proc)
+		return { ok: false, output: '', error: 'admin-helper-unavailable' };
+
+	const output = proc.read('all') || '';
+	const exit_code = proc.close();
+	if (exit_code != 0)
+		return { ok: false, output: '', error: trim(output) || 'admin-operation-failed' };
+
+	return { ok: true, output: output, error: '' };
+}
+
+function inventory() {
+	const result = run_admin(['inventory']);
+	if (!result.ok)
+		return { ok: false, files: [], unsafe_count: 0, error: result.error };
+
+	const files = [];
+	let unsafe_count = 0;
+
+	for (let line in split(result.output, '\n')) {
+		line = rtrim(line, '\r');
+		if (!length(line))
+			continue;
+
+		const fields = split(line, '\t');
+		if (length(fields) != 7)
+			return { ok: false, files: [], unsafe_count: 0, error: 'invalid-admin-response' };
+
+		if (fields[0] == 'meta') {
+			if (fields[5] == 'unsafe-name')
+				unsafe_count += int(+fields[6]);
+			continue;
+		}
+
+		if (fields[0] != 'managed' && fields[0] != 'foreign' && fields[0] != 'quarantined')
+			return { ok: false, files: [], unsafe_count: 0, error: 'invalid-admin-response' };
+
+		push(files, {
+			kind: fields[0],
+			name: fields[1],
+			path: fields[2],
+			role: fields[3],
+			ownership: fields[4],
+			state: fields[5],
+			source: fields[6]
+		});
+	}
+
+	return { ok: true, files: files, unsafe_count: unsafe_count, error: '' };
+}
+
+function mutation(command, name) {
+	const result = run_admin([command, name]);
+	return result.ok
+		? { ok: true, message: trim(result.output), error: '' }
+		: { ok: false, message: '', error: result.error };
+}
+
+function managed_content(role, side) {
+	if (role != 'core' && role != 'locations')
+		return { ok: false, content: '', error: 'invalid-managed-role' };
+	if (side != 'active' && side != 'source')
+		return { ok: false, content: '', error: 'invalid-managed-side' };
+
+	const result = run_admin(['inspect-managed', role, side]);
+	return result.ok
+		? { ok: true, content: result.output, error: '' }
+		: { ok: false, content: '', error: result.error };
+}
+
+const methods = {
+	inventory: {
+		call: function () {
+			return inventory();
+		}
+	},
+	managed_content: {
+		args: { role: '', side: '' },
+		call: function (request) {
+			return managed_content(request.args.role, request.args.side);
+		}
+	},
+	quarantine: {
+		args: { name: '' },
+		call: function (request) {
+			return mutation('quarantine', request.args.name);
+		}
+	},
+	restore: {
+		args: { name: '' },
+		call: function (request) {
+			return mutation('restore', request.args.name);
+		}
+	},
+	delete_active: {
+		args: { name: '' },
+		call: function (request) {
+			return mutation('delete-active', request.args.name);
+		}
+	},
+	delete_quarantined: {
+		args: { name: '' },
+		call: function (request) {
+			return mutation('delete-quarantined', request.args.name);
+		}
+	},
+	repair: {
+		call: function () {
+			const result = run_admin(['repair']);
+			return result.ok
+				? { ok: true, message: trim(result.output), error: '' }
+				: { ok: false, message: '', error: result.error };
+		}
+	}
+};
+
+return { 'telego.nginx': methods };
