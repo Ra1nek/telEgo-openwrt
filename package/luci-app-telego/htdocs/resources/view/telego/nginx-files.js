@@ -114,7 +114,28 @@ return view.extend({
 			E('div', { 'class': 'right' }, [ E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': ui.hideModal }, _('Cancel')), ' ', E('button', { 'class': 'btn cbi-button cbi-button-action', 'type': 'button', 'click': function () { const edited = textarea.value; if (edited === original) { ui.hideModal(); ui.addNotification(null, E('p', {}, _('No changes to save.')), 'info'); return; } return this.reviewForeignEdit(file, refresh, original, revision, edited); }.bind(this) }, _('Review changes')) ]) ]);
 	},
 	reviewForeignEdit: function (file, refresh, original, revision, edited) {
-		ui.showModal(_('Review Nginx changes') + ': ' + file.name, [ E('p', {}, _('Lines prefixed with - are from the current file; lines prefixed with + are from the edited version.')), E('pre', { 'style': 'max-height:55vh;overflow:auto;white-space:pre-wrap' }, lineDiff(original, edited)), E('div', { 'class': 'right' }, [ E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': function () { return this.renderForeignEditor(file, refresh, original, revision, edited); }.bind(this) }, _('Back')), ' ', E('button', { 'class': 'btn cbi-button cbi-button-positive important', 'type': 'button', 'click': function () { return callReplaceActive(file.name, revision, edited).then(function (result) { if (!result || !result.ok) throw new Error(editorError(result && result.error)); ui.hideModal(); ui.addNotification(null, E('p', {}, _('Nginx file updated.')), 'info'); return refresh(); }).catch(notifyError); } }, _('Save changes')) ]) ]);
+		const errorBox = E('div', { 'class': 'alert-message error', 'style': 'display:none', 'role': 'alert' });
+		const showInlineError = function (message) {
+			errorBox.textContent = String(message || _('Nginx file update failed.'));
+			errorBox.style.display = '';
+		};
+		let saveButton;
+		saveButton = E('button', { 'class': 'btn cbi-button cbi-button-positive important', 'type': 'button', 'click': function () {
+			errorBox.textContent = '';
+			errorBox.style.display = 'none';
+			saveButton.disabled = true;
+			return callReplaceActive(file.name, revision, edited).then(function (result) {
+				saveButton.disabled = false;
+				if (!result || !result.ok) { showInlineError(editorError(result && result.error)); return; }
+				ui.hideModal();
+				ui.addNotification(null, E('p', {}, _('Nginx file updated.')), 'info');
+				return refresh();
+			}, function (error) {
+				saveButton.disabled = false;
+				showInlineError(error && error.message ? error.message : error);
+			});
+		} }, _('Save changes'));
+		ui.showModal(_('Review Nginx changes') + ': ' + file.name, [ errorBox, E('p', {}, _('Lines prefixed with - are from the current file; lines prefixed with + are from the edited version.')), E('pre', { 'style': 'max-height:55vh;overflow:auto;white-space:pre-wrap' }, lineDiff(original, edited)), E('div', { 'class': 'right' }, [ E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': function () { return this.renderForeignEditor(file, refresh, original, revision, edited); }.bind(this) }, _('Back')), ' ', saveButton ]) ]);
 	},
 	showDiff: function (file) {
 		return Promise.all([ callManagedContent(file.role, 'source'), callManagedContent(file.role, 'active') ]).then(function (values) {
