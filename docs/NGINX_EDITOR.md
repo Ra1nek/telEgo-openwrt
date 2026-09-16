@@ -44,7 +44,7 @@ Root write primitive:
 
 `replace` получает новое содержимое через **stdin**. Содержимое конфигурации не передаётся shell-аргументом.
 
-RPC вызывает editor helper через argv-array `popen()`, то есть без `/bin/sh -c` для editor path. Имя файла всё равно проходит отдельную allowlist-проверку.
+Для совместимости с ucode/rpcd в OpenWrt 25.12 RPC запускает editor helper через строковый `fs.popen()`. Имя файла и SHA-256 revision проходят строгую allowlist-проверку и shell-quoting перед добавлением в command string; конфигурационные bytes никогда не включаются в command string и передаются helper только через stdin.
 
 ## Concurrency и revision contract
 
@@ -193,7 +193,7 @@ P9 обязан сохранять следующие свойства:
 P9 проверяется как минимум следующими слоями:
 
 - shell regression для `nginx-telego-editor`: edit, unchanged, stale revision, managed deny, reserved foreign, symlink, size limit, shared flock, `nginx -t` rollback и reload rollback;
-- native ucode RPC tests: argv-safe helper invocation, stdin content transfer, revision/error mapping;
+- native ucode RPC tests: OpenWrt-compatible quoted helper invocation, stdin content transfer, revision/error mapping;
 - LuCI contract tests: ACL/RPC/menu/editor visibility и отсутствие edit-action для managed rows;
 - i18n coverage;
 - APK layout: editor helper должен быть installed executable `0755`;
