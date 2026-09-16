@@ -164,7 +164,7 @@ commit
 
 If rendering, final `nginx -t`, or reload fails, managed filesystem state is rolled back to its pre-transaction bytes.
 
-Only one writer may enter this mutation boundary at a time. The mutex uses kernel `flock(2)` through `/usr/bin/flock`: a second writer is rejected, while process exit releases the kernel lock. The lock inode may remain on disk; no PID file or unsafe stale-lock deletion is used.
+Only one writer may enter this mutation boundary at a time. The mutex uses kernel `flock(2)` through `/usr/bin/flock`: a second writer is rejected, and the kernel lock is released after all file descriptors holding it are closed, including descriptors inherited by child processes. The lock inode may remain on disk; no PID file or unsafe stale-lock deletion is used.
 
 ## P8 — Nginx File Inventory & Administration
 
@@ -209,7 +209,7 @@ Semantics:
 - **inspect-managed** is read-only access to active/canonical package-owned content for LuCI diff;
 - **repair** invokes P7 reconciliation instead of duplicating ownership/repair rules.
 
-P8 never deletes, quarantines, or adopts package-owned files. A reserved generated path (`80/85`) becomes actionable only when P6 classifies its actual occupant as `foreign`; `managed` generated state remains under P7.
+P8 never deletes, quarantines, or adopts package-owned files. An active occupant on reserved generated path `80/85` may be quarantined/deleted only when P6 classifies it as `foreign`. Restoring a same-name quarantined file onto a reserved generated path is allowed only when P6 sees the current target as `absent`; an existing `managed`, `foreign`, or unsafe occupant is never overwritten. `managed` generated state remains under P7.
 
 ### Transaction safety
 
