@@ -233,12 +233,35 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # An older concurrent build must not replace a newer channel build.
+
+          # A newer develop commit may be documentation-only and therefore may
+          # not start this package workflow at all. Such commits must not block a
+          # fully verified package generation from reaching develop-latest.
+          # Skip only when the current develop tree differs in build-relevant
+          # inputs from the commit that produced this artifact set.
           head=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/develop" --jq .object.sha)
           if [[ "$head" != "$GITHUB_SHA" ]]; then
-            echo 'A newer develop commit exists; skipping preview publication.'
-            exit 0
+            git fetch --no-tags --depth=1 origin "$head"
+            build_inputs=(
+              package
+              telego-src
+              .gitmodules
+              patches
+              feeds.conf.default
+              .github/workflows/build-telego.yaml
+              .github/scripts
+              .github/tests
+              scripts/install-on-router.sh
+              install.sh
+              .github/openwrt-sdk.config
+            )
+            if ! git diff --quiet "$GITHUB_SHA" "$head" -- "${build_inputs[@]}"; then
+              echo 'A newer develop commit changes build-relevant inputs; skipping preview publication.'
+              exit 0
+            fi
+            echo "Develop advanced to $head only outside build-relevant inputs; publishing verified build $GITHUB_SHA."
           fi
+
           python3 .github/scripts/prepare-install-assets.py downloaded-feed preview-assets
           printf 'Development preview, not a stable release.\n\nSource commit: %s\nBuild: https://github.com/%s/actions/runs/%s\n\nInstall instructions: https://github.com/%s/blob/develop/docs/INSTALL.md\n' \
             "$GITHUB_SHA" "$GITHUB_REPOSITORY" "$GITHUB_RUN_ID" "$GITHUB_REPOSITORY" > preview-notes.md
