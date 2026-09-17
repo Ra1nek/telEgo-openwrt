@@ -20,7 +20,8 @@ LOCAL_DIR=$(pwd)
 CACHE_DIR=${TELEGO_CACHE_DIR:-/tmp/telego}
 CONFIG_BACKUP=''
 RESTORE_CONFIG=0
-WAS_RUNNING=0
+WAS_TELEGO_RUNNING=0
+WAS_NGINX_RUNNING=0
 ACTION=''
 
 SEL_CORE=0
@@ -612,7 +613,8 @@ apply_install() {
     if [ "$ALLOW_UNTRUSTED" -eq 1 ]; then apk add --simulate --allow-untrusted $DEPENDENCIES "$@"; else apk add --simulate $DEPENDENCIES "$@"; fi
     if [ -n "$remove_packages" ]; then apk del --simulate $remove_packages; fi
     status_ok 'Предварительная проверка apk завершена' 'apk transaction simulation passed'
-    if [ -x /etc/init.d/telego ] && /etc/init.d/telego running >/dev/null 2>&1; then WAS_RUNNING=1; fi
+    if [ -x /etc/init.d/telego ] && /etc/init.d/telego running >/dev/null 2>&1; then WAS_TELEGO_RUNNING=1; fi
+    if [ "$SEL_NGINX" -eq 1 ] && [ -x /etc/init.d/nginx ] && /etc/init.d/nginx status >/dev/null 2>&1; then WAS_NGINX_RUNNING=1; fi
     backup_configuration
     progress_bar 80 "$(text 'Применение APK-транзакции' 'Applying APK transaction')"
     if [ "$ALLOW_UNTRUSTED" -eq 1 ]; then apk add --allow-untrusted $DEPENDENCIES "$@"; else apk add $DEPENDENCIES "$@"; fi
@@ -621,9 +623,17 @@ apply_install() {
         apk del $remove_packages
         status_ok 'Снятые компоненты удалены' 'Deselected components removed'
     fi
+    if [ "$WAS_NGINX_RUNNING" -eq 1 ]; then
+        [ -x /etc/init.d/nginx ] || fail 'Nginx работал до обновления, но его init-скрипт исчез после APK-транзакции.' 'Nginx was running before the update, but its init script disappeared after the APK transaction.'
+        if ! /etc/init.d/nginx status >/dev/null 2>&1; then
+            /etc/init.d/nginx start
+            /etc/init.d/nginx status >/dev/null 2>&1 || fail 'Nginx работал до обновления, но не запустился после APK-транзакции.' 'Nginx was running before the update but could not be restored after the APK transaction.'
+            status_ok 'Работавшая служба Nginx восстановлена после обновления' 'Previously running Nginx service restored after update'
+        fi
+    fi
     progress_bar 92 "$(text 'Обновление интеграции LuCI' 'Refreshing LuCI integration')"
     if [ "$SEL_LUCI" -eq 1 ] || [ "$SEL_RU" -eq 1 ] || [ "$INST_LUCI" -ne "$SEL_LUCI" ] || [ "$INST_RU" -ne "$SEL_RU" ]; then /etc/init.d/rpcd restart; fi
-    if [ "$WAS_RUNNING" -eq 1 ] && [ -x /etc/init.d/telego ]; then /etc/init.d/telego restart; status_ok 'Работавшая служба telEgo перезапущена' 'Previously running telEgo service restarted'; fi
+    if [ "$WAS_TELEGO_RUNNING" -eq 1 ] && [ -x /etc/init.d/telego ]; then /etc/init.d/telego restart; status_ok 'Работавшая служба telEgo перезапущена' 'Previously running telEgo service restarted'; fi
     progress_bar 100 "$(text 'Готово' 'Complete')"
     status_ok 'Установка завершена.' 'Installation complete.'
     status_info 'Параметры WAN/firewall автоматически не изменялись; новый proxy не включается без настройки пользователя.' 'WAN/firewall settings were not changed automatically; a new proxy is not enabled without user configuration.'
