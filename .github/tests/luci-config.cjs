@@ -17,7 +17,7 @@ class Element {
 	}
 }
 
-async function check(initialStatus) {
+async function check(initialStatus, ingressMode = 'disabled') {
 	const options = [];
 	let poll;
 	let reply = initialStatus;
@@ -48,14 +48,26 @@ async function check(initialStatus) {
 	};
 	form.Value.prototype = { renderWidget() { return new Element('input'); } };
 
+	const uci = {
+		load: async () => {},
+		get: (config, section, option) => {
+			if (config === 'nginx_telego' && section === 'cloudflare' && option === 'enabled')
+				return ingressMode === 'cloudflare' ? '1' : '0';
+			if (config === 'nginx_telego' && section === 'shared' && option === 'enabled')
+				return ingressMode === 'shared' ? '1' : '0';
+			return '1';
+		}
+	};
+
 	const view = new Function('form', 'rpc', 'uci', 'view', 'E', '_', 'L', 'document',
 		fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8'))(
 		form, { declare: () => () => reply ? Promise.resolve(reply) : Promise.reject(new Error('rpcd unavailable')) },
-		{ load: async () => {}, get: () => '1' }, { extend: x => x },
+		uci, { extend: x => x },
 		(tag, attrs, children) => new Element(tag, attrs, children), x => x,
 		{ resolveDefault: (p, fallback) => p.catch(() => fallback), Poll: { add: fn => { poll = fn; } } },
 		{ querySelector: () => null }
 	);
+	await view.load();
 	const root = await view.render();
 	assert.ok(root.querySelector('#telego-config-pane'), 'configuration renders even without rpcd');
 
@@ -65,9 +77,18 @@ async function check(initialStatus) {
 	assert.equal(hostname.retain, true);
 
 	const certHost = options.find(o => o.section === 'tls_fronting' && o.name === 'cert_host');
+	const certPort = options.find(o => o.section === 'tls_fronting' && o.name === 'cert_port');
 	const spliceHost = options.find(o => o.section === 'tls_fronting' && o.name === 'splice_host');
-	assert.equal(certHost.datatype, 'host', 'certificate source accepts loopback IP or hostname');
-	assert.equal(spliceHost.datatype, 'host', 'splice target accepts loopback IP or hostname');
+	const splicePort = options.find(o => o.section === 'tls_fronting' && o.name === 'splice_port');
+	if (ingressMode === 'cloudflare') {
+		assert.equal(certHost, undefined, 'Cloudflare WEB must not expose local certificate host');
+		assert.equal(certPort, undefined, 'Cloudflare WEB must not expose local certificate port');
+		assert.equal(spliceHost, undefined, 'Cloudflare WEB must not expose local splice host');
+		assert.equal(splicePort, undefined, 'Cloudflare WEB must not expose local splice port');
+	} else {
+		assert.equal(certHost.datatype, 'host', 'certificate source accepts loopback IP or hostname');
+		assert.equal(spliceHost.datatype, 'host', 'splice target accepts loopback IP or hostname');
+	}
 
 	for (const name of ['proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
 		assert.ok(options.find(o => o.section === 'general' && o.name === name), 'missing general option ' + name);
@@ -141,6 +162,8 @@ const healthyStatus = {
 (async () => {
 	await check(null);
 	await check(healthyStatus);
+	await check(healthyStatus, 'cloudflare');
+	await check(healthyStatus, 'shared');
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
