@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=12
+PKG_RELEASE:=13
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -65,6 +65,13 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-admin
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-editor \
 		$(1)/usr/libexec/nginx-telego-editor
+endef
+
+define Package/nginx-telego/postinst
+#!/bin/sh
+	[ -n "$${IPKG_INSTROOT}" ] && exit 0
+	[ -x /usr/libexec/telego-package-reconcile ] || exit 1
+	/usr/libexec/telego-package-reconcile
 endef
 
 define Package/nginx-telego/prerm
