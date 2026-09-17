@@ -18,6 +18,7 @@ FETCHER=''
 WORK_DIR=''
 LOCAL_DIR=$(pwd)
 CACHE_DIR=${TELEGO_CACHE_DIR:-/tmp/telego}
+INSTALL_BACKUP_KEEP=3
 CONFIG_BACKUP=''
 RESTORE_CONFIG=0
 WAS_TELEGO_RUNNING=0
@@ -232,7 +233,7 @@ check_env() {
     arch=$(uname -m)
     [ "$arch" = 'x86_64' ] || fail "Эта сборка предназначена для x86_64; обнаружено: $arch" "This build supports x86_64 only; found: $arch"
     status_ok 'Архитектура x86_64' 'Architecture x86_64'
-    for tool in apk sha256sum awk mktemp grep sed df cp rm mkdir chmod mv; do
+    for tool in apk sha256sum awk mktemp grep sed df cp rm mkdir chmod mv ls; do
         command -v "$tool" >/dev/null 2>&1 || fail "Не найдена обязательная команда: $tool" "Required command is missing: $tool"
     done
     status_ok 'Нативный apk и базовые утилиты доступны' 'Native apk and required base tools are available'
@@ -601,6 +602,28 @@ backup_configuration() {
     status_info "Резервная копия конфигурации: $CONFIG_BACKUP" "Configuration backup: $CONFIG_BACKUP"
 }
 
+prune_configuration_backups() {
+    [ -d /etc/telego-backups ] || return 0
+
+    kept=0
+    removed=0
+    for backup_dir in $(ls -1dt /etc/telego-backups/install.* 2>/dev/null || true); do
+        [ -d "$backup_dir" ] || continue
+        kept=$((kept + 1))
+        [ "$kept" -le "$INSTALL_BACKUP_KEEP" ] && continue
+        if rm -rf -- "$backup_dir"; then
+            removed=$((removed + 1))
+        else
+            status_warn "Не удалось удалить старую резервную копию: $backup_dir" "Could not remove old configuration backup: $backup_dir"
+        fi
+    done
+
+    if [ "$removed" -gt 0 ]; then
+        status_info "Удалено старых резервных копий конфигурации: $removed; сохранены последние $INSTALL_BACKUP_KEEP." "Removed $removed old configuration backups; kept the latest $INSTALL_BACKUP_KEEP."
+    fi
+    return 0
+}
+
 apply_install() {
     section "$(text 'Установка / обновление' 'Install / update')"
     progress_bar 55 "$(text 'Обновление индекса apk' 'Refreshing apk indexes')"
@@ -634,6 +657,7 @@ apply_install() {
     progress_bar 92 "$(text 'Обновление интеграции LuCI' 'Refreshing LuCI integration')"
     if [ "$SEL_LUCI" -eq 1 ] || [ "$SEL_RU" -eq 1 ] || [ "$INST_LUCI" -ne "$SEL_LUCI" ] || [ "$INST_RU" -ne "$SEL_RU" ]; then /etc/init.d/rpcd restart; fi
     if [ "$WAS_TELEGO_RUNNING" -eq 1 ] && [ -x /etc/init.d/telego ]; then /etc/init.d/telego restart; status_ok 'Работавшая служба telEgo перезапущена' 'Previously running telEgo service restarted'; fi
+    prune_configuration_backups
     progress_bar 100 "$(text 'Готово' 'Complete')"
     status_ok 'Установка завершена.' 'Installation complete.'
     status_info 'Параметры WAN/firewall автоматически не изменялись; новый proxy не включается без настройки пользователя.' 'WAN/firewall settings were not changed automatically; a new proxy is not enabled without user configuration.'
