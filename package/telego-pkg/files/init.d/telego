@@ -16,10 +16,21 @@ toml_quote() {
 		sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g'
 }
 
-uci_get_default() {
-	local section="$1" option="$2" default="$3" value
-	value="$(uci -q get "${UCI_CONFIG}.${section}.${option}" 2>/dev/null)"
+uci_get_package_default() {
+	local package="$1" section="$2" option="$3" default="$4" value
+	value="$(uci -q get "${package}.${section}.${option}" 2>/dev/null)"
 	[ -n "$value" ] && printf '%s' "$value" || printf '%s' "$default"
+}
+
+uci_get_default() {
+	uci_get_package_default "$UCI_CONFIG" "$1" "$2" "$3"
+}
+
+uci_package_bool() {
+	case "$(uci_get_package_default "$1" "$2" "$3" "$4")" in
+		1|true|yes|on) return 0 ;;
+		*) return 1 ;;
+	esac
 }
 
 uci_bool() {
@@ -88,11 +99,20 @@ ensure_service_account() {
 }
 
 generate_config() {
-	local tmp="${RUNTIME_CONFIG}.$$" value
+	local tmp="${RUNTIME_CONFIG}.$$" value cloudflare_web=0
 
 	mkdir -p /var/etc || return 1
 	umask 077
 	config_load "$UCI_CONFIG"
+
+	# Cloudflare Tunnel terminates public WEB TLS before traffic reaches OpenWrt.
+	# Preserve any Native Shared-Port values in UCI for a future mode switch, but
+	# never leak those local certificate/splice endpoints into the active telEgo
+	# runtime while Cloudflare is the exclusive managed WEB ingress profile.
+	if uci_package_bool nginx_telego cloudflare enabled 0 &&
+	   ! uci_package_bool nginx_telego shared enabled 0; then
+		cloudflare_web=1
+	fi
 
 	{
 		printf '%s\n\n' '# Generated from /etc/config/telego. Do not edit.'
@@ -111,10 +131,12 @@ generate_config() {
 		printf '\n%s\n' '[tls-fronting]'
 		write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
 		write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
-		value="$(uci_get_default tls_fronting cert_host '')"
-		[ -n "$value" ] && write_toml_string 'cert-host' "$value"
-		value="$(uci_get_default tls_fronting cert_port '')"
-		[ -n "$value" ] && write_toml_int 'cert-port' "$value"
+		if [ "$cloudflare_web" -eq 0 ]; then
+			value="$(uci_get_default tls_fronting cert_host '')"
+			[ -n "$value" ] && write_toml_string 'cert-host' "$value"
+			value="$(uci_get_default tls_fronting cert_port '')"
+			[ -n "$value" ] && write_toml_int 'cert-port' "$value"
+		fi
 		value="$(uci_get_default tls_fronting fake_cert_size '0')"
 		[ "$value" != 0 ] && write_toml_int 'fake-cert-size' "$value"
 
@@ -123,10 +145,12 @@ generate_config() {
 		config_list_foreach tls_fronting mask_sni_safelist emit_toml_list_item
 		printf ']\n'
 
-		value="$(uci_get_default tls_fronting splice_host '')"
-		[ -n "$value" ] && write_toml_string 'splice-host' "$value"
-		value="$(uci_get_default tls_fronting splice_port '')"
-		[ -n "$value" ] && write_toml_int 'splice-port' "$value"
+		if [ "$cloudflare_web" -eq 0 ]; then
+			value="$(uci_get_default tls_fronting splice_host '')"
+			[ -n "$value" ] && write_toml_string 'splice-host' "$value"
+			value="$(uci_get_default tls_fronting splice_port '')"
+			[ -n "$value" ] && write_toml_int 'splice-port' "$value"
+		fi
 		write_toml_int 'splice-proxy-protocol' "$(uci_get_default tls_fronting splice_proxy_protocol '0')"
 		write_toml_string 'splice-idle-timeout' "$(uci_get_default tls_fronting splice_idle_timeout '30s')"
 		write_toml_bool 'enable-drs' tls_fronting enable_drs 1
@@ -194,6 +218,7 @@ generate_config() {
 
 service_triggers() {
 	procd_add_reload_trigger "$UCI_CONFIG"
+	[ ! -e /etc/config/nginx_telego ] || procd_add_reload_trigger nginx_telego
 }
 
 start_service() {
