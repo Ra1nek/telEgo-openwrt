@@ -1,11 +1,11 @@
 #!/bin/sh
-# Restricted editor for existing foreign/administrator-owned Nginx conf.d files.
+# Restricted lifecycle helper for foreign/administrator-owned Nginx conf.d files.
 #
-# P9 deliberately keeps editing separate from the P8 inventory/admin helper.
-# Only existing active foreign direct-child *.conf files are editable. Every
-# write shares the P7/P8 flock, uses optimistic SHA-256 concurrency control,
-# validates the full Nginx tree, reloads only after successful validation, and
-# rolls back on validation or reload failure.
+# P9 introduced transactional editing of existing foreign files. P10 extends
+# the same narrow boundary with create and rename operations. Every write shares
+# the P7/P8/P9 flock, rejects telEgo-owned/reserved targets, validates the full
+# Nginx tree, reloads only after successful validation, and rolls back on
+# validation or reload failure.
 set -eu
 
 ROOT=${NGINX_TELEGO_ROOT:-}
@@ -35,6 +35,8 @@ usage() {
     cat >&2 <<'EOF'
 Usage: nginx-telego-editor inspect NAME.conf
        nginx-telego-editor replace NAME.conf EXPECTED_SHA256
+       nginx-telego-editor create NAME.conf
+       nginx-telego-editor rename OLD.conf NEW.conf EXPECTED_SHA256
 EOF
     exit 2
 }
@@ -65,19 +67,38 @@ safe_revision() {
 lock_held=0
 work=''
 tx_active=0
+tx_mode=''
 active_path=''
 backup_path=''
 staged_path=''
+rename_source_path=''
+rename_target_path=''
+target_path=''
 
 rollback_transaction() {
     [ "$tx_active" -eq 1 ] || return 0
 
-    if [ -e "$active_path" ] || [ -L "$active_path" ]; then
-        rm -f "$active_path" || true
-    fi
-    if [ -f "$backup_path" ] && [ ! -L "$backup_path" ]; then
-        mv "$backup_path" "$active_path" || true
-    fi
+    case "$tx_mode" in
+        replace)
+            if [ -e "$active_path" ] || [ -L "$active_path" ]; then
+                rm -f "$active_path" || true
+            fi
+            if [ -f "$backup_path" ] && [ ! -L "$backup_path" ]; then
+                mv "$backup_path" "$active_path" || true
+            fi
+            ;;
+        create)
+            if [ -e "$active_path" ] || [ -L "$active_path" ]; then
+                rm -f "$active_path" || true
+            fi
+            ;;
+        rename)
+            if [ ! -e "$rename_source_path" ] && [ ! -L "$rename_source_path" ] && \
+               [ -f "$rename_target_path" ] && [ ! -L "$rename_target_path" ]; then
+                mv "$rename_target_path" "$rename_source_path" || true
+            fi
+            ;;
+    esac
 }
 
 cleanup() {
@@ -166,8 +187,32 @@ validate_active_foreign() {
     fi
 }
 
+validate_new_foreign_target() {
+    name=$1
+    safe_name "$name" || fail "invalid conf.d file name: $name"
+
+    target_path="$CONF_DIR/$name"
+    virtual_path="/etc/nginx/conf.d/$name"
+
+    if [ -e "$target_path" ] || [ -L "$target_path" ]; then
+        fail_code 5 "target already exists: $virtual_path"
+    fi
+
+    line=$(managed_line_for_path "$virtual_path")
+    if [ -n "$line" ]; then
+        fail_code 6 "refusing to create or rename onto nginx-telego-managed path: $virtual_path"
+    fi
+}
+
 file_revision() {
     sha256sum "$1" | awk '{ print $1 }'
+}
+
+read_bounded_content() {
+    content_path="$work/content"
+    head -c $((MAX_EDIT_BYTES + 1)) >"$content_path"
+    size=$(wc -c <"$content_path")
+    [ "$size" -le "$MAX_EDIT_BYTES" ] || fail_code 4 "content exceeds $MAX_EDIT_BYTES bytes"
 }
 
 nginx_test() {
@@ -181,6 +226,16 @@ reload_nginx() {
     if "$NGINX_INIT" status >/dev/null 2>&1; then
         "$NGINX_INIT" reload
     fi
+}
+
+commit_transaction() {
+    if ! nginx_test; then
+        fail 'nginx -t failed; Nginx file change was rolled back'
+    fi
+    if ! reload_nginx; then
+        fail 'nginx reload failed; Nginx file change was rolled back'
+    fi
+    tx_active=0
 }
 
 inspect_active() {
@@ -200,11 +255,7 @@ replace_active() {
 
     safe_name "$name" || fail "invalid conf.d file name: $name"
     safe_revision "$expected" || fail "invalid expected SHA-256 revision"
-
-    content_path="$work/content"
-    head -c $((MAX_EDIT_BYTES + 1)) >"$content_path"
-    size=$(wc -c <"$content_path")
-    [ "$size" -le "$MAX_EDIT_BYTES" ] || fail_code 4 "edited file exceeds $MAX_EDIT_BYTES bytes"
+    read_bounded_content
 
     validate_active_foreign "$name"
     current=$(file_revision "$active_path")
@@ -236,18 +287,73 @@ replace_active() {
     mv "$staged_path" "$active_path"
     staged_path=''
     tx_active=1
+    tx_mode=replace
 
-    if ! nginx_test; then
-        fail 'nginx -t failed; edited file was rolled back'
-    fi
-    if ! reload_nginx; then
-        fail 'nginx reload failed; edited file was rolled back'
-    fi
+    commit_transaction
 
-    tx_active=0
     rm -f "$backup_path"
     backup_path=''
     echo 'updated'
+}
+
+create_active() {
+    name=$1
+    safe_name "$name" || fail "invalid conf.d file name: $name"
+    read_bounded_content
+    validate_new_foreign_target "$name"
+
+    active_path=$target_path
+    staged_path="$CONF_DIR/.$name.create.$$"
+    if [ -e "$staged_path" ] || [ -L "$staged_path" ]; then
+        fail "temporary create path already exists: $staged_path"
+    fi
+
+    umask 022
+    cat "$content_path" >"$staged_path"
+    chmod 0644 "$staged_path"
+
+    validate_new_foreign_target "$name"
+    active_path=$target_path
+    mv "$staged_path" "$active_path"
+    staged_path=''
+    tx_active=1
+    tx_mode=create
+
+    commit_transaction
+    echo 'created'
+}
+
+rename_active() {
+    old_name=$1
+    new_name=$2
+    expected=$3
+
+    safe_name "$old_name" || fail "invalid conf.d file name: $old_name"
+    safe_name "$new_name" || fail "invalid conf.d file name: $new_name"
+    [ "$old_name" != "$new_name" ] || fail 'rename target must differ from source'
+    safe_revision "$expected" || fail "invalid expected SHA-256 revision"
+
+    validate_active_foreign "$old_name"
+    rename_source_path=$active_path
+    current=$(file_revision "$rename_source_path")
+    [ "$current" = "$expected" ] || fail_code 3 'file changed since it was opened; refresh before renaming'
+
+    validate_new_foreign_target "$new_name"
+    rename_target_path=$target_path
+
+    validate_active_foreign "$old_name"
+    rename_source_path=$active_path
+    current=$(file_revision "$rename_source_path")
+    [ "$current" = "$expected" ] || fail_code 3 'file changed while rename was being submitted; refresh before renaming'
+    validate_new_foreign_target "$new_name"
+    rename_target_path=$target_path
+
+    mv "$rename_source_path" "$rename_target_path"
+    tx_active=1
+    tx_mode=rename
+
+    commit_transaction
+    echo 'renamed'
 }
 
 action=${1:-}
@@ -263,6 +369,18 @@ case "$action" in
         acquire_lock
         prepare_status
         replace_active "$2" "$3"
+        ;;
+    create)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        create_active "$2"
+        ;;
+    rename)
+        [ "$#" -eq 4 ] || usage
+        acquire_lock
+        prepare_status
+        rename_active "$2" "$3" "$4"
         ;;
     *) usage ;;
 esac
