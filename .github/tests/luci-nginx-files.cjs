@@ -19,7 +19,7 @@ assert.equal(page.depends.fs['/usr/libexec/nginx-telego-editor'], 'executable');
 assert.equal(page.depends.fs['/usr/share/nginx-telego/ownership.tsv'], 'file');
 assert.deepEqual(acl.read.ubus['telego.nginx'], ['inventory', 'managed_content', 'foreign_content', 'foreign_revision']);
 assert.deepEqual(acl.write.ubus['telego.nginx'], ['quarantine', 'restore', 'delete_active', 'delete_quarantined', 'replace_active', 'create_foreign', 'rename_active', 'repair']);
-assert.match(makefile, /PKG_RELEASE:=12/);
+assert.match(makefile, /PKG_RELEASE:=13/);
 assert.match(i18nMakefile, /PKG_RELEASE:=8/);
 assert.match(nginxMakefile, /PKG_RELEASE:=12/);
 assert.match(nginxMakefile, /nginx-telego-editor/);
