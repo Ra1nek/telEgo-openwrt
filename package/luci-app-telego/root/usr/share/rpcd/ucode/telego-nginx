@@ -166,6 +166,21 @@ function foreign_content(name) {
 	return { ok: true, content: content, revision: fields[0], size: size, error: '' };
 }
 
+function foreign_revision(name) {
+	if (!valid_name(name))
+		return { ok: false, revision: '', error: 'invalid-name' };
+
+	const result = run_editor_read(['revision', name]);
+	if (!result.ok)
+		return { ok: false, revision: '', error: result.error };
+
+	const revision = trim(result.output);
+	if (!match(revision, /^[0-9a-f]{64}$/))
+		return { ok: false, revision: '', error: 'invalid-editor-response' };
+
+	return { ok: true, revision: revision, error: '' };
+}
+
 function replace_active(name, revision, content) {
 	if (!valid_name(name))
 		return { ok: false, changed: false, error: 'invalid-name' };
@@ -213,6 +228,10 @@ const methods = {
 	foreign_content: {
 		args: { name: '' },
 		call: function (request) { return foreign_content(request.args.name); }
+	},
+	foreign_revision: {
+		args: { name: '' },
+		call: function (request) { return foreign_revision(request.args.name); }
 	},
 	quarantine: {
 		args: { name: '' },

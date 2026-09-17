@@ -17,6 +17,10 @@ assert(foreign.ok && foreign.content == '# custom\nserver {}\n', 'foreign editor
 assert(foreign.revision == global.fixture.editor_revision && foreign.size == 19, 'foreign editor revision metadata');
 assert(global.editor_command == "/usr/libexec/nginx-telego-editor 'inspect' '50-custom.conf'", 'foreign inspection uses OpenWrt-compatible quoted helper invocation');
 
+const revisionOnly = nginx.foreign_revision.call({ args: { name: '50-custom.conf' } });
+assert(revisionOnly.ok && revisionOnly.revision == global.fixture.editor_revision, 'foreign revision read succeeds without content');
+assert(global.editor_command == "/usr/libexec/nginx-telego-editor 'revision' '50-custom.conf'", 'foreign revision uses dedicated quoted helper invocation');
+
 const replaced = nginx.replace_active.call({ args: { name: '50-custom.conf', revision: global.fixture.editor_revision, content: '# edited\nserver {}\n' } });
 assert(replaced.ok && replaced.changed, 'restricted editor write succeeds');
 assert(global.editor_written == '# edited\nserver {}\n', 'editor content is streamed through stdin');
@@ -35,6 +39,8 @@ nginx.replace_active.call({ args: { name: '50-custom+safe.conf', revision: globa
 assert(index(global.editor_command, " '50-custom+safe.conf' ") >= 0, 'valid editor filename is shell-quoted literally');
 const invalidName = nginx.replace_active.call({ args: { name: "a'b$(id).conf", revision: global.fixture.editor_revision, content: 'safe\n' } });
 assert(!invalidName.ok && invalidName.error == 'invalid-name', 'unsafe editor filename rejected before process launch');
+const invalidRevisionName = nginx.foreign_revision.call({ args: { name: '../bad.conf' } });
+assert(!invalidRevisionName.ok && invalidRevisionName.error == 'invalid-name', 'unsafe revision filename rejected before process launch');
 const invalidCreate = nginx.create_foreign.call({ args: { name: '../bad.conf', content: 'x\n' } });
 assert(!invalidCreate.ok && invalidCreate.error == 'invalid-name', 'unsafe create filename rejected before process launch');
 const invalidRename = nginx.rename_active.call({ args: { name: '50-custom.conf', new_name: '50-custom.conf', revision: global.fixture.editor_revision } });
@@ -73,6 +79,8 @@ const unavailable = nginx.inventory.call();
 assert(!unavailable.ok && unavailable.error == 'admin-helper-unavailable', 'missing admin helper explicit');
 const editorUnavailable = nginx.foreign_content.call({ args: { name: '50-custom.conf' } });
 assert(!editorUnavailable.ok && editorUnavailable.error == 'editor-helper-unavailable', 'missing editor helper explicit');
+const revisionUnavailable = nginx.foreign_revision.call({ args: { name: '50-custom.conf' } });
+assert(!revisionUnavailable.ok && revisionUnavailable.error == 'editor-helper-unavailable', 'missing revision helper explicit');
 const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
 assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 

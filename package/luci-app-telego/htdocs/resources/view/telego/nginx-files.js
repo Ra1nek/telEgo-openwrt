@@ -7,6 +7,7 @@
 const callInventory = rpc.declare({ object: 'telego.nginx', method: 'inventory', expect: { '': {} } });
 const callManagedContent = rpc.declare({ object: 'telego.nginx', method: 'managed_content', params: [ 'role', 'side' ], expect: { '': {} } });
 const callForeignContent = rpc.declare({ object: 'telego.nginx', method: 'foreign_content', params: [ 'name' ], expect: { '': {} } });
+const callForeignRevision = rpc.declare({ object: 'telego.nginx', method: 'foreign_revision', params: [ 'name' ], expect: { '': {} } });
 const callQuarantine = rpc.declare({ object: 'telego.nginx', method: 'quarantine', params: [ 'name' ], expect: { '': {} } });
 const callRestore = rpc.declare({ object: 'telego.nginx', method: 'restore', params: [ 'name' ], expect: { '': {} } });
 const callDeleteActive = rpc.declare({ object: 'telego.nginx', method: 'delete_active', params: [ 'name' ], expect: { '': {} } });
@@ -163,7 +164,7 @@ return view.extend({
 		]);
 	},
 	showForeignRename: function (file, refresh) {
-		return callForeignContent(file.name).then(function (result) {
+		return callForeignRevision(file.name).then(function (result) {
 			if (!result || !result.ok) throw new Error(lifecycleError(result && result.error));
 			this.renderForeignRename(file, refresh, result.revision);
 		}.bind(this)).catch(notifyError);

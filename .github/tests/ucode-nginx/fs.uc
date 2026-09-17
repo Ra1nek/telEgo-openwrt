@@ -14,11 +14,12 @@ function popen(command, mode) {
 		if (mode == 'r') {
 			let output = '';
 			const exit_code = editor_exit_code();
+			const revision = global.fixture?.editor_revision || 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 			if (index(command, " 'inspect' ") >= 0) {
 				const content = global.fixture?.editor_content || '# custom\n';
-				const revision = global.fixture?.editor_revision || 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 				output = revision + '\t' + length(content) + '\n' + content;
 			}
+			else if (index(command, " 'revision' ") >= 0 && exit_code == 0) output = revision + '\n';
 			else if (index(command, " 'rename' ") >= 0 && exit_code == 0) output = 'renamed\n';
 			return { read: function(kind) { return output; }, close: function() { return exit_code; } };
 		}

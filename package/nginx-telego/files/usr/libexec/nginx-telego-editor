@@ -34,6 +34,7 @@ fail_code() {
 usage() {
     cat >&2 <<'EOF'
 Usage: nginx-telego-editor inspect NAME.conf
+       nginx-telego-editor revision NAME.conf
        nginx-telego-editor replace NAME.conf EXPECTED_SHA256
        nginx-telego-editor create NAME.conf
        nginx-telego-editor rename OLD.conf NEW.conf EXPECTED_SHA256
@@ -194,13 +195,15 @@ validate_new_foreign_target() {
     target_path="$CONF_DIR/$name"
     virtual_path="/etc/nginx/conf.d/$name"
 
-    if [ -e "$target_path" ] || [ -L "$target_path" ]; then
-        fail_code 5 "target already exists: $virtual_path"
-    fi
-
+    # Managed namespace denial takes precedence over an ordinary collision so
+    # callers receive a stable policy error even when the managed file exists.
     line=$(managed_line_for_path "$virtual_path")
     if [ -n "$line" ]; then
         fail_code 6 "refusing to create or rename onto nginx-telego-managed path: $virtual_path"
+    fi
+
+    if [ -e "$target_path" ] || [ -L "$target_path" ]; then
+        fail_code 5 "target already exists: $virtual_path"
     fi
 }
 
@@ -247,6 +250,12 @@ inspect_active() {
     revision=$(file_revision "$active_path")
     printf '%s\t%s\n' "$revision" "$size"
     cat "$active_path"
+}
+
+revision_active() {
+    name=$1
+    validate_active_foreign "$name"
+    file_revision "$active_path"
 }
 
 replace_active() {
@@ -363,6 +372,12 @@ case "$action" in
         acquire_lock
         prepare_status
         inspect_active "$2"
+        ;;
+    revision)
+        [ "$#" -eq 2 ] || usage
+        acquire_lock
+        prepare_status
+        revision_active "$2"
         ;;
     replace)
         [ "$#" -eq 3 ] || usage

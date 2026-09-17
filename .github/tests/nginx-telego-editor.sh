@@ -59,6 +59,7 @@ chmod 0640 "$root/etc/nginx/conf.d/50-custom.conf"
 original_revision=$(sha256sum "$root/etc/nginx/conf.d/50-custom.conf" | awk '{print $1}')
 inspect=$(run_editor inspect 50-custom.conf)
 [[ "$inspect" == "$original_revision"$'\t19\n# custom\nserver {}' ]]
+[[ $(run_editor revision 50-custom.conf) == "$original_revision" ]]
 [[ $(stat -c '%a' "$root/etc/nginx/conf.d/50-custom.conf") == 640 ]]
 
 printf '# changed\nserver {}\n' | run_editor replace 50-custom.conf "$original_revision" | grep -qx updated
@@ -88,11 +89,14 @@ set -e
 [[ "$rc" -eq 5 ]]
 grep -qx '# created by P10' "$root/etc/nginx/conf.d/55-created.conf"
 
+# Managed namespace policy must win even when the managed target exists.
+printf '# occupied managed target\n' >"$root/etc/nginx/conf.d/20-telego-core.conf"
 set +e
 printf '# forbidden\n' | run_editor create 20-telego-core.conf >/dev/null 2>&1
 rc=$?
 set -e
 [[ "$rc" -eq 6 ]]
+grep -qx '# occupied managed target' "$root/etc/nginx/conf.d/20-telego-core.conf"
 set +e
 printf '# forbidden\n' | run_editor create 80-telego-ingress.conf >/dev/null 2>&1
 rc=$?
@@ -183,6 +187,23 @@ run_editor rename 56-renamed.conf 58-final.conf "$rename_revision" | grep -qx re
 [[ ! -e "$root/etc/nginx/conf.d/56-renamed.conf" ]]
 [[ -f "$root/etc/nginx/conf.d/58-final.conf" ]]
 
+# Rename is a lifecycle operation, not an editor operation: files >64 KiB
+# still have a revision and can be renamed without reading their content.
+python3 - <<PY
+from pathlib import Path
+Path(r"$root/etc/nginx/conf.d/59-large.conf").write_bytes(b'x' * 65537)
+PY
+large_revision=$(sha256sum "$root/etc/nginx/conf.d/59-large.conf" | awk '{print $1}')
+[[ $(run_editor revision 59-large.conf) == "$large_revision" ]]
+set +e
+run_editor inspect 59-large.conf >/dev/null 2>&1
+rc=$?
+set -e
+[[ "$rc" -eq 4 ]]
+run_editor rename 59-large.conf 59-large-renamed.conf "$large_revision" | grep -qx renamed
+[[ ! -e "$root/etc/nginx/conf.d/59-large.conf" ]]
+[[ $(wc -c <"$root/etc/nginx/conf.d/59-large-renamed.conf") -eq 65537 ]]
+
 # Reserved generated source is editable/renameable only while explicitly foreign.
 printf '# foreign reserved\n' >"$root/etc/nginx/conf.d/80-telego-ingress.conf"
 reserved_revision=$(sha256sum "$root/etc/nginx/conf.d/80-telego-ingress.conf" | awk '{print $1}')
@@ -201,6 +222,11 @@ set -e
 [[ "$rc" -eq 1 ]]
 set +e
 run_editor rename 20-telego-core.conf 70-forbidden.conf "$package_revision" >/dev/null 2>&1
+rc=$?
+set -e
+[[ "$rc" -eq 1 ]]
+set +e
+run_editor revision 20-telego-core.conf >/dev/null 2>&1
 rc=$?
 set -e
 [[ "$rc" -eq 1 ]]
