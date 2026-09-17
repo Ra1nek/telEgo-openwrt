@@ -4,6 +4,34 @@ cd "$(dirname "$0")/../.."
 
 bash -n scripts/install-on-router.sh
 sh -n install.sh
+python3 - <<'PY'
+from pathlib import Path
+
+text = Path('install.sh').read_text()
+
+capture = '''    if [ "$SEL_NGINX" -eq 1 ] && [ -x /etc/init.d/nginx ] && /etc/init.d/nginx status >/dev/null 2>&1; then WAS_NGINX_RUNNING=1; fi'''
+transaction = '''    if [ "$ALLOW_UNTRUSTED" -eq 1 ]; then apk add --allow-untrusted $DEPENDENCIES "$@"; else apk add $DEPENDENCIES "$@"; fi'''
+restore = '''    if [ "$WAS_NGINX_RUNNING" -eq 1 ]; then
+        [ -x /etc/init.d/nginx ] || fail 'Nginx работал до обновления, но его init-скрипт исчез после APK-транзакции.' 'Nginx was running before the update, but its init script disappeared after the APK transaction.'
+        if ! /etc/init.d/nginx status >/dev/null 2>&1; then
+            /etc/init.d/nginx start
+            /etc/init.d/nginx status >/dev/null 2>&1 || fail 'Nginx работал до обновления, но не запустился после APK-транзакции.' 'Nginx was running before the update but could not be restored after the APK transaction.'
+            status_ok 'Работавшая служба Nginx восстановлена после обновления' 'Previously running Nginx service restored after update'
+        fi
+    fi'''
+
+assert 'WAS_NGINX_RUNNING=0' in text
+assert 'WAS_TELEGO_RUNNING=0' in text
+assert text.count(capture) == 1
+assert text.count(transaction) == 1
+assert text.count(restore) == 1
+assert text.index(capture) < text.index(transaction) < text.index(restore)
+# Starting nginx is allowed only inside the guarded restore path. A previously
+# stopped administrator-managed nginx instance must remain stopped.
+assert text.count('/etc/init.d/nginx start') == 1
+assert '/etc/init.d/nginx start' in restore
+print('installer nginx runtime-state preservation contract passed')
+PY
 bash -n .github/scripts/verify-nginx-telego-apk.sh
 python3 .github/tests/test_router_installer.py
 BUSYBOX="${BUSYBOX:-$(command -v busybox)}" python3 .github/tests/test_router_installer.py
