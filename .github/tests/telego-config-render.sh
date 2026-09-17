@@ -6,6 +6,8 @@ set -eu
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 RUNTIME_CONFIG="$tmp/telego.toml"
+CF_ENABLED=0
+SHARED_ENABLED=0
 
 # generate_config() uses OpenWrt helpers plus the uci CLI. Provide a focused
 # fixture instead of parsing TOML by inspection in this test.
@@ -34,6 +36,9 @@ uci() {
 	[ "${1:-}" = -q ] && shift
 	[ "${1:-}" = get ] || return 1
 	case "${2:-}" in
+		nginx_telego.cloudflare.enabled) printf '%s\n' "$CF_ENABLED" ;;
+		nginx_telego.shared.enabled) printf '%s\n' "$SHARED_ENABLED" ;;
+
 		telego.general.bind_to) printf '%s\n' '0.0.0.0:443' ;;
 		telego.general.log_level) printf '%s\n' 'info' ;;
 		telego.general.proxy_protocol) printf '%s\n' '0' ;;
@@ -89,13 +94,26 @@ uci() {
 	esac
 }
 
+assert_shared_tls_runtime() {
+	grep -Fqx 'cert-host = "127.0.0.1"' "$RUNTIME_CONFIG"
+	grep -Fqx 'cert-port = 8444' "$RUNTIME_CONFIG"
+	grep -Fqx 'splice-host = "127.0.0.1"' "$RUNTIME_CONFIG"
+	grep -Fqx 'splice-port = 8443' "$RUNTIME_CONFIG"
+}
+
+assert_cloudflare_tls_runtime() {
+	grep -Fqx 'mask-host = "proxy.example.com"' "$RUNTIME_CONFIG"
+	! grep -Fq 'cert-host =' "$RUNTIME_CONFIG"
+	! grep -Fq 'cert-port =' "$RUNTIME_CONFIG"
+	! grep -Fq 'splice-host =' "$RUNTIME_CONFIG"
+	! grep -Fq 'splice-port =' "$RUNTIME_CONFIG"
+}
+
+# Generic/advanced TLS-fronting behavior remains backwards compatible.
 generate_config
 
 test -s "$RUNTIME_CONFIG"
-grep -Fqx 'cert-host = "127.0.0.1"' "$RUNTIME_CONFIG"
-grep -Fqx 'cert-port = 8444' "$RUNTIME_CONFIG"
-grep -Fqx 'splice-host = "127.0.0.1"' "$RUNTIME_CONFIG"
-grep -Fqx 'splice-port = 8443' "$RUNTIME_CONFIG"
+assert_shared_tls_runtime
 grep -Fqx 'splice-proxy-protocol = 2' "$RUNTIME_CONFIG"
 
 awk '/^\[web-proxy\]$/{on=1;next} /^\[/{on=0} on' "$RUNTIME_CONFIG" >"$tmp/web"
@@ -114,5 +132,18 @@ grep -Fqx 'artifact-proxy = "http://127.0.0.1:3128"' "$tmp/middle-end"
 grep -Fqx 'nat-ip = "203.0.113.10"' "$tmp/middle-end"
 grep -Fqx 'max-connections = 5000' "$tmp/middle-end"
 grep -Fqx 'queue-budget-mb = 16' "$tmp/middle-end"
+
+# Cloudflare owns public WEB TLS. Stale Native Shared-Port endpoints may remain
+# stored in UCI, but they must not enter the active telEgo runtime configuration.
+CF_ENABLED=1
+SHARED_ENABLED=0
+generate_config
+assert_cloudflare_tls_runtime
+
+# Switching back to Native Shared-Port restores the preserved advanced values.
+CF_ENABLED=0
+SHARED_ENABLED=1
+generate_config
+assert_shared_tls_runtime
 
 echo 'telEgo UCI to TOML render tests passed'
