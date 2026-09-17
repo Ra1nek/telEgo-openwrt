@@ -61,11 +61,14 @@ A created file receives mode `0644`. If `nginx -t` or reload fails, the new file
 
 ## Rename
 
-Backend primitive:
+Backend primitives:
 
 ```sh
+/usr/libexec/nginx-telego-editor revision NAME.conf
 /usr/libexec/nginx-telego-editor rename OLD.conf NEW.conf EXPECTED_SHA256
 ```
+
+`revision` validates the active foreign source and returns only the SHA-256 of its current bytes. Unlike P9 `inspect`, it does not read file content, so the P9 64 KiB editor limit does not restrict rename.
 
 The source must be an existing active foreign file. This includes an occupant of reserved generated path `80/85` only when P6 inventory explicitly classifies it as `foreign`.
 
@@ -110,6 +113,22 @@ P10 extends the existing local ubus object:
 
 ```text
 telego.nginx
+```
+
+New read method for rename revision:
+
+```text
+foreign_revision(name)
+```
+
+Successful response:
+
+```json
+{
+  "ok": true,
+  "revision": "<sha256>",
+  "error": ""
+}
 ```
 
 New write methods:
@@ -184,7 +203,7 @@ active foreign row
  ↓
 Rename
  ↓
-foreign_content → current revision
+foreign_revision → current SHA-256
  ↓
 new safe name
  ↓
@@ -204,7 +223,7 @@ P10 preserves these mandatory properties:
 3. package-owned/generated managed namespace cannot be occupied or overwritten;
 4. an existing destination is never overwritten;
 5. the active foreign source is revalidated immediately before rename;
-6. rename uses optimistic SHA-256 revision checking;
+6. rename uses optimistic SHA-256 revision checking and is independent of the P9 content-size limit;
 7. create content is capped at 64 KiB and travels through stdin;
 8. P7/P8/P9/P10 share one kernel `flock`;
 9. the active tree must pass `nginx -t` before commit;
@@ -216,8 +235,8 @@ P10 preserves these mandatory properties:
 
 P10 is covered by these layers:
 
-- `nginx-telego-editor` shell regression: create, duplicate target, managed-target denial, size limit, shared flock, `nginx -t` rollback, reload rollback, rename, collision, stale revision, managed-target denial, and rollback;
-- native ucode RPC tests: create/rename invocation, stdin transfer, quoting, and error mapping;
+- `nginx-telego-editor` shell regression: create, duplicate target, managed-target denial, size limit, shared flock, `nginx -t` rollback, reload rollback, rename, collision, stale revision, managed-target denial, large-file revision/rename, and rollback;
+- native ucode RPC tests: `foreign_revision`, create/rename invocation, stdin transfer, quoting, and error mapping;
 - LuCI contract tests: ACL, RPC declarations, Create/Rename visibility, modal/error behavior, and package revisions;
 - i18n coverage;
 - APK layout/rootfs smoke and the OpenWrt 25.12.x compatibility matrix.
