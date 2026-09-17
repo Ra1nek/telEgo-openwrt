@@ -222,6 +222,9 @@ function updateStatusError(errorText, root) {
 }
 
 function makeConfigMap() {
+	const cloudflareWeb =
+		uci.get('nginx_telego', 'cloudflare', 'enabled') === '1' &&
+		uci.get('nginx_telego', 'shared', 'enabled') !== '1';
 	const m = new form.Map(
 		'telego',
 		_('telEgo Configuration'),
@@ -304,43 +307,26 @@ function makeConfigMap() {
 	o.datatype = 'port';
 	o.default = '443';
 
-	o = s.option(
-		form.Value,
-		'cert_host',
-		_('Certificate Host'),
-		_('Optional certificate source. Native shared-port Nginx on this router uses 127.0.0.1.')
-	);
-	o.datatype = 'host';
-	o.rmempty = true;
+	if (!cloudflareWeb) {
+		o = s.option(
+			form.Value,
+			'cert_host',
+			_('Certificate Host'),
+			_('Optional certificate source. Native shared-port Nginx on this router uses 127.0.0.1.')
+		);
+		o.datatype = 'host';
+		o.rmempty = true;
 
-	o = s.option(
-		form.Value,
-		'cert_port',
-		_('Certificate Port'),
-		_('Native shared-port Nginx uses port 8444 for certificate collection.')
-	);
-	o.datatype = 'port';
-	o.rmempty = true;
-	o.default = '';
-
-	o = s.option(
-		form.Value,
-		'splice_host',
-		_('Fallback Host'),
-		_('Where unrecognized TLS is spliced. Native shared-port Nginx on this router uses 127.0.0.1.')
-	);
-	o.datatype = 'host';
-	o.rmempty = true;
-
-	o = s.option(
-		form.Value,
-		'splice_port',
-		_('Fallback Port'),
-		_('Native shared-port Nginx uses port 8443 and PROXY protocol v2.')
-	);
-	o.datatype = 'port';
-	o.rmempty = true;
-	o.default = '';
+		o = s.option(
+			form.Value,
+			'cert_port',
+			_('Certificate Port'),
+			_('Native shared-port Nginx uses port 8444 for certificate collection.')
+		);
+		o.datatype = 'port';
+		o.rmempty = true;
+		o.default = '';
+	}
 
 	o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
 	o.datatype = 'uinteger';
@@ -355,6 +341,27 @@ function makeConfigMap() {
 
 	o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
 	o.datatype = 'hostname';
+
+	if (!cloudflareWeb) {
+		o = s.option(
+			form.Value,
+			'splice_host',
+			_('Fallback Host'),
+			_('Where unrecognized TLS is spliced. Native shared-port Nginx on this router uses 127.0.0.1.')
+		);
+		o.datatype = 'host';
+		o.rmempty = true;
+
+		o = s.option(
+			form.Value,
+			'splice_port',
+			_('Fallback Port'),
+			_('Native shared-port Nginx uses port 8443 and PROXY protocol v2.')
+		);
+		o.datatype = 'port';
+		o.rmempty = true;
+		o.default = '';
+	}
 
 	o = s.option(form.ListValue, 'splice_proxy_protocol', _('Fallback PROXY Protocol'));
 	o.value('0', _('Disabled'));
@@ -627,7 +634,10 @@ function makeConfigMap() {
 
 return view.extend({
 	load: function () {
-		return uci.load('telego');
+		return Promise.all([
+			uci.load('telego'),
+			L.resolveDefault(uci.load('nginx_telego'), null)
+		]);
 	},
 
 	render: function () {
