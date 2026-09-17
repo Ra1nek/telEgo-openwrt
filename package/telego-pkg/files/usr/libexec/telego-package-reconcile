@@ -1,0 +1,49 @@
+#!/bin/sh
+# Reconcile APK-protected replacements for telEgo package-owned runtime files.
+# User-owned UCI configuration is deliberately outside this ownership set.
+set -eu
+
+ETC_ROOT=${TELEGO_ETC_ROOT:-/etc}
+BACKUP_ROOT=${TELEGO_PACKAGE_BACKUP_ROOT:-$ETC_ROOT/telego-backups/package-owned}
+
+fail() {
+    echo "telego-package-reconcile: $*" >&2
+    exit 1
+}
+
+promote_apk_new() {
+    path=$1
+    mode=$2
+    candidate="${path}.apk-new"
+
+    if [ ! -e "$candidate" ] && [ ! -L "$candidate" ]; then
+        return 0
+    fi
+
+    [ -f "$candidate" ] && [ ! -L "$candidate" ] ||
+        fail "refusing unsafe APK candidate: $candidate"
+
+    if [ -e "$path" ] || [ -L "$path" ]; then
+        [ -f "$path" ] && [ ! -L "$path" ] ||
+            fail "refusing to replace unsafe package-owned path: $path"
+
+        umask 077
+        mkdir -p "$BACKUP_ROOT"
+        stamp=$(date +%Y%m%d-%H%M%S 2>/dev/null || printf 'unknown-time')
+        backup="$BACKUP_ROOT/${path##*/}.${stamp}.$$.bak"
+        cp -p "$path" "$backup" || fail "unable to back up $path"
+        echo "telego-package-reconcile: backed up locally modified $path to $backup" >&2
+    fi
+
+    mv -f "$candidate" "$path" || fail "unable to activate $candidate"
+    chmod "$mode" "$path" || fail "unable to set mode $mode on $path"
+    echo "telego-package-reconcile: activated package-owned update for $path" >&2
+}
+
+# These files are executable/security policy owned by the packages, not user
+# configuration. APK may preserve a locally modified copy and emit .apk-new;
+# running stale versions here can make the installed package version lie about
+# the runtime integration that is actually active.
+promote_apk_new "$ETC_ROOT/init.d/telego" 0755
+promote_apk_new "$ETC_ROOT/capabilities/telego.json" 0644
+promote_apk_new "$ETC_ROOT/init.d/nginx-telego" 0755
