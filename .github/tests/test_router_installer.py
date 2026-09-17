@@ -88,6 +88,22 @@ fi
         return subprocess.run([*self.shell, str(self.script), "--yes", *args],
                               env=dict(self.env, **env), capture_output=True, text=True)
 
+    def seed_install_backups(self, count):
+        backups = self.root / "backups"
+        backups.mkdir(exist_ok=True)
+        for index in range(count):
+            backup = backups / f"install.old{index:02d}"
+            backup.mkdir()
+            (backup / "telego").write_text(f"old backup {index}\n")
+            timestamp = 1_700_000_000 + index
+            os.utime(backup, (timestamp, timestamp))
+
+        package_owned = backups / "package-owned"
+        package_owned.mkdir(exist_ok=True)
+        sentinel = package_owned / "keep-me"
+        sentinel.write_text("package-owned backup\n")
+        return sentinel
+
     def assert_only_read_only_apk_inspection(self):
         """Before trust/checksum validation, apk may only inspect installed packages."""
         if not self.log.exists():
@@ -110,6 +126,31 @@ fi
         self.assertIn("--simulate", log)
         self.assertEqual(self.config.read_text(), "original user configuration\n")
         self.assertEqual(len(list((self.root / "backups").rglob("telego"))), 1)
+
+    def test_success_prunes_config_backups_but_not_package_owned(self):
+        sentinel = self.seed_install_backups(5)
+
+        result = self.run_script("--no-ru", "--allow-untrusted")
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        install_backups = [
+            path for path in (self.root / "backups").glob("install.*") if path.is_dir()
+        ]
+        self.assertEqual(len(install_backups), 3)
+        self.assertTrue(sentinel.exists())
+        self.assertIn("kept the latest 3", result.stdout)
+
+    def test_failed_install_does_not_prune_config_backups(self):
+        sentinel = self.seed_install_backups(5)
+
+        result = self.run_script("--no-ru", "--allow-untrusted", INSTALL_FAIL="17")
+
+        self.assertNotEqual(result.returncode, 0)
+        install_backups = [
+            path for path in (self.root / "backups").glob("install.*") if path.is_dir()
+        ]
+        self.assertEqual(len(install_backups), 6)
+        self.assertTrue(sentinel.exists())
 
     def test_russian_translation(self):
         result = self.run_script("--lang", "ru", "--ru", "--allow-untrusted")
