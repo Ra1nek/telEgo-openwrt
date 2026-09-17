@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=telego-pkg
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -35,6 +35,16 @@ define Package/telego-pkg/install
 	$(INSTALL_CONF) ./files/config/telego $(1)/etc/config/telego
 	$(INSTALL_DIR) $(1)/etc/capabilities
 	$(INSTALL_DATA) ./files/capabilities/telego.json $(1)/etc/capabilities/telego.json
+	$(INSTALL_DIR) $(1)/usr/libexec
+	$(INSTALL_BIN) ./files/usr/libexec/telego-package-reconcile \
+		$(1)/usr/libexec/telego-package-reconcile
+endef
+
+define Package/telego-pkg/postinst
+#!/bin/sh
+	[ -n "$${IPKG_INSTROOT}" ] && exit 0
+	[ -x /usr/libexec/telego-package-reconcile ] || exit 1
+	/usr/libexec/telego-package-reconcile
 endef
 
 $(eval $(call BuildPackage,telego-pkg))
