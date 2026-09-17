@@ -12,21 +12,26 @@ const callRestore = rpc.declare({ object: 'telego.nginx', method: 'restore', par
 const callDeleteActive = rpc.declare({ object: 'telego.nginx', method: 'delete_active', params: [ 'name' ], expect: { '': {} } });
 const callDeleteQuarantined = rpc.declare({ object: 'telego.nginx', method: 'delete_quarantined', params: [ 'name' ], expect: { '': {} } });
 const callReplaceActive = rpc.declare({ object: 'telego.nginx', method: 'replace_active', params: [ 'name', 'revision', 'content' ], expect: { '': {} } });
+const callCreateForeign = rpc.declare({ object: 'telego.nginx', method: 'create_foreign', params: [ 'name', 'content' ], expect: { '': {} } });
+const callRenameActive = rpc.declare({ object: 'telego.nginx', method: 'rename_active', params: [ 'name', 'new_name', 'revision' ], expect: { '': {} } });
 const callRepair = rpc.declare({ object: 'telego.nginx', method: 'repair', expect: { '': {} } });
 
 function resultError(result) { return result && result.error ? String(result.error) : _('Operation failed.'); }
-function editorError(code) {
+function lifecycleError(code) {
 	const errors = {
-		'stale-content': _('The file changed after the editor was opened. Refresh it before saving.'),
-		'content-too-large': _('Edited content is too large.'),
-		'invalid-revision': _('The editor revision is invalid. Refresh the file before saving.'),
-		'editor-helper-unavailable': _('Nginx editor backend is unavailable.'),
-		'editor-operation-failed': _('Nginx file update failed.'),
-		'invalid-name': _('The Nginx file name is not allowed for editing.')
+		'stale-content': _('The file changed after it was opened. Refresh it before continuing.'),
+		'content-too-large': _('Nginx file content is too large.'),
+		'invalid-revision': _('The file revision is invalid. Refresh the inventory before continuing.'),
+		'editor-helper-unavailable': _('Nginx file backend is unavailable.'),
+		'editor-operation-failed': _('Nginx file operation failed.'),
+		'invalid-name': _('The Nginx file name is not allowed.'),
+		'target-exists': _('The destination Nginx file already exists.'),
+		'managed-target': _('The destination name is reserved for telEgo-managed Nginx state.')
 	};
-	return errors[code] || code || _('Nginx file update failed.');
+	return errors[code] || code || _('Nginx file operation failed.');
 }
 function notifyError(error) { ui.addNotification(null, E('p', {}, String(error && error.message ? error.message : error)), 'error'); }
+function validConfName(name) { return /^[A-Za-z0-9_+-][A-Za-z0-9._+-]*\.conf$/.test(String(name || '')); }
 function ownershipLabel(file) {
 	if (file.kind === 'quarantined') return _('Foreign / quarantined');
 	if (file.ownership === 'package') return _('Package-owned');
@@ -66,6 +71,9 @@ function lineDiff(source, active) {
 	}
 	return out.join('\n');
 }
+function newFileDiff(content) {
+	return String(content || '').split('\n').map(function (line) { return '+ ' + line; }).join('\n');
+}
 
 return view.extend({
 	load: function () { return callInventory(); },
@@ -74,12 +82,15 @@ return view.extend({
 		function refresh() { return callInventory().then(function (result) { self.renderInventory(container, result, refresh); }).catch(notifyError); }
 		const root = E('div', {}, [
 			E('h2', {}, _('Nginx File Inventory')),
-			E('p', {}, _('Inspect nginx-telego managed files and administrator-owned .conf files. Foreign files are never adopted automatically. Quarantine, restore, delete and restricted edit actions share the reconciliation lock and validate active changes with nginx -t.')),
-			E('div', { 'class': 'cbi-page-actions' }, [ actionButton(_('Refresh'), 'cbi-button-action', refresh), ' ',
+			E('p', {}, _('Inspect nginx-telego managed files and administrator-owned .conf files. Foreign files are never adopted automatically. Create, rename, quarantine, restore, delete and restricted edit actions share the reconciliation lock and validate active changes with nginx -t.')),
+			E('div', { 'class': 'cbi-page-actions' }, [
+				actionButton(_('Refresh'), 'cbi-button-action', refresh), ' ',
+				actionButton(_('Create file'), 'cbi-button-add', function () { return this.renderForeignCreator(refresh, '', ''); }.bind(this)), ' ',
 				actionButton(_('Repair Managed State'), 'cbi-button-apply', function () {
 					return callRepair().then(function (result) { if (!result || !result.ok) throw new Error(resultError(result));
 						ui.addNotification(null, E('p', {}, _('Managed Nginx state repaired.')), 'info'); return refresh(); }).catch(notifyError);
-				}) ]), container
+				})
+			]), container
 		]);
 		this.renderInventory(container, initial, refresh); return root;
 	},
@@ -94,6 +105,7 @@ return view.extend({
 			if (file.kind === 'managed' && file.ownership === 'package' && file.state === 'modified') actions.push(actionButton(_('Diff'), 'cbi-button-neutral', function () { return this.showDiff(file); }.bind(this)));
 			if (activeForeign) {
 				actions.push(actionButton(_('Edit'), 'cbi-button-neutral', function () { return this.showForeignEditor(file, refresh); }.bind(this))); actions.push(' ');
+				actions.push(actionButton(_('Rename'), 'cbi-button-neutral', function () { return this.showForeignRename(file, refresh); }.bind(this))); actions.push(' ');
 				actions.push(actionButton(_('Quarantine'), 'cbi-button-action', function () { return callQuarantine(file.name).then(function (r) { if (!r || !r.ok) throw new Error(resultError(r)); return refresh(); }).catch(notifyError); })); actions.push(' ');
 				actions.push(actionButton(_('Delete'), 'cbi-button-negative', function () { confirmAction(_('Delete Nginx file'), _('Permanently delete the active foreign Nginx file?'), _('Delete'), function () { return callDeleteActive(file.name).then(function (r) { if (!r || !r.ok) throw new Error(resultError(r)); return refresh(); }).catch(notifyError); }); }));
 			}
@@ -105,8 +117,85 @@ return view.extend({
 		}.bind(this));
 		container.appendChild(E('table', { 'class': 'table' }, rows));
 	},
+	renderForeignCreator: function (refresh, currentName, currentContent) {
+		const errorBox = E('div', { 'class': 'alert-message error', 'style': 'display:none', 'role': 'alert' });
+		const nameInput = E('input', { 'class': 'cbi-input-text', 'type': 'text', 'style': 'width:100%', 'placeholder': '50-custom.conf', 'autocomplete': 'off', 'spellcheck': 'false' });
+		nameInput.value = currentName || '';
+		const textarea = E('textarea', { 'class': 'cbi-input-textarea', 'style': 'width:100%;min-height:40vh;font-family:monospace;white-space:pre;tab-size:4', 'spellcheck': 'false' });
+		textarea.value = currentContent || '';
+		const showInlineError = function (message) { errorBox.textContent = String(message || _('Nginx file operation failed.')); errorBox.style.display = ''; };
+		ui.showModal(_('Create Nginx file'), [
+			errorBox,
+			E('div', { 'class': 'alert-message warning' }, _('A new file can be created only as a foreign administrator-owned direct child of /etc/nginx/conf.d/. telEgo-managed names cannot be used.')),
+			E('p', {}, _('File name')), nameInput,
+			E('p', {}, _('Content is limited to 64 KiB. The new file is activated only after nginx -t succeeds and is removed again if validation or reload fails.')), textarea,
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': ui.hideModal }, _('Cancel')), ' ',
+				E('button', { 'class': 'btn cbi-button cbi-button-action', 'type': 'button', 'click': function () {
+					const name = String(nameInput.value || '').trim(); const content = textarea.value;
+					errorBox.style.display = 'none';
+					if (!validConfName(name)) { showInlineError(_('The Nginx file name is not allowed.')); return; }
+					if (content.length > 65536) { showInlineError(_('Nginx file content is too large.')); return; }
+					return this.reviewForeignCreate(refresh, name, content);
+				}.bind(this) }, _('Review new file'))
+			])
+		]);
+	},
+	reviewForeignCreate: function (refresh, name, content) {
+		const errorBox = E('div', { 'class': 'alert-message error', 'style': 'display:none', 'role': 'alert' });
+		const showInlineError = function (message) { errorBox.textContent = String(message || _('Nginx file operation failed.')); errorBox.style.display = ''; };
+		let createButton;
+		createButton = E('button', { 'class': 'btn cbi-button cbi-button-positive important', 'type': 'button', 'click': function () {
+			errorBox.style.display = 'none'; createButton.disabled = true;
+			return callCreateForeign(name, content).then(function (result) {
+				createButton.disabled = false;
+				if (!result || !result.ok) { showInlineError(lifecycleError(result && result.error)); return; }
+				ui.hideModal(); ui.addNotification(null, E('p', {}, _('Nginx file created.')), 'info'); return refresh();
+			}, function (error) { createButton.disabled = false; showInlineError(error && error.message ? error.message : error); });
+		} }, _('Create file'));
+		ui.showModal(_('Review new Nginx file') + ': ' + name, [
+			errorBox,
+			E('p', {}, _('The following content will be added as a new administrator-owned file.')),
+			E('pre', { 'style': 'max-height:55vh;overflow:auto;white-space:pre-wrap' }, newFileDiff(content)),
+			E('div', { 'class': 'right' }, [
+				E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': function () { return this.renderForeignCreator(refresh, name, content); }.bind(this) }, _('Back')), ' ', createButton
+			])
+		]);
+	},
+	showForeignRename: function (file, refresh) {
+		return callForeignContent(file.name).then(function (result) {
+			if (!result || !result.ok) throw new Error(lifecycleError(result && result.error));
+			this.renderForeignRename(file, refresh, result.revision);
+		}.bind(this)).catch(notifyError);
+	},
+	renderForeignRename: function (file, refresh, revision) {
+		const errorBox = E('div', { 'class': 'alert-message error', 'style': 'display:none', 'role': 'alert' });
+		const nameInput = E('input', { 'class': 'cbi-input-text', 'type': 'text', 'style': 'width:100%', 'autocomplete': 'off', 'spellcheck': 'false' });
+		nameInput.value = file.name;
+		const showInlineError = function (message) { errorBox.textContent = String(message || _('Nginx file operation failed.')); errorBox.style.display = ''; };
+		let renameButton;
+		renameButton = E('button', { 'class': 'btn cbi-button cbi-button-positive important', 'type': 'button', 'click': function () {
+			const newName = String(nameInput.value || '').trim(); errorBox.style.display = 'none';
+			if (!validConfName(newName)) { showInlineError(_('The Nginx file name is not allowed.')); return; }
+			if (newName === file.name) { showInlineError(_('Choose a different file name.')); return; }
+			renameButton.disabled = true;
+			return callRenameActive(file.name, newName, revision).then(function (result) {
+				renameButton.disabled = false;
+				if (!result || !result.ok) { showInlineError(lifecycleError(result && result.error)); return; }
+				ui.hideModal(); ui.addNotification(null, E('p', {}, _('Nginx file renamed.')), 'info'); return refresh();
+			}, function (error) { renameButton.disabled = false; showInlineError(error && error.message ? error.message : error); });
+		} }, _('Rename'));
+		ui.showModal(_('Rename Nginx file') + ': ' + file.name, [
+			errorBox,
+			E('div', { 'class': 'alert-message warning' }, _('Only an active foreign administrator-owned .conf file can be renamed. The destination must not exist and cannot be reserved for telEgo-managed state.')),
+			E('p', {}, _('Current name') + ': ' + file.name),
+			E('p', {}, _('New file name')), nameInput,
+			E('p', {}, _('The rename is protected by the file revision, validated with nginx -t and rolled back if validation or reload fails.')),
+			E('div', { 'class': 'right' }, [ E('button', { 'class': 'btn cbi-button', 'type': 'button', 'click': ui.hideModal }, _('Cancel')), ' ', renameButton ])
+		]);
+	},
 	showForeignEditor: function (file, refresh) {
-		return callForeignContent(file.name).then(function (result) { if (!result || !result.ok) throw new Error(editorError(result && result.error)); this.renderForeignEditor(file, refresh, result.content, result.revision, result.content); }.bind(this)).catch(notifyError);
+		return callForeignContent(file.name).then(function (result) { if (!result || !result.ok) throw new Error(lifecycleError(result && result.error)); this.renderForeignEditor(file, refresh, result.content, result.revision, result.content); }.bind(this)).catch(notifyError);
 	},
 	renderForeignEditor: function (file, refresh, original, revision, current) {
 		const textarea = E('textarea', { 'class': 'cbi-input-textarea', 'style': 'width:100%;min-height:45vh;font-family:monospace;white-space:pre;tab-size:4', 'spellcheck': 'false' }); textarea.value = current;
@@ -116,7 +205,7 @@ return view.extend({
 	reviewForeignEdit: function (file, refresh, original, revision, edited) {
 		const errorBox = E('div', { 'class': 'alert-message error', 'style': 'display:none', 'role': 'alert' });
 		const showInlineError = function (message) {
-			errorBox.textContent = String(message || _('Nginx file update failed.'));
+			errorBox.textContent = String(message || _('Nginx file operation failed.'));
 			errorBox.style.display = '';
 		};
 		let saveButton;
@@ -126,7 +215,7 @@ return view.extend({
 			saveButton.disabled = true;
 			return callReplaceActive(file.name, revision, edited).then(function (result) {
 				saveButton.disabled = false;
-				if (!result || !result.ok) { showInlineError(editorError(result && result.error)); return; }
+				if (!result || !result.ok) { showInlineError(lifecycleError(result && result.error)); return; }
 				ui.hideModal();
 				ui.addNotification(null, E('p', {}, _('Nginx file updated.')), 'info');
 				return refresh();

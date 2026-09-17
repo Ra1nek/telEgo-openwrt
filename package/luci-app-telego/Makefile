@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -18,7 +18,7 @@ endef
 
 define Package/luci-app-telego/description
 LuCI JavaScript interface for telEgo MTProxy, WEB Proxy, optional managed Nginx
-ingress, guarded foreign-file administration and restricted foreign-file
+ingress, guarded foreign-file lifecycle administration and restricted foreign-file
 editing, Middle-End and live runtime telemetry.
 endef
 

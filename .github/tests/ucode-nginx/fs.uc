@@ -1,26 +1,31 @@
+function editor_exit_code() {
+	if (global.fixture?.mode == 'editor-stale') return 3;
+	if (global.fixture?.mode == 'editor-too-large') return 4;
+	if (global.fixture?.mode == 'editor-target-exists') return 5;
+	if (global.fixture?.mode == 'editor-managed-target') return 6;
+	if (global.fixture?.mode == 'editor-failed') return 1;
+	return 0;
+}
+
 function popen(command, mode) {
 	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-editor ') == 0) {
 		global.editor_command = command;
 		if (global.fixture?.mode == 'popen-failed') return null;
 		if (mode == 'r') {
 			let output = '';
-			let exit_code = global.fixture?.mode == 'editor-failed' ? 1 : (global.fixture?.mode == 'editor-too-large' ? 4 : 0);
+			const exit_code = editor_exit_code();
 			if (index(command, " 'inspect' ") >= 0) {
 				const content = global.fixture?.editor_content || '# custom\n';
 				const revision = global.fixture?.editor_revision || 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 				output = revision + '\t' + length(content) + '\n' + content;
 			}
+			else if (index(command, " 'rename' ") >= 0 && exit_code == 0) output = 'renamed\n';
 			return { read: function(kind) { return output; }, close: function() { return exit_code; } };
 		}
 		let written = '';
 		return {
 			write: function(data) { written += data; global.editor_written = written; return length(data); },
-			close: function() {
-				if (global.fixture?.mode == 'editor-stale') return 3;
-				if (global.fixture?.mode == 'editor-too-large') return 4;
-				if (global.fixture?.mode == 'editor-failed') return 1;
-				return 0;
-			}
+			close: function() { return editor_exit_code(); }
 		};
 	}
 	global.admin_command = command;

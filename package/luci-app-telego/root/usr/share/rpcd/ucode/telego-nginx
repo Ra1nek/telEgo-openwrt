@@ -39,6 +39,18 @@ function editor_command(args) {
 	return command;
 }
 
+function editor_error(exit_code) {
+	if (exit_code == 3)
+		return 'stale-content';
+	if (exit_code == 4)
+		return 'content-too-large';
+	if (exit_code == 5)
+		return 'target-exists';
+	if (exit_code == 6)
+		return 'managed-target';
+	return 'editor-operation-failed';
+}
+
 function run_editor_read(args) {
 	const proc = popen(editor_command(args), 'r');
 	if (!proc)
@@ -47,13 +59,24 @@ function run_editor_read(args) {
 	const output = proc.read('all') || '';
 	const exit_code = proc.close();
 	if (exit_code != 0)
-		return {
-			ok: false,
-			output: '',
-			error: exit_code == 4 ? 'content-too-large' : 'editor-operation-failed'
-		};
+		return { ok: false, output: '', error: editor_error(exit_code) };
 
 	return { ok: true, output: output, error: '' };
+}
+
+function run_editor_write(args, content) {
+	const proc = popen(editor_command(args), 'w');
+	if (!proc)
+		return { ok: false, error: 'editor-helper-unavailable' };
+
+	const written = proc.write(content);
+	const exit_code = proc.close();
+	if (exit_code != 0)
+		return { ok: false, error: editor_error(exit_code) };
+	if (written == null || written != length(content))
+		return { ok: false, error: 'editor-operation-failed' };
+
+	return { ok: true, error: '' };
 }
 
 function inventory() {
@@ -151,21 +174,34 @@ function replace_active(name, revision, content) {
 	if (!match(revision || '', /^[0-9a-f]{64}$/))
 		return { ok: false, changed: false, error: 'invalid-revision' };
 
-	const proc = popen(editor_command(['replace', name, revision]), 'w');
-	if (!proc)
-		return { ok: false, changed: false, error: 'editor-helper-unavailable' };
+	const result = run_editor_write(['replace', name, revision], content);
+	return result.ok
+		? { ok: true, changed: true, error: '' }
+		: { ok: false, changed: false, error: result.error };
+}
 
-	const written = proc.write(content);
-	const exit_code = proc.close();
+function create_foreign(name, content) {
+	if (!valid_name(name))
+		return { ok: false, created: false, error: 'invalid-name' };
+	if (length(content) > MAX_EDIT_BYTES)
+		return { ok: false, created: false, error: 'content-too-large' };
 
-	if (exit_code == 3)
-		return { ok: false, changed: false, error: 'stale-content' };
-	if (exit_code == 4)
-		return { ok: false, changed: false, error: 'content-too-large' };
-	if (exit_code != 0 || written == null || written != length(content))
-		return { ok: false, changed: false, error: 'editor-operation-failed' };
+	const result = run_editor_write(['create', name], content);
+	return result.ok
+		? { ok: true, created: true, error: '' }
+		: { ok: false, created: false, error: result.error };
+}
 
-	return { ok: true, changed: true, error: '' };
+function rename_active(name, new_name, revision) {
+	if (!valid_name(name) || !valid_name(new_name) || name == new_name)
+		return { ok: false, renamed: false, error: 'invalid-name' };
+	if (!match(revision || '', /^[0-9a-f]{64}$/))
+		return { ok: false, renamed: false, error: 'invalid-revision' };
+
+	const result = run_editor_read(['rename', name, new_name, revision]);
+	return result.ok
+		? { ok: true, renamed: true, error: '' }
+		: { ok: false, renamed: false, error: result.error };
 }
 
 const methods = {
@@ -197,6 +233,14 @@ const methods = {
 	replace_active: {
 		args: { name: '', revision: '', content: '' },
 		call: function (request) { return replace_active(request.args.name, request.args.revision, request.args.content); }
+	},
+	create_foreign: {
+		args: { name: '', content: '' },
+		call: function (request) { return create_foreign(request.args.name, request.args.content); }
+	},
+	rename_active: {
+		args: { name: '', new_name: '', revision: '' },
+		call: function (request) { return rename_active(request.args.name, request.args.new_name, request.args.revision); }
 	},
 	repair: {
 		call: function () {

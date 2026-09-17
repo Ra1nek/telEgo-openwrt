@@ -22,17 +22,41 @@ assert(replaced.ok && replaced.changed, 'restricted editor write succeeds');
 assert(global.editor_written == '# edited\nserver {}\n', 'editor content is streamed through stdin');
 assert(global.editor_command == "/usr/libexec/nginx-telego-editor 'replace' '50-custom.conf' '" + global.fixture.editor_revision + "'", 'editor write uses OpenWrt-compatible quoted helper invocation');
 
+const created = nginx.create_foreign.call({ args: { name: '55-created.conf', content: '# created\n' } });
+assert(created.ok && created.created, 'foreign create succeeds');
+assert(global.editor_written == '# created\n', 'create content is streamed through stdin');
+assert(global.editor_command == "/usr/libexec/nginx-telego-editor 'create' '55-created.conf'", 'create uses quoted helper invocation');
+
+const renamed = nginx.rename_active.call({ args: { name: '50-custom.conf', new_name: '56-renamed.conf', revision: global.fixture.editor_revision } });
+assert(renamed.ok && renamed.renamed, 'foreign rename succeeds');
+assert(global.editor_command == "/usr/libexec/nginx-telego-editor 'rename' '50-custom.conf' '56-renamed.conf' '" + global.fixture.editor_revision + "'", 'rename uses quoted helper invocation');
+
 nginx.replace_active.call({ args: { name: '50-custom+safe.conf', revision: global.fixture.editor_revision, content: 'safe\n' } });
 assert(index(global.editor_command, " '50-custom+safe.conf' ") >= 0, 'valid editor filename is shell-quoted literally');
 const invalidName = nginx.replace_active.call({ args: { name: "a'b$(id).conf", revision: global.fixture.editor_revision, content: 'safe\n' } });
 assert(!invalidName.ok && invalidName.error == 'invalid-name', 'unsafe editor filename rejected before process launch');
+const invalidCreate = nginx.create_foreign.call({ args: { name: '../bad.conf', content: 'x\n' } });
+assert(!invalidCreate.ok && invalidCreate.error == 'invalid-name', 'unsafe create filename rejected before process launch');
+const invalidRename = nginx.rename_active.call({ args: { name: '50-custom.conf', new_name: '50-custom.conf', revision: global.fixture.editor_revision } });
+assert(!invalidRename.ok && invalidRename.error == 'invalid-name', 'rename requires a distinct safe target');
 
 global.fixture.mode = 'editor-stale';
 const stale = nginx.replace_active.call({ args: { name: '50-custom.conf', revision: global.fixture.editor_revision, content: 'x\n' } });
 assert(!stale.ok && stale.error == 'stale-content', 'stale editor revision explicit');
+const staleRename = nginx.rename_active.call({ args: { name: '50-custom.conf', new_name: '57-stale.conf', revision: global.fixture.editor_revision } });
+assert(!staleRename.ok && staleRename.error == 'stale-content', 'stale rename revision explicit');
+
 global.fixture.mode = 'editor-too-large';
 const tooLarge = nginx.replace_active.call({ args: { name: '50-custom.conf', revision: global.fixture.editor_revision, content: 'x\n' } });
 assert(!tooLarge.ok && tooLarge.error == 'content-too-large', 'backend size rejection explicit');
+
+global.fixture.mode = 'editor-target-exists';
+const targetExists = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
+assert(!targetExists.ok && targetExists.error == 'target-exists', 'existing create target explicit');
+
+global.fixture.mode = 'editor-managed-target';
+const managedTarget = nginx.rename_active.call({ args: { name: '50-custom.conf', new_name: '20-telego-core.conf', revision: global.fixture.editor_revision } });
+assert(!managedTarget.ok && managedTarget.error == 'managed-target', 'managed rename target explicit');
 
 global.fixture.mode = 'ok';
 assert(nginx.quarantine.call({ args: { name: '50-custom.conf' } }).ok, 'quarantine RPC');
@@ -49,5 +73,7 @@ const unavailable = nginx.inventory.call();
 assert(!unavailable.ok && unavailable.error == 'admin-helper-unavailable', 'missing admin helper explicit');
 const editorUnavailable = nginx.foreign_content.call({ args: { name: '50-custom.conf' } });
 assert(!editorUnavailable.ok && editorUnavailable.error == 'editor-helper-unavailable', 'missing editor helper explicit');
+const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
+assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 
-print('rpcd Nginx P9 restricted editor tests passed\n');
+print('rpcd Nginx P10 foreign lifecycle tests passed\n');

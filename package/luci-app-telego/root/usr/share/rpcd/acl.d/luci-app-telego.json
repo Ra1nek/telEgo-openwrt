@@ -12,7 +12,7 @@
     "write": {
       "uci": ["telego", "nginx_telego"],
       "ubus": {
-        "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "replace_active", "repair"]
+        "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "replace_active", "create_foreign", "rename_active", "repair"]
       }
     }
   }
