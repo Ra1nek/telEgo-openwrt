@@ -85,7 +85,7 @@ function firewall_status() {
 		'pending_changes'
 	];
 	for (let key in required)
-		if (!(required[key] in values))
+		if (!(key in values))
 			return { ok: false, error: 'invalid-firewall-status' };
 
 	if (!(values.section_state in ['absent', 'owned', 'foreign']))
