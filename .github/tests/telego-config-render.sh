@@ -8,6 +8,7 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 RUNTIME_CONFIG="$tmp/telego.toml"
 CF_ENABLED=0
 SHARED_ENABLED=0
+DIRECT_ENABLED=0
 
 # generate_config() uses OpenWrt helpers plus the uci CLI. Provide a focused
 # fixture instead of parsing TOML by inspection in this test.
@@ -38,6 +39,7 @@ uci() {
 	case "${2:-}" in
 		nginx_telego.cloudflare.enabled) printf '%s\n' "$CF_ENABLED" ;;
 		nginx_telego.shared.enabled) printf '%s\n' "$SHARED_ENABLED" ;;
+		nginx_telego.direct_https.enabled) printf '%s\n' "$DIRECT_ENABLED" ;;
 
 		telego.general.bind_to) printf '%s\n' '0.0.0.0:443' ;;
 		telego.general.log_level) printf '%s\n' 'info' ;;
@@ -101,7 +103,7 @@ assert_shared_tls_runtime() {
 	grep -Fqx 'splice-port = 8443' "$RUNTIME_CONFIG"
 }
 
-assert_cloudflare_tls_runtime() {
+assert_external_tls_runtime() {
 	grep -Fqx 'mask-host = "proxy.example.com"' "$RUNTIME_CONFIG"
 	! grep -Fq 'cert-host =' "$RUNTIME_CONFIG"
 	! grep -Fq 'cert-port =' "$RUNTIME_CONFIG"
@@ -137,11 +139,27 @@ grep -Fqx 'queue-budget-mb = 16' "$tmp/middle-end"
 # stored in UCI, but they must not enter the active telEgo runtime configuration.
 CF_ENABLED=1
 SHARED_ENABLED=0
+DIRECT_ENABLED=0
 generate_config
-assert_cloudflare_tls_runtime
+assert_external_tls_runtime
+
+# Direct HTTPS is another externally terminated WEB TLS profile. It must keep
+# the same Native Shared-Port fields out of the active runtime TOML.
+CF_ENABLED=0
+DIRECT_ENABLED=1
+generate_config
+assert_external_tls_runtime
+
+# Invalid cross-package state is rejected instead of guessing which profile wins.
+CF_ENABLED=1
+if generate_config >/dev/null 2>&1; then
+	echo 'mutually exclusive managed WEB profiles were unexpectedly accepted' >&2
+	exit 1
+fi
 
 # Switching back to Native Shared-Port restores the preserved advanced values.
 CF_ENABLED=0
+DIRECT_ENABLED=0
 SHARED_ENABLED=1
 generate_config
 assert_shared_tls_runtime

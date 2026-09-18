@@ -98,21 +98,44 @@ ensure_service_account() {
 		user_add "$TELEGO_USER" "" "$gid" 'telEgo proxy' '/var/run/telego' '/bin/false'
 }
 
+managed_web_profile() {
+	local profile=none count=0
+
+	if uci_package_bool nginx_telego shared enabled 0; then
+		profile=shared
+		count=$((count + 1))
+	fi
+	if uci_package_bool nginx_telego cloudflare enabled 0; then
+		profile=cloudflare
+		count=$((count + 1))
+	fi
+	if uci_package_bool nginx_telego direct_https enabled 0; then
+		profile=direct_https
+		count=$((count + 1))
+	fi
+
+	if [ "$count" -gt 1 ]; then
+		echo 'telego: nginx_telego managed ingress profiles are mutually exclusive' >&2
+		return 1
+	fi
+
+	printf '%s' "$profile"
+}
+
 generate_config() {
-	local tmp="${RUNTIME_CONFIG}.$$" value cloudflare_web=0
+	local tmp="${RUNTIME_CONFIG}.$$" value profile external_tls_web=0
 
 	mkdir -p /var/etc || return 1
 	umask 077
 	config_load "$UCI_CONFIG"
 
-	# Cloudflare Tunnel terminates public WEB TLS before traffic reaches OpenWrt.
-	# Preserve any Native Shared-Port values in UCI for a future mode switch, but
-	# never leak those local certificate/splice endpoints into the active telEgo
-	# runtime while Cloudflare is the exclusive managed WEB ingress profile.
-	if uci_package_bool nginx_telego cloudflare enabled 0 &&
-	   ! uci_package_bool nginx_telego shared enabled 0; then
-		cloudflare_web=1
-	fi
+	# Profiles where Nginx (or Cloudflare before Nginx) owns WEB TLS must not
+	# activate Native Shared-Port certificate/splice endpoints in telEgo. Keep the
+	# advanced values stored in UCI so switching back to shared restores them.
+	profile="$(managed_web_profile)" || return 1
+	case "$profile" in
+		cloudflare|direct_https) external_tls_web=1 ;;
+	esac
 
 	{
 		printf '%s\n\n' '# Generated from /etc/config/telego. Do not edit.'
@@ -131,7 +154,7 @@ generate_config() {
 		printf '\n%s\n' '[tls-fronting]'
 		write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
 		write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
-		if [ "$cloudflare_web" -eq 0 ]; then
+		if [ "$external_tls_web" -eq 0 ]; then
 			value="$(uci_get_default tls_fronting cert_host '')"
 			[ -n "$value" ] && write_toml_string 'cert-host' "$value"
 			value="$(uci_get_default tls_fronting cert_port '')"
@@ -145,7 +168,7 @@ generate_config() {
 		config_list_foreach tls_fronting mask_sni_safelist emit_toml_list_item
 		printf ']\n'
 
-		if [ "$cloudflare_web" -eq 0 ]; then
+		if [ "$external_tls_web" -eq 0 ]; then
 			value="$(uci_get_default tls_fronting splice_host '')"
 			[ -n "$value" ] && write_toml_string 'splice-host' "$value"
 			value="$(uci_get_default tls_fronting splice_port '')"

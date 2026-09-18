@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=13
+PKG_RELEASE:=14
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -20,8 +20,8 @@ Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
 copies, guarded administrator operations for foreign/custom conf.d files, a
 restricted transactional editor and lifecycle helper for foreign files, and
-opt-in native shared-port or Cloudflare Tunnel ingress profiles. Managed
-listeners are disabled by default.
+opt-in native shared-port, Cloudflare Tunnel, or Direct HTTPS ingress profiles.
+Managed listeners are disabled by default.
 endef
 
 # This package only installs configuration and helper scripts; it has no source

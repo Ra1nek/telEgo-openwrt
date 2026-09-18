@@ -117,6 +117,31 @@ validate_path() {
     [ -r "$value" ] || fail "$label is not readable: $value"
 }
 
+validate_tls_material() {
+    certificate=$1
+    certificate_key=$2
+    label=$3
+
+    validate_path "$certificate" "$label TLS certificate"
+    validate_path "$certificate_key" "$label TLS private key"
+
+    # -f deliberately follows symlinks: ACME clients commonly publish stable
+    # certificate paths as symlinks to the current renewal generation.
+    [ -f "$certificate" ] ||
+        fail "$label TLS certificate must resolve to a regular file: $certificate"
+    [ -f "$certificate_key" ] ||
+        fail "$label TLS private key must resolve to a regular file: $certificate_key"
+    [ "$certificate" != "$certificate_key" ] ||
+        fail "$label TLS certificate and private key must use different files"
+
+    grep -Fqx -- '-----BEGIN CERTIFICATE-----' "$certificate" 2>/dev/null &&
+        grep -Fqx -- '-----END CERTIFICATE-----' "$certificate" 2>/dev/null ||
+        fail "$label TLS certificate is not PEM encoded: $certificate"
+    grep -Eq '^-----BEGIN (RSA |EC )?PRIVATE KEY-----$' "$certificate_key" 2>/dev/null &&
+        grep -Eq '^-----END (RSA |EC )?PRIVATE KEY-----$' "$certificate_key" 2>/dev/null ||
+        fail "$label TLS private key is not an unencrypted PEM private key: $certificate_key"
+}
+
 list_has_word() {
     list=" $1 "
     word=$2
@@ -349,16 +374,20 @@ fi
 
 shared_enabled=$(uci_get nginx_telego shared enabled 0)
 cloudflare_enabled=$(uci_get nginx_telego cloudflare enabled 0)
+direct_https_enabled=$(uci_get nginx_telego direct_https enabled 0)
 manage_fallback=$(uci_get nginx_telego fallback manage 1)
 
 desired_ingress=0
 desired_fallback=0
+enabled_profiles=0
+is_enabled "$shared_enabled" && enabled_profiles=$((enabled_profiles + 1))
+is_enabled "$cloudflare_enabled" && enabled_profiles=$((enabled_profiles + 1))
+is_enabled "$direct_https_enabled" && enabled_profiles=$((enabled_profiles + 1))
 
-if is_enabled "$shared_enabled" && is_enabled "$cloudflare_enabled"; then
-    fail 'choose either native shared-port or Cloudflare ingress; both managed profiles cannot be enabled at the same time'
-fi
+[ "$enabled_profiles" -le 1 ] ||
+    fail 'choose exactly one managed ingress profile: native shared-port, Cloudflare, or Direct HTTPS'
 
-if is_enabled "$shared_enabled" || is_enabled "$cloudflare_enabled"; then
+if [ "$enabled_profiles" -eq 1 ]; then
     desired_ingress=1
     if is_enabled "$manage_fallback"; then
         desired_fallback=1
@@ -368,14 +397,14 @@ fi
 web_hostname=$(uci_get telego web_proxy hostname '')
 shared_hostname=$(uci_get nginx_telego shared hostname "$web_hostname")
 cloudflare_hostname=$(uci_get nginx_telego cloudflare hostname "$web_hostname")
+direct_https_hostname=$(uci_get nginx_telego direct_https hostname "$web_hostname")
 
 if is_enabled "$shared_enabled"; then
     validate_hostname "$shared_hostname" 'shared hostname'
     validate_shared_contract "$shared_hostname"
     shared_certificate=$(uci_get nginx_telego shared certificate '')
     shared_certificate_key=$(uci_get nginx_telego shared certificate_key '')
-    validate_path "$shared_certificate" 'shared TLS certificate'
-    validate_path "$shared_certificate_key" 'shared TLS private key'
+    validate_tls_material "$shared_certificate" "$shared_certificate_key" 'shared'
     check_port_free 8443 'shared TLS ingress'
     check_port_free 8444 'certificate source'
 fi
@@ -384,6 +413,15 @@ if is_enabled "$cloudflare_enabled"; then
     validate_hostname "$cloudflare_hostname" 'Cloudflare hostname'
     validate_web_contract "$cloudflare_hostname" 'Cloudflare ingress'
     check_port_free 18080 'Cloudflare ingress'
+fi
+
+if is_enabled "$direct_https_enabled"; then
+    validate_hostname "$direct_https_hostname" 'Direct HTTPS hostname'
+    validate_web_contract "$direct_https_hostname" 'Direct HTTPS ingress'
+    direct_https_certificate=$(uci_get nginx_telego direct_https certificate '')
+    direct_https_certificate_key=$(uci_get nginx_telego direct_https certificate_key '')
+    validate_tls_material "$direct_https_certificate" "$direct_https_certificate_key" 'Direct HTTPS'
+    check_port_free 18443 'Direct HTTPS ingress'
 fi
 
 if [ "$desired_fallback" -eq 1 ]; then
@@ -441,6 +479,32 @@ server {
     }
 }
 EOF_SHARED
+fi
+
+if is_enabled "$direct_https_enabled"; then
+    cat >>"$ingress_candidate" <<EOF_DIRECT_HTTPS
+
+# Direct HTTPS backend: P12.2 redirects WAN TCP/443 -> Nginx :18443.
+# The listener intentionally binds all local addresses so firewall4 REDIRECT can
+# deliver packets without changing uhttpd/LuCI ownership of LAN TCP/443.
+server {
+    listen 0.0.0.0:18443 ssl default_server;
+    ssl_reject_handshake on;
+}
+
+server {
+    listen 0.0.0.0:18443 ssl;
+    http2 on;
+    server_name $direct_https_hostname;
+    client_max_body_size 16m;
+
+    ssl_certificate $direct_https_certificate;
+    ssl_certificate_key $direct_https_certificate_key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+
+    include /etc/nginx/snippets/telego.locations;
+}
+EOF_DIRECT_HTTPS
 fi
 
 if is_enabled "$cloudflare_enabled"; then

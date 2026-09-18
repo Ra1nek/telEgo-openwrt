@@ -18,6 +18,10 @@ case "$2" in
   nginx_telego.shared.certificate_key) printf '%s\n' "${FIX_KEY:-}" ;;
   nginx_telego.cloudflare.enabled) printf '%s\n' "${FIX_CF_ENABLED:-0}" ;;
   nginx_telego.cloudflare.hostname) printf '%s\n' "${FIX_CF_HOSTNAME:-}" ;;
+  nginx_telego.direct_https.enabled) printf '%s\n' "${FIX_DIRECT_ENABLED:-0}" ;;
+  nginx_telego.direct_https.hostname) printf '%s\n' "${FIX_DIRECT_HOSTNAME:-}" ;;
+  nginx_telego.direct_https.certificate) printf '%s\n' "${FIX_DIRECT_CERT:-}" ;;
+  nginx_telego.direct_https.certificate_key) printf '%s\n' "${FIX_DIRECT_KEY:-}" ;;
   nginx_telego.fallback.manage) printf '%s\n' "${FIX_FALLBACK_MANAGE:-1}" ;;
   telego.general.bind_to) printf '%s\n' "${FIX_PUBLIC_BIND:-0.0.0.0:443}" ;;
   telego.web_proxy.enabled) printf '%s\n' "${FIX_WEB_ENABLED:-1}" ;;
@@ -54,8 +58,16 @@ chmod +x "$work/nginx-init"
 
 : >"$work/uci.conf"
 : >"$work/nginx-uci"
-printf 'dummy cert\n' >"$work/fullchain.pem"
-printf 'dummy key\n' >"$work/privkey.pem"
+cat >"$work/fullchain.pem" <<'PEM'
+-----BEGIN CERTIFICATE-----
+test-certificate-body
+-----END CERTIFICATE-----
+PEM
+cat >"$work/privkey.pem" <<'PEM'
+-----BEGIN PRIVATE KEY-----
+test-private-key-body
+-----END PRIVATE KEY-----
+PEM
 
 export UCI_BIN="$work/uci" NGINX_BIN="$work/nginx" NGINX_CONF="$work/uci.conf"
 export NGINX_INIT="$work/nginx-init" NGINX_UCI_CONFIG="$work/nginx-uci"
@@ -64,6 +76,7 @@ export NGINX_TELEGO_INGRESS_OUTPUT="$work/conf.d/80-telego-ingress.conf"
 export NGINX_TELEGO_FALLBACK_OUTPUT="$work/conf.d/85-telego-fallback.conf"
 export NGINX_LOG="$work/nginx.log" NGINX_RELOAD_LOG="$work/reload.log"
 export FIX_CERT="$work/fullchain.pem" FIX_KEY="$work/privkey.pem"
+export FIX_DIRECT_CERT="$work/fullchain.pem" FIX_DIRECT_KEY="$work/privkey.pem"
 : >"$NGINX_LOG"
 : >"$NGINX_RELOAD_LOG"
 
@@ -120,18 +133,40 @@ cmp "$work/before-contract" "$NGINX_TELEGO_INGRESS_OUTPUT"
 export FIX_WEB_HOSTNAME=web.example.com
 
 # Native shared-port uses the fixed private topology.
-export FIX_CF_ENABLED=0 FIX_SHARED_ENABLED=1 FIX_SHARED_HOSTNAME=proxy.example.com
+export FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=0 FIX_SHARED_ENABLED=1 FIX_SHARED_HOSTNAME=proxy.example.com
 export FIX_WEB_HOSTNAME=proxy.example.com FIX_MASK_HOST=proxy.example.com
 "$RENDER" apply
 grep -q 'listen 127.0.0.1:8443 ssl proxy_protocol;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'listen 127.0.0.1:8444 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
-# Profiles are mutually exclusive.
-export FIX_CF_ENABLED=1 FIX_CF_HOSTNAME=proxy.example.com
+# Direct HTTPS owns real WEB TLS on the private firewall redirect backend.
+export FIX_SHARED_ENABLED=0 FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=1
+export FIX_DIRECT_HOSTNAME=direct.example.com FIX_WEB_HOSTNAME=direct.example.com
+"$RENDER" apply
+grep -q 'listen 0.0.0.0:18443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'listen 0.0.0.0:18443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'server_name direct.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'http2 on;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q "ssl_certificate $FIX_DIRECT_CERT;" "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q "ssl_certificate_key $FIX_DIRECT_KEY;" "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+
+# PEM shape is checked before generated state changes; nginx -t remains the
+# authoritative syntax/key-pair check on the router.
+cp "$NGINX_TELEGO_INGRESS_OUTPUT" "$work/before-bad-pem"
+printf '%s\n' 'not a certificate' >"$work/bad-cert.pem"
+export FIX_DIRECT_CERT="$work/bad-cert.pem"
+if "$RENDER" apply >"$work/bad-pem.out" 2>&1; then exit 1; fi
+cmp "$work/before-bad-pem" "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'TLS certificate is not PEM encoded' "$work/bad-pem.out"
+export FIX_DIRECT_CERT="$work/fullchain.pem"
+
+# All three managed ingress profiles are mutually exclusive.
+export FIX_CF_ENABLED=1 FIX_CF_HOSTNAME=direct.example.com
 if "$RENDER" apply >"$work/both.out" 2>&1; then exit 1; fi
-grep -q 'choose either native shared-port or Cloudflare ingress' "$work/both.out"
-export FIX_CF_ENABLED=0
+grep -q 'choose exactly one managed ingress profile' "$work/both.out"
+export FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=0
 
 # Port conflicts in hand-written or UCI-managed Nginx state are rejected.
 export FIX_SHARED_ENABLED=0 FIX_CF_ENABLED=1 FIX_CF_HOSTNAME=web.example.com FIX_WEB_HOSTNAME=web.example.com
