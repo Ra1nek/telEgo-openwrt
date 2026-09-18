@@ -14,7 +14,8 @@
 | Установить telEgo на OpenWrt | **[Установка](INSTALL.md)** |
 | Зарегистрировать домен и настроить DNS | **[Домен и DNS](DOMAIN.md)** |
 | Установить и настроить Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE.md)** |
-| Выпустить/обновлять локальный TLS-сертификат через DNS-01 | **[ACME DNS-01](P12_ACME_DNS01.md)** |
+| Выпустить/обновлять локальный TLS-сертификат через DNS-01 | **[TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)** |
+| Проверить Direct HTTPS на реальном роутере | **[Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)** |
 | Настроить MTProxy, FakeTLS, WEB Proxy или Middle-End | **[Конфигурация и LuCI](CONFIGURATION.md)** |
 | Проверить ownership, drift и reconciliation Nginx-файлов | **[Nginx files](NGINX_FILES.md)** |
 | Понять схему трафика и устройство проекта | **[Архитектура](ARCHITECTURE.md)** |
@@ -72,9 +73,9 @@
 - health checks, logs, token rotation и troubleshooting;
 - граница credentials между `cloudflared` и telEgo.
 
-### [ACME DNS-01](P12_ACME_DNS01.md)
+### [TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)
 
-Runbook P12.4 для локального Direct HTTPS TLS:
+Инструкция по выпуску и безопасному обновлению локального TLS-сертификата:
 
 - `acme-acmesh` + `acme-acmesh-dnsapi`;
 - DNS-01 без захвата публичных портов 80/443;
@@ -82,6 +83,16 @@ Runbook P12.4 для локального Direct HTTPS TLS:
 - LuCI Certificate Status и Certificate Preflight;
 - renewal hotplug → certificate/key/hostname/expiry checks → `nginx -t`;
 - штатный OpenWrt `acme.renew` → безопасный Nginx reload без второго reload от telEgo.
+
+### [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)
+
+Финальная аппаратная проверка:
+
+- LAN TCP/443 остаётся за uhttpd/LuCI;
+- WAN TCP/443 проходит через package-owned firewall4 redirect в Nginx :18443;
+- WAN TCP/18443 не публикуется напрямую;
+- public HTTP/2, реальный Telegram Desktop WEB и reboot persistence;
+- контролируемый rollback на Cloudflare :18080.
 
 ### [Конфигурация и LuCI](CONFIGURATION.md)
 

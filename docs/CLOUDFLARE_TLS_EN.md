@@ -1,8 +1,8 @@
-# P11 — Cloudflare WEB TLS ownership contract
+# Cloudflare WEB TLS — ownership boundaries
 
-[Русский](P11_CLOUDFLARE_TLS.md) · [English](P11_CLOUDFLARE_TLS_EN.md)
+[Русский](CLOUDFLARE_TLS.md) · [**English**](CLOUDFLARE_TLS_EN.md) · [Full Cloudflare Tunnel setup](CLOUDFLARE_EN.md)
 
-P11 defines the ownership boundary between Cloudflare WEB ingress and local Native Shared-Port TLS.
+This document defines the ownership boundary between Cloudflare WEB ingress, Direct HTTPS, and local Native Shared-Port TLS.
 
 ## Target Cloudflare flow
 
@@ -22,7 +22,7 @@ telEgo WEB 127.0.0.1:8080
 
 The Cloudflare WEB path does not require a local WEB certificate, ACME/Let's Encrypt/certbot renewal, or a separate HTTPS origin on OpenWrt. The Published Application must use `http://127.0.0.1:18080`.
 
-## P11 runtime invariant
+## Runtime invariant
 
 When both conditions are true:
 
@@ -44,7 +44,7 @@ This applies only to endpoint fields that connect telEgo to the local Native Sha
 
 ## Why UCI values are preserved
 
-P11 does not delete the stored values:
+The integration does not delete the stored values:
 
 ```text
 telego.tls_fronting.cert_host
@@ -95,9 +95,9 @@ Native Shared-Port → Cloudflare Tunnel
 
 removes local certificate/splice endpoints from the active `telego.toml`, while switching back restores the preserved values.
 
-## What P11 intentionally does not do
+## What The integration intentionally does not do
 
-P11 does not:
+The integration does not:
 
 - delete administrator certificate/key files;
 - clear Native Shared-Port UCI fields;

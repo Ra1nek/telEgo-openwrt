@@ -19,6 +19,8 @@ This runbook covers the **complete WEB Proxy path**, not only creation of a Clou
 
 Cloudflare Tunnel is used here only for WEB Proxy traffic. A direct telEgo MTProto/MTProxy listener remains a separate network path and can continue to use its own public address and port.
 
+The TLS ownership boundary between Cloudflare, Direct HTTPS, and Native Shared-Port is documented separately in **[Cloudflare WEB TLS — ownership boundaries](CLOUDFLARE_TLS_EN.md)**. For a Direct HTTPS → Cloudflare transition, also follow the rollback section in the **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)**.
+
 > [!IMPORTANT]
 > If you **already have a working** `/etc/nginx/conf.d/zz-telego-cloudflare.conf`, do not enable the managed Cloudflare profile on top of it. Both configurations serve the same role and must not own `127.0.0.1:18080` at the same time. A package upgrade must not remove or overwrite your hand-written file.
 

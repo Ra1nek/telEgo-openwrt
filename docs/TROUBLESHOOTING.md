@@ -135,7 +135,22 @@ flowchart LR
 - upstream NAT/port forwarding, если OpenWrt находится за другим router;
 - service logs сразу после внешней попытки подключения.
 
-Installer не создаёт WAN firewall rules автоматически.
+Для обычного MTProxy installer не создаёт WAN firewall rules автоматически. **Исключение — managed Direct HTTPS:** `nginx-telego-firewall` транзакционно владеет только `firewall.telego_direct_https` и создаёт WAN TCP/443 → local `:18443`. Не дублируйте этот redirect вручную.
+
+## Direct HTTPS не работает
+
+Сначала отделите Nginx backend от WAN redirect:
+
+```sh
+/usr/libexec/nginx-telego-firewall status
+/usr/libexec/nginx-telego-firewall preflight
+/usr/libexec/nginx-telego-cert status
+/usr/libexec/nginx-telego-cert preflight
+nginx -t -c /etc/nginx/uci.conf
+netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
+```
+
+Если router-side проверки проходят, используйте внешний клиент из другой сети. Полный acceptance-test: **[Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)**.
 
 ## WEB Proxy не работает
 
@@ -230,6 +245,8 @@ logread -e telego | tail -n 80
 ## Связанная документация
 
 - [Конфигурация](CONFIGURATION.md)
+- [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)
+- [TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)
 - [Local telemetry API](API.md)
 - [Архитектура](ARCHITECTURE.md)
 - [Безопасность](SECURITY.md)

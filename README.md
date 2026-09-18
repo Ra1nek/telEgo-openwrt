@@ -235,6 +235,14 @@ flowchart LR
 include /etc/nginx/snippets/telego.locations;
 ```
 
+Managed Nginx ingress имеет три взаимоисключающих режима:
+
+- **Direct HTTPS** — LAN `:443` остаётся за LuCI/uhttpd, WAN `:443` транзакционно перенаправляется firewall4 в Nginx `:18443`;
+- **Cloudflare Tunnel** — public TLS принадлежит Cloudflare, локальный ingress слушает `127.0.0.1:18080`;
+- **Native Shared-Port (Advanced)** — telEgo владеет public `:443`, а обычный TLS splices в Nginx `:8443`.
+
+Для Direct HTTPS: **[TLS-сертификат / ACME DNS-01](docs/TLS_CERTIFICATE.md)** и **[аппаратная проверка LAN/WAN](docs/DIRECT_HTTPS_TEST.md)**.
+
 WEB Proxy поддерживает:
 
 | Carrier | Модель |

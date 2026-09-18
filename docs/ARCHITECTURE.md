@@ -302,6 +302,23 @@ Reconciler и P8 admin helper используют один kernel `flock(2)` lo
 
 Полная state machine ownership и P8 operations описаны в [NGINX_FILES.md](NGINX_FILES.md).
 
+### Direct HTTPS topology
+
+Direct HTTPS разделяет LAN management и public WEB ingress на уровне firewall4. uhttpd продолжает владеть локальным TCP/443, а package-owned redirect применяется только к трафику из firewall zone `wan`:
+
+```mermaid
+flowchart LR
+    LAN["LAN client"] --> U["uhttpd / LuCI<br/>LAN :443"]
+    WAN["Internet client<br/>WAN :443"] --> FW["firewall.telego_direct_https<br/>DNAT 443 → 18443"]
+    FW --> TLS["Nginx TLS<br/>0.0.0.0:18443"]
+    TLS --> LOC["telego.locations"]
+    LOC --> WEB["127.0.0.1:8080<br/>telEgo WEB"]
+```
+
+Apply ordering intentionally avoids a dead public path: firewall ownership is preflighted first, Nginx is reconciled and validated with `nginx -t`, and only then is WAN/443 redirected to `:18443`. When leaving Direct HTTPS, the managed redirect is removed before the backend listener.
+
+Certificate status/renewal is described in [TLS_CERTIFICATE.md](TLS_CERTIFICATE.md); real LAN/WAN acceptance is in [DIRECT_HTTPS_TEST.md](DIRECT_HTTPS_TEST.md).
+
 ### Shared-port topology
 
 Наиболее функциональная topology позволяет telEgo владеть public `:443` для MTProxy/FakeTLS, а ordinary TLS splice'ить на private Nginx TLS listener. Затем Nginx передаёт decrypted WEB requests private telEgo WEB listener.

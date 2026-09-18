@@ -1,0 +1,139 @@
+#!/bin/sh
+# Read-only router-side preflight for Direct HTTPS hardware acceptance.
+set -u
+
+FAIL=0
+WARN=0
+
+pass() { printf 'PASS  %s\n' "$*"; }
+fail() { printf 'FAIL  %s\n' "$*" >&2; FAIL=$((FAIL + 1)); }
+warn() { printf 'WARN  %s\n' "$*" >&2; WARN=$((WARN + 1)); }
+
+need() {
+	command -v "$1" >/dev/null 2>&1 || {
+		fail "required command not found: $1"
+		return 1
+	}
+}
+
+field() {
+	printf '%s\n' "$1" | awk -F '\t' -v k="$2" '$1 == k { print $2; exit }'
+}
+
+need uci
+need grep
+need awk
+need netstat
+
+direct=$(uci -q get nginx_telego.direct_https.enabled 2>/dev/null || true)
+shared=$(uci -q get nginx_telego.shared.enabled 2>/dev/null || true)
+cloudflare=$(uci -q get nginx_telego.cloudflare.enabled 2>/dev/null || true)
+
+[ "$direct" = 1 ] && pass "Direct HTTPS profile enabled" || fail "nginx_telego.direct_https.enabled is not 1"
+[ "${shared:-0}" != 1 ] && pass "Native Shared-Port disabled" || fail "Native Shared-Port is also enabled"
+[ "${cloudflare:-0}" != 1 ] && pass "Cloudflare profile disabled" || fail "Cloudflare profile is also enabled"
+
+FW=/usr/libexec/nginx-telego-firewall
+CERT=/usr/libexec/nginx-telego-cert
+NGINX=/usr/sbin/nginx
+CONF=/etc/nginx/uci.conf
+
+if [ -x "$FW" ]; then
+	fw_status=$("$FW" status 2>&1) || {
+		fail "firewall status failed: $fw_status"
+		fw_status=''
+	}
+	if [ -n "$fw_status" ]; then
+		[ "$(field "$fw_status" section_state)" = owned ] && pass "firewall.telego_direct_https is package-owned" || fail "managed firewall section is not owned"
+		[ "$(field "$fw_status" managed_match)" = 1 ] && pass "managed WAN/443 redirect matches desired state" || fail "managed WAN/443 redirect drift detected"
+		wan_input=$(field "$fw_status" wan_input)
+		case "$wan_input" in
+			accept|ACCEPT) fail "WAN input policy is ACCEPT; backend :18443 may be directly exposed" ;;
+			'') warn "WAN input policy was not reported" ;;
+			*) pass "WAN input policy is $wan_input" ;;
+		esac
+		foreign=$(field "$fw_status" foreign_wan443)
+		[ -z "$foreign" ] || [ "$foreign" = "-" ] 			&& pass "no foreign WAN TCP/443 redirect detected" 			|| fail "foreign WAN TCP/443 owner detected: $foreign"
+	fi
+	if "$FW" preflight >/tmp/nginx-telego-fw-preflight.$$ 2>&1; then
+		pass "firewall preflight"
+	else
+		fail "firewall preflight: $(cat /tmp/nginx-telego-fw-preflight.$$ 2>/dev/null)"
+	fi
+	rm -f /tmp/nginx-telego-fw-preflight.$$
+else
+	fail "$FW is missing or not executable"
+fi
+
+if [ -x "$CERT" ]; then
+	cert_status=$("$CERT" status 2>&1) || {
+		fail "certificate status failed: $cert_status"
+		cert_status=''
+	}
+	if [ -n "$cert_status" ]; then
+		[ "$(field "$cert_status" certificate_state)" = valid ] && pass "TLS certificate parses" || fail "TLS certificate is not valid"
+		[ "$(field "$cert_status" key_state)" = valid ] && pass "TLS private key parses" || fail "TLS private key is not valid"
+		[ "$(field "$cert_status" key_match)" = 1 ] && pass "certificate and key match" || fail "certificate/key mismatch"
+		[ "$(field "$cert_status" hostname_match)" = 1 ] && pass "certificate covers configured hostname" || fail "certificate hostname mismatch"
+		expiry=$(field "$cert_status" expiry_state)
+		case "$expiry" in
+			ok) pass "certificate expiry state is ok" ;;
+			warning) warn "certificate expires within 30 days" ;;
+			critical|expired|invalid) fail "certificate expiry state is $expiry" ;;
+			*) warn "certificate expiry state is ${expiry:-unknown}" ;;
+		esac
+	fi
+	if "$CERT" preflight >/tmp/nginx-telego-cert-preflight.$$ 2>&1; then
+		pass "certificate preflight including nginx -t"
+	else
+		fail "certificate preflight: $(cat /tmp/nginx-telego-cert-preflight.$$ 2>/dev/null)"
+	fi
+	rm -f /tmp/nginx-telego-cert-preflight.$$
+else
+	fail "$CERT is missing or not executable"
+fi
+
+if [ -x "$NGINX" ] && [ -r "$CONF" ]; then
+	if "$NGINX" -t -c "$CONF" >/tmp/nginx-telego-nginx-test.$$ 2>&1; then
+		pass "nginx -t -c $CONF"
+	else
+		fail "nginx -t failed: $(cat /tmp/nginx-telego-nginx-test.$$ 2>/dev/null)"
+	fi
+	rm -f /tmp/nginx-telego-nginx-test.$$
+else
+	fail "Nginx executable or $CONF is unavailable"
+fi
+
+check_uci() {
+	key=$1
+	expected=$2
+	actual=$(uci -q get "$key" 2>/dev/null || true)
+	[ "$actual" = "$expected" ] && pass "$key=$expected" || fail "$key expected $expected, got ${actual:-<missing>}"
+}
+
+check_uci firewall.telego_direct_https.src wan
+check_uci firewall.telego_direct_https.proto tcp
+check_uci firewall.telego_direct_https.src_dport 443
+check_uci firewall.telego_direct_https.dest_port 18443
+check_uci firewall.telego_direct_https.family any
+target=$(uci -q get firewall.telego_direct_https.target 2>/dev/null || true)
+[ "$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')" = dnat ] && pass "firewall target=DNAT" || fail "firewall target is ${target:-<missing>}"
+check_uci firewall.telego_direct_https.reflection 0
+check_uci firewall.telego_direct_https.enabled 1
+
+listeners=$(netstat -lntp 2>/dev/null || true)
+printf '%s\n' "$listeners" | grep -Eq '[:.]18443[[:space:]].*(nginx|/nginx)' 	&& pass "Nginx is listening on :18443" 	|| fail "Nginx :18443 listener not found"
+
+printf '%s\n' "$listeners" | grep -Eq '[:.]8080[[:space:]].*(telego|/telego)' 	&& pass "telEgo WEB is listening on :8080" 	|| warn "could not prove telEgo ownership of :8080 from netstat"
+
+printf '%s\n' "$listeners" | grep -Eq '[:.]443[[:space:]].*(uhttpd|/uhttpd)' 	&& pass "uhttpd is listening on local :443 for LuCI" 	|| warn "could not prove uhttpd ownership of local :443 from netstat; verify from a LAN client"
+
+if [ -r /etc/nginx/conf.d/80-telego-ingress.conf ]; then
+	grep -q '0.0.0.0:18443' /etc/nginx/conf.d/80-telego-ingress.conf 		&& pass "generated Direct HTTPS listener is present" 		|| fail "80-telego-ingress.conf does not contain :18443"
+else
+	fail "/etc/nginx/conf.d/80-telego-ingress.conf is missing"
+fi
+
+printf '\nRouter-side result: %d failure(s), %d warning(s).\n' "$FAIL" "$WARN"
+printf '%s\n' 'External LAN/WAN, HTTP/2, Telegram Desktop, reboot and Cloudflare rollback tests are still required.'
+[ "$FAIL" -eq 0 ]

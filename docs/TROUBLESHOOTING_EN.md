@@ -133,7 +133,22 @@ Verify:
 - upstream NAT/port forwarding if the router is behind another router;
 - service logs after an external connection attempt.
 
-The installer does not create WAN firewall rules.
+For ordinary MTProxy listeners, the installer does not create WAN firewall rules. **Managed Direct HTTPS is the exception:** `nginx-telego-firewall` transactionally owns only `firewall.telego_direct_https` and creates WAN TCP/443 → local `:18443`. Do not duplicate that redirect manually.
+
+## Direct HTTPS does not work
+
+Separate the local Nginx backend from the WAN redirect first:
+
+```sh
+/usr/libexec/nginx-telego-firewall status
+/usr/libexec/nginx-telego-firewall preflight
+/usr/libexec/nginx-telego-cert status
+/usr/libexec/nginx-telego-cert preflight
+nginx -t -c /etc/nginx/uci.conf
+netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
+```
+
+If router-side checks pass, test from a genuinely external network. Full acceptance procedure: **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)**.
 
 ## WEB Proxy does not work
 

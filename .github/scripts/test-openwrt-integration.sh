@@ -4,6 +4,8 @@ cd "$(dirname "$0")/../.."
 
 bash -n scripts/install-on-router.sh
 sh -n install.sh
+sh -n scripts/verify-direct-https-router.sh
+python3 .github/scripts/check-doc-links.py
 python3 - <<'PY'
 from pathlib import Path
 

@@ -245,7 +245,7 @@ or a supported local Unix socket.
 
 `20-telego-core.conf` defines the shared `telego_web → 127.0.0.1:8080` upstream and the Nginx maps used by the integration. Its canonical repair source is stored under `/usr/share/nginx-telego/templates/20-telego-core.conf`.
 
-`telego.locations` is a reusable HTTP/WebSocket/fallback snippet for a normal Nginx TLS server. It is **not an MTProto handler**. In native shared-port mode, the private TLS server on `:8443` includes it after telEgo has separated MTProxy from ordinary TLS.
+`telego.locations` is a reusable HTTP/WebSocket/fallback snippet for a normal Nginx TLS server. It is **not an MTProto handler**. Direct HTTPS includes it on Nginx `:18443`; Native Shared-Port includes it on the private TLS listener `:8443` after telEgo has separated MTProxy from ordinary TLS.
 
 The opt-in managed profiles use:
 
@@ -255,15 +255,61 @@ The opt-in managed profiles use:
 /etc/nginx/conf.d/85-telego-fallback.conf
 ```
 
-`80-telego-ingress.conf` exists only while Cloudflare or Native Shared-Port managed ingress is enabled. `85-telego-fallback.conf` exists only while a managed profile is enabled and `fallback.manage=1`. Generated files carry both the common nginx-telego marker and a role-specific marker so content copied to the wrong reserved path is not silently adopted.
+`80-telego-ingress.conf` exists only while Direct HTTPS, Cloudflare, or Native Shared-Port managed ingress is enabled. `85-telego-fallback.conf` exists only while a managed profile is enabled and `fallback.manage=1`. Generated files carry both the common nginx-telego marker and a role-specific marker so content copied to the wrong reserved path is not silently adopted.
 
-Both profiles are disabled by default and are **mutually exclusive**.
+All three managed profiles are disabled by default and are **mutually exclusive**.
 
 The historical `/etc/nginx/conf.d/telego.conf` and `/etc/nginx/conf.d/zz-telego-managed.conf` are migration-only paths. Reconciliation removes them automatically only when package ownership can be proven; changed/foreign regular files are preserved rather than silently discarded.
 
 See **[Nginx file ownership and reconciliation](NGINX_FILES_EN.md)** for the exact state machine and rollback rules.
 
-## 5.1 Cloudflare profile
+## 5.1 Direct HTTPS profile
+
+Direct HTTPS keeps LAN TCP/443 owned by uhttpd/LuCI and redirects only inbound WAN TCP/443 to a dedicated Nginx TLS backend:
+
+```text
+LAN :443 ───────────────────────────────> uhttpd / LuCI
+
+WAN :443 → firewall.telego_direct_https
+                     ↓ DNAT
+               Nginx :18443
+                     ↓
+             telego.locations
+                     ↓
+             telEgo WEB :8080
+```
+
+The profile requires an enabled WEB Proxy on `127.0.0.1:8080`, matching WEB/ingress hostname, trusted loopback proxy, a real certificate/key, exactly one enabled firewall zone named `wan`, WAN input other than `ACCEPT`, and no foreign WAN TCP/443 redirect.
+
+Minimal configuration:
+
+```sh
+uci set nginx_telego.direct_https.enabled='1'
+uci set nginx_telego.direct_https.hostname='web.example.com'
+uci set nginx_telego.direct_https.certificate='/etc/ssl/acme/web.example.com.fullchain.crt'
+uci set nginx_telego.direct_https.certificate_key='/etc/ssl/acme/web.example.com.key'
+uci set nginx_telego.cloudflare.enabled='0'
+uci set nginx_telego.shared.enabled='0'
+uci commit nginx_telego
+/etc/init.d/nginx-telego reload
+```
+
+The apply path checks firewall ownership first, reconciles Nginx next, and installs the package-owned WAN/443 redirect only after the Nginx configuration is known-good. When leaving Direct HTTPS, the redirect is removed **before** the `:18443` listener disappears.
+
+Read-only checks:
+
+```sh
+/usr/libexec/nginx-telego-firewall status
+/usr/libexec/nginx-telego-firewall preflight
+/usr/libexec/nginx-telego-cert status
+/usr/libexec/nginx-telego-cert preflight
+```
+
+Certificate guide: **[TLS certificate / ACME DNS-01](TLS_CERTIFICATE_EN.md)**.
+
+Final LAN/WAN/HTTP2/Telegram/reboot/rollback acceptance: **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)**.
+
+## 5.2 Cloudflare profile
 
 See the full **[Cloudflare Tunnel guide](CLOUDFLARE_EN.md)**.
 
@@ -281,7 +327,7 @@ It creates the loopback `127.0.0.1:18080` ingress, restores the client address f
 
 The Cloudflare profile **does not use `telego.locations`** because it needs Cloudflare-specific client-IP handling.
 
-## 5.2 Native shared-port profile
+## 5.3 Native shared-port profile
 
 This mode lets telEgo MTProxy and WEB Proxy share public TCP/443:
 
@@ -550,4 +596,4 @@ When managed profiles are disabled, nginx-telego removes only its own generated 
 - [Pinned Telegram Middle-End design](https://github.com/Scratch-net/telego/blob/d9e74017e5f6c8ede4e3ef633646b15ac26abb30/docs/middle-end.md)
 - [OpenWrt Nginx](https://openwrt.org/docs/guide-user/services/webserver/nginx)
 
-[← Documentation](README_EN.md) · [Cloudflare Tunnel](CLOUDFLARE_EN.md) · [Русский →](CONFIGURATION.md)
+[← Documentation](README_EN.md) · [TLS certificate](TLS_CERTIFICATE_EN.md) · [Direct HTTPS test](DIRECT_HTTPS_TEST_EN.md) · [Cloudflare Tunnel](CLOUDFLARE_EN.md) · [Русский →](CONFIGURATION.md)

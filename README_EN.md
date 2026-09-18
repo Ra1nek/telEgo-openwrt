@@ -235,6 +235,14 @@ Include this in the administrator-managed TLS server:
 include /etc/nginx/snippets/telego.locations;
 ```
 
+Managed Nginx ingress has three mutually exclusive modes:
+
+- **Direct HTTPS** — LAN `:443` remains with LuCI/uhttpd while WAN `:443` is transactionally redirected by firewall4 to Nginx `:18443`;
+- **Cloudflare Tunnel** — public TLS belongs to Cloudflare and local ingress listens on `127.0.0.1:18080`;
+- **Native Shared-Port (Advanced)** — telEgo owns public `:443` and ordinary TLS is spliced to Nginx `:8443`.
+
+For Direct HTTPS see **[TLS certificate / ACME DNS-01](docs/TLS_CERTIFICATE_EN.md)** and the **[LAN/WAN hardware test](docs/DIRECT_HTTPS_TEST_EN.md)**.
+
 WEB Proxy supports:
 
 | Carrier | Model |

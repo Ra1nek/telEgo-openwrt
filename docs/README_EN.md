@@ -14,7 +14,8 @@ This directory contains the technical documentation for the `develop` branch of 
 | Install telEgo on OpenWrt | **[Installation](INSTALL_EN.md)** |
 | Register a domain and configure DNS | **[Domain and DNS](DOMAIN_EN.md)** |
 | Install and configure Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE_EN.md)** |
-| Issue/renew a local TLS certificate with DNS-01 | **[ACME DNS-01](P12_ACME_DNS01_EN.md)** |
+| Issue/renew a local TLS certificate with DNS-01 | **[TLS certificate / ACME DNS-01](TLS_CERTIFICATE_EN.md)** |
+| Verify Direct HTTPS on real hardware | **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)** |
 | Configure MTProxy, FakeTLS, WEB Proxy, or Middle-End | **[Configuration and LuCI](CONFIGURATION_EN.md)** |
 | Inspect Nginx ownership, drift, and reconciliation | **[Nginx files](NGINX_FILES_EN.md)** |
 | Understand traffic flow and system design | **[Architecture](ARCHITECTURE_EN.md)** |
@@ -72,9 +73,9 @@ Practical OpenWrt 25.12.x runbook:
 - health checks, logs, token rotation, and troubleshooting;
 - credential boundary between `cloudflared` and telEgo.
 
-### [ACME DNS-01](P12_ACME_DNS01_EN.md)
+### [TLS certificate / ACME DNS-01](TLS_CERTIFICATE_EN.md)
 
-P12.4 runbook for local Direct HTTPS TLS:
+Guide for issuing and safely renewing a local TLS certificate:
 
 - `acme-acmesh` + `acme-acmesh-dnsapi`;
 - DNS-01 without taking public ports 80/443;
@@ -82,6 +83,16 @@ P12.4 runbook for local Direct HTTPS TLS:
 - LuCI Certificate Status and Certificate Preflight;
 - renewal hotplug → certificate/key/hostname/expiry checks → `nginx -t`;
 - stock OpenWrt `acme.renew` → safe Nginx reload without a second telEgo reload.
+
+### [Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)
+
+Final hardware acceptance:
+
+- LAN TCP/443 remains owned by uhttpd/LuCI;
+- WAN TCP/443 traverses the package-owned firewall4 redirect to Nginx :18443;
+- WAN TCP/18443 is not directly exposed;
+- public HTTP/2, real Telegram Desktop WEB traffic, and reboot persistence;
+- controlled rollback to Cloudflare :18080.
 
 ### [Configuration and LuCI](CONFIGURATION_EN.md)
 

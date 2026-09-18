@@ -1,8 +1,8 @@
-# P12.4 — ACME DNS-01 and safe TLS certificate renewal
+# TLS certificate for Direct HTTPS with ACME DNS-01
 
-[Русский](P12_ACME_DNS01.md) · **English**
+[Русский](TLS_CERTIFICATE.md) · **English** · [Direct HTTPS test](DIRECT_HTTPS_TEST_EN.md)
 
-P12.4 makes Direct HTTPS and Native Shared-Port ready for OpenWrt ACME certificates without handing public ports 80/443 to the ACME client.
+this integration makes Direct HTTPS and Native Shared-Port ready for OpenWrt ACME certificates without handing public ports 80/443 to the ACME client.
 
 ## Target topology
 
@@ -124,7 +124,7 @@ It does not modify files or reload/restart services.
 
 OpenWrt 25.12 invokes ACME hotplug hooks before publishing the `acme.renew` event.
 
-P12.4 installs:
+`nginx-telego` installs:
 
 ```text
 /etc/hotplug.d/acme/90-nginx-telego
@@ -176,7 +176,7 @@ ss -lntp | grep ':18443'
 
 ## Ownership boundary
 
-P12.4 does not:
+this integration does not:
 
 - store DNS API credentials;
 - issue certificates itself;

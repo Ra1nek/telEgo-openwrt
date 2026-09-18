@@ -1,8 +1,8 @@
-# P11 — Cloudflare WEB TLS ownership contract
+# Cloudflare WEB TLS — границы ответственности
 
-[Русский](P11_CLOUDFLARE_TLS.md) · [English](P11_CLOUDFLARE_TLS_EN.md)
+[**Русский**](CLOUDFLARE_TLS.md) · [English](CLOUDFLARE_TLS_EN.md) · [Полная настройка Cloudflare Tunnel](CLOUDFLARE.md)
 
-P11 фиксирует границу ответственности между Cloudflare WEB ingress и локальным Native Shared-Port TLS.
+Документ фиксирует границу ответственности между Cloudflare WEB ingress, Direct HTTPS и локальным Native Shared-Port TLS.
 
 ## Целевая Cloudflare-схема
 
@@ -22,7 +22,7 @@ telEgo WEB 127.0.0.1:8080
 
 На OpenWrt для Cloudflare WEB path не нужен локальный WEB-сертификат, ACME/Let's Encrypt/certbot renewal и отдельный HTTPS origin. Published Application должна использовать `http://127.0.0.1:18080`.
 
-## Runtime-инвариант P11
+## Runtime-инвариант
 
 Если одновременно выполняется:
 
@@ -44,7 +44,7 @@ splice-port
 
 ## Почему значения не удаляются из UCI
 
-P11 не уничтожает сохранённые значения:
+Интеграция не уничтожает сохранённые значения:
 
 ```text
 telego.tls_fronting.cert_host
@@ -95,9 +95,9 @@ Native Shared-Port → Cloudflare Tunnel
 
 убирает локальные certificate/splice endpoints из активного `telego.toml`, а обратный переход восстанавливает сохранённые значения.
 
-## Что P11 намеренно не делает
+## Что Интеграция намеренно не делает
 
-P11 не:
+Интеграция не:
 
 - удаляет пользовательские certificate/key files;
 - очищает UCI-поля Native Shared-Port;

@@ -19,6 +19,8 @@
 
 Cloudflare Tunnel здесь относится только к WEB Proxy. Прямой MTProto/MTProxy listener telEgo остаётся отдельным путём и может продолжать работать на своём публичном адресе/порту.
 
+Граница TLS ownership между Cloudflare, Direct HTTPS и Native Shared-Port описана отдельно: **[Cloudflare WEB TLS — границы ответственности](CLOUDFLARE_TLS.md)**. Если вы проверяете переход Direct HTTPS → Cloudflare, используйте также раздел rollback в **[Проверке Direct HTTPS](DIRECT_HTTPS_TEST.md)**.
+
 > [!IMPORTANT]
 > Если у вас **уже работает** ручной `/etc/nginx/conf.d/zz-telego-cloudflare.conf`, не включайте поверх него managed Cloudflare profile из `nginx-telego`. Обе схемы решают одну задачу и одновременно владеть `127.0.0.1:18080` не должны. Package upgrade не должен удалять или переписывать ваш ручной файл.
 

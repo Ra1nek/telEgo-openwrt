@@ -1,8 +1,11 @@
-# P12.4 — ACME DNS-01 и безопасное обновление TLS-сертификата
+# TLS-сертификат для Direct HTTPS через ACME DNS-01
 
-[**Русский**](P12_ACME_DNS01.md) · [English](P12_ACME_DNS01_EN.md)
+[**Русский**](TLS_CERTIFICATE.md) · [English](TLS_CERTIFICATE_EN.md) · [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)
 
-P12.4 добавляет готовность Direct HTTPS и Native Shared-Port к сертификатам OpenWrt ACME без передачи ACME-клиенту публичных портов 80/443.
+Эта инструкция настраивает сертификат OpenWrt ACME для Direct HTTPS и Native Shared-Port без передачи ACME-клиенту публичных портов 80/443.
+
+> [!NOTE]
+> Проверено для OpenWrt **25.12.5** (ветка 25.12): `acme-common 1.5.3`, `acme-acmesh 3.1.3-r3`. В OpenWrt 25.12 актуальное имя параметра — `option staging`; старое `use_staging` поддерживается только для совместимости.
 
 ## Целевая схема
 
@@ -124,7 +127,7 @@ nginx -t -c /etc/nginx/uci.conf
 
 OpenWrt 25.12 сначала вызывает ACME hotplug hooks, а затем публикует событие `acme.renew`.
 
-P12.4 устанавливает:
+`nginx-telego` устанавливает:
 
 ```text
 /etc/hotplug.d/acme/90-nginx-telego
@@ -176,7 +179,7 @@ ss -lntp | grep ':18443'
 
 ## Граница ответственности
 
-P12.4:
+Интеграция `nginx-telego`:
 
 - не хранит DNS API credentials;
 - не выпускает сертификаты самостоятельно;

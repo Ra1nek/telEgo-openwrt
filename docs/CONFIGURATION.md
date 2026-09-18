@@ -245,7 +245,7 @@ Explicit backend нужен только для compatibility topology, напр
 
 `20-telego-core.conf` создаёт общий `telego_web → 127.0.0.1:8080` и необходимые Nginx maps. Его canonical repair source хранится в `/usr/share/nginx-telego/templates/20-telego-core.conf`.
 
-`telego.locations` — reusable HTTP/WebSocket/fallback snippet для обычного Nginx TLS server. Он **не является MTProto handler**. В native shared-port схеме его подключает приватный TLS server `:8443` после того, как telEgo отделил MTProxy от обычного TLS.
+`telego.locations` — reusable HTTP/WebSocket/fallback snippet для обычного Nginx TLS server. Он **не является MTProto handler**. Direct HTTPS подключает его на Nginx `:18443`, а Native Shared-Port — на приватном TLS listener `:8443` после того, как telEgo отделил MTProxy от обычного TLS.
 
 Opt-in managed profiles используют:
 
@@ -255,15 +255,70 @@ Opt-in managed profiles используют:
 /etc/nginx/conf.d/85-telego-fallback.conf
 ```
 
-`80-telego-ingress.conf` существует только при включённом Cloudflare или Native Shared-Port managed ingress. `85-telego-fallback.conf` существует только при включённом managed profile и `fallback.manage=1`. Generated files содержат общий marker `nginx-telego` и marker конкретной роли, поэтому скопированный на неправильный reserved path файл не принимается в ownership молча.
+`80-telego-ingress.conf` существует только при включённом Direct HTTPS, Cloudflare или Native Shared-Port managed ingress. `85-telego-fallback.conf` существует только при включённом managed profile и `fallback.manage=1`. Generated files содержат общий marker `nginx-telego` и marker конкретной роли, поэтому скопированный на неправильный reserved path файл не принимается в ownership молча.
 
-Оба profiles выключены default и **взаимоисключающие**.
+Все три managed profiles выключены default и **взаимоисключающие**.
 
 Старые alpha-пути `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` не входят в ownership registry, не мигрируются и не удаляются автоматически. Если они остались на тестовой системе, сначала проверьте их происхождение/содержимое и удалите вручную перед переходом на baseline P7.
 
 Точная state machine и правила rollback описаны в **[Nginx file ownership и reconciliation](NGINX_FILES.md)**.
 
-## 5.1 Cloudflare profile
+## 5.1 Direct HTTPS profile
+
+Direct HTTPS оставляет LAN TCP/443 за uhttpd/LuCI, а только входящий WAN TCP/443 перенаправляет firewall4 в отдельный Nginx TLS backend:
+
+```text
+LAN :443 ───────────────────────────────> uhttpd / LuCI
+
+WAN :443 → firewall.telego_direct_https
+                     ↓ DNAT
+               Nginx :18443
+                     ↓
+             telego.locations
+                     ↓
+             telEgo WEB :8080
+```
+
+Профиль требует:
+
+- `telego.web_proxy.enabled=1`;
+- WEB bind `127.0.0.1:8080`;
+- совпадающий WEB/ingress hostname;
+- `127.0.0.1/32` в trusted proxy CIDRs;
+- настоящий certificate/key;
+- ровно одну активную firewall zone с именем `wan`;
+- WAN input policy не `ACCEPT`;
+- отсутствие чужого redirect, который уже владеет WAN TCP/443.
+
+Минимальная настройка:
+
+```sh
+uci set nginx_telego.direct_https.enabled='1'
+uci set nginx_telego.direct_https.hostname='web.example.com'
+uci set nginx_telego.direct_https.certificate='/etc/ssl/acme/web.example.com.fullchain.crt'
+uci set nginx_telego.direct_https.certificate_key='/etc/ssl/acme/web.example.com.key'
+uci set nginx_telego.cloudflare.enabled='0'
+uci set nginx_telego.shared.enabled='0'
+uci commit nginx_telego
+/etc/init.d/nginx-telego reload
+```
+
+Apply-path сначала выполняет firewall safety check, затем Nginx reconciliation, и только после успешного `nginx -t` устанавливает package-owned WAN/443 redirect. При переключении с Direct HTTPS порядок обратный: redirect удаляется **до** удаления listener `:18443`.
+
+Read-only проверки:
+
+```sh
+/usr/libexec/nginx-telego-firewall status
+/usr/libexec/nginx-telego-firewall preflight
+/usr/libexec/nginx-telego-cert status
+/usr/libexec/nginx-telego-cert preflight
+```
+
+Сертификат через OpenWrt ACME/DNS-01: **[TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)**.
+
+Финальная LAN/WAN/HTTP2/Telegram/reboot/rollback проверка: **[Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)**.
+
+## 5.2 Cloudflare profile
 
 Подробная инструкция: **[Cloudflare Tunnel](CLOUDFLARE.md)**.
 
@@ -281,7 +336,7 @@ uci commit nginx_telego
 
 Cloudflare profile **не использует `telego.locations`**, потому что ему нужна Cloudflare-specific client-IP обработка.
 
-## 5.2 Native shared-port profile
+## 5.3 Native shared-port profile
 
 Эта схема позволяет telEgo MTProxy и WEB Proxy разделять публичный TCP/443:
 
@@ -550,4 +605,4 @@ Init helper запускает `nginx-telego-reconcile`. Reconciliation сери
 - [Pinned Telegram Middle-End design](https://github.com/Scratch-net/telego/blob/d9e74017e5f6c8ede4e3ef633646b15ac26abb30/docs/middle-end.md)
 - [OpenWrt Nginx](https://openwrt.org/docs/guide-user/services/webserver/nginx)
 
-[← Документация](README.md) · [Cloudflare Tunnel](CLOUDFLARE.md) · [English →](CONFIGURATION_EN.md)
+[← Документация](README.md) · [TLS-сертификат](TLS_CERTIFICATE.md) · [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md) · [Cloudflare Tunnel](CLOUDFLARE.md) · [English →](CONFIGURATION_EN.md)
