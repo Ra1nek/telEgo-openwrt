@@ -54,6 +54,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          submodules: recursive
 
       - name: Restore host ucode cache
         id: ucode_cache
@@ -88,6 +90,12 @@ jobs:
         with:
           go-version: '1.27'
           cache-dependency-path: telego-src/go.sum
+
+      - name: Setup Node for upstream WEB bridge tests
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
 
       - name: Apply OpenWrt source patch
         run: python3 .github/scripts/apply-upstream-patches.py
