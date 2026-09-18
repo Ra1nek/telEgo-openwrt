@@ -14,6 +14,7 @@
 | Установить telEgo на OpenWrt | **[Установка](INSTALL.md)** |
 | Зарегистрировать домен и настроить DNS | **[Домен и DNS](DOMAIN.md)** |
 | Установить и настроить Cloudflare Tunnel | **[Cloudflare Tunnel](CLOUDFLARE.md)** |
+| Выпустить/обновлять локальный TLS-сертификат через DNS-01 | **[ACME DNS-01](P12_ACME_DNS01.md)** |
 | Настроить MTProxy, FakeTLS, WEB Proxy или Middle-End | **[Конфигурация и LuCI](CONFIGURATION.md)** |
 | Проверить ownership, drift и reconciliation Nginx-файлов | **[Nginx files](NGINX_FILES.md)** |
 | Понять схему трафика и устройство проекта | **[Архитектура](ARCHITECTURE.md)** |
@@ -70,6 +71,17 @@
 - Published application → `http://127.0.0.1:18080`;
 - health checks, logs, token rotation и troubleshooting;
 - граница credentials между `cloudflared` и telEgo.
+
+### [ACME DNS-01](P12_ACME_DNS01.md)
+
+Runbook P12.4 для локального Direct HTTPS TLS:
+
+- `acme-acmesh` + `acme-acmesh-dnsapi`;
+- DNS-01 без захвата публичных портов 80/443;
+- стабильные пути `/etc/ssl/acme/<hostname>.fullchain.crt` и `.key`;
+- LuCI Certificate Status и Certificate Preflight;
+- renewal hotplug → certificate/key/hostname/expiry checks → `nginx -t`;
+- штатный OpenWrt `acme.renew` → безопасный Nginx reload без второго reload от telEgo.
 
 ### [Конфигурация и LuCI](CONFIGURATION.md)
 

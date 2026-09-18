@@ -17,6 +17,8 @@ config cloudflare 'cloudflare'
 
 # Direct HTTPS terminates public WEB TLS in Nginx on the private backend port
 # 18443. nginx-telego-firewall owns the WAN TCP/443 -> :18443 redirect.
+# OpenWrt ACME DNS-01 users should prefer the stable symlink paths
+# /etc/ssl/acme/HOST.fullchain.crt and /etc/ssl/acme/HOST.key.
 config direct_https 'direct_https'
 	option enabled '0'
 	option hostname ''

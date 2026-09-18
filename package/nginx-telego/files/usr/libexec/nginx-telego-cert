@@ -1,0 +1,278 @@
+#!/bin/sh
+# Inspect and preflight the certificate used by managed local TLS ingress.
+#
+# The helper is intentionally read-only. OpenWrt ACME renewals call hotplug
+# hooks first and then emit acme.renew. nginx-telego uses this helper from its
+# hotplug hook for an early certificate/nginx -t preflight; the stock OpenWrt
+# nginx acme.renew trigger performs the actual safe reload afterwards.
+set -eu
+
+UCI_BIN=${UCI_BIN:-/sbin/uci}
+OPENSSL_BIN=${OPENSSL_BIN:-/usr/bin/openssl}
+NGINX_BIN=${NGINX_BIN:-/usr/sbin/nginx}
+NGINX_CONF=${NGINX_CONF:-/etc/nginx/uci.conf}
+
+MODE=${1:-status}
+[ "$#" -le 1 ] || { echo "Usage: $0 [status|preflight]" >&2; exit 2; }
+case "$MODE" in
+    status|preflight) ;;
+    *) echo "Usage: $0 [status|preflight]" >&2; exit 2 ;;
+esac
+
+fail() {
+    echo "nginx-telego-cert: $*" >&2
+    exit 1
+}
+
+uci_get() {
+    package=$1
+    section=$2
+    option=$3
+    default=${4-}
+    value=$($UCI_BIN -q get "$package.$section.$option" 2>/dev/null || true)
+    [ -n "$value" ] || value=$default
+    printf '%s' "$value"
+}
+
+is_enabled() {
+    case "$1" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+PROFILE=disabled
+MANAGED_TLS=0
+HOSTNAME=''
+CERTIFICATE=''
+CERTIFICATE_KEY=''
+PROFILE_ERROR=''
+
+select_profile() {
+    shared_enabled=$(uci_get nginx_telego shared enabled 0)
+    cloudflare_enabled=$(uci_get nginx_telego cloudflare enabled 0)
+    direct_enabled=$(uci_get nginx_telego direct_https enabled 0)
+
+    count=0
+    is_enabled "$shared_enabled" && count=$((count + 1))
+    is_enabled "$cloudflare_enabled" && count=$((count + 1))
+    is_enabled "$direct_enabled" && count=$((count + 1))
+
+    if [ "$count" -gt 1 ]; then
+        PROFILE=conflict
+        PROFILE_ERROR='multiple-managed-ingress-profiles'
+        return 0
+    fi
+
+    if is_enabled "$direct_enabled"; then
+        PROFILE=direct_https
+        MANAGED_TLS=1
+        HOSTNAME=$(uci_get nginx_telego direct_https hostname '')
+        [ -n "$HOSTNAME" ] || HOSTNAME=$(uci_get telego web_proxy hostname '')
+        CERTIFICATE=$(uci_get nginx_telego direct_https certificate '')
+        CERTIFICATE_KEY=$(uci_get nginx_telego direct_https certificate_key '')
+    elif is_enabled "$shared_enabled"; then
+        PROFILE=shared
+        MANAGED_TLS=1
+        HOSTNAME=$(uci_get nginx_telego shared hostname '')
+        [ -n "$HOSTNAME" ] || HOSTNAME=$(uci_get telego web_proxy hostname '')
+        CERTIFICATE=$(uci_get nginx_telego shared certificate '')
+        CERTIFICATE_KEY=$(uci_get nginx_telego shared certificate_key '')
+    elif is_enabled "$cloudflare_enabled"; then
+        PROFILE=cloudflare
+    fi
+}
+
+clean_field() {
+    printf '%s' "$1" | tr '\t\r\n' '   '
+}
+
+path_state() {
+    path=$1
+    if [ -z "$path" ]; then
+        printf '%s' missing
+    elif [ ! -e "$path" ] && [ ! -L "$path" ]; then
+        printf '%s' missing
+    elif [ ! -r "$path" ]; then
+        printf '%s' unreadable
+    elif [ ! -f "$path" ]; then
+        printf '%s' invalid-type
+    else
+        printf '%s' present
+    fi
+}
+
+is_acme_path() {
+    case "$1" in
+        /etc/ssl/acme/*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+openssl_ready() {
+    [ -x "$OPENSSL_BIN" ]
+}
+
+certificate_status_report() {
+    select_profile
+
+    cert_state=not-applicable
+    key_state=not-applicable
+    key_match=na
+    hostname_match=na
+    expiry_state=not-applicable
+    not_after='-'
+    fingerprint='-'
+    acme_managed=0
+    openssl_available=0
+
+    if openssl_ready; then
+        openssl_available=1
+    fi
+
+    if [ "$MANAGED_TLS" -eq 1 ]; then
+        cert_state=$(path_state "$CERTIFICATE")
+        key_state=$(path_state "$CERTIFICATE_KEY")
+
+        if is_acme_path "$CERTIFICATE" && is_acme_path "$CERTIFICATE_KEY"; then
+            acme_managed=1
+        fi
+
+        work=''
+        if [ "$openssl_available" -eq 1 ] && [ "$cert_state" = present ]; then
+            if "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout >/dev/null 2>&1; then
+                cert_state=valid
+                not_after=$("$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -enddate 2>/dev/null | sed 's/^notAfter=//' || true)
+                fingerprint=$("$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -fingerprint -sha256 2>/dev/null |
+                    sed -e 's/^sha256 Fingerprint=//' -e 's/^SHA256 Fingerprint=//' || true)
+                [ -n "$not_after" ] || not_after='-'
+                [ -n "$fingerprint" ] || fingerprint='-'
+
+                if "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkend 0 >/dev/null 2>&1; then
+                    if ! "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkend 604800 >/dev/null 2>&1; then
+                        expiry_state=critical
+                    elif ! "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkend 2592000 >/dev/null 2>&1; then
+                        expiry_state=warning
+                    else
+                        expiry_state=ok
+                    fi
+                else
+                    expiry_state=expired
+                fi
+
+                if [ -n "$HOSTNAME" ]; then
+                    if "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkhost "$HOSTNAME" >/dev/null 2>&1; then
+                        hostname_match=1
+                    else
+                        hostname_match=0
+                    fi
+                fi
+            else
+                cert_state=invalid
+                expiry_state=invalid
+            fi
+        fi
+
+        if [ "$openssl_available" -eq 1 ] && [ "$key_state" = present ]; then
+            work=$(mktemp -d /tmp/nginx-telego-cert.XXXXXX)
+            if "$OPENSSL_BIN" pkey -in "$CERTIFICATE_KEY" -pubout -out "$work/key.pub" -passin pass: >/dev/null 2>&1; then
+                key_state=valid
+            else
+                key_state=invalid
+            fi
+
+            if [ "$cert_state" = valid ] && [ "$key_state" = valid ]; then
+                if "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -pubkey -noout >"$work/cert.pub" 2>/dev/null &&
+                    cmp -s "$work/cert.pub" "$work/key.pub"; then
+                    key_match=1
+                else
+                    key_match=0
+                fi
+            fi
+            rm -rf "$work"
+        fi
+    fi
+
+    printf 'profile\t%s\n' "$(clean_field "$PROFILE")"
+    printf 'profile_error\t%s\n' "$(clean_field "${PROFILE_ERROR:--}")"
+    printf 'managed_tls\t%s\n' "$MANAGED_TLS"
+    printf 'hostname\t%s\n' "$(clean_field "${HOSTNAME:--}")"
+    printf 'certificate\t%s\n' "$(clean_field "${CERTIFICATE:--}")"
+    printf 'certificate_key\t%s\n' "$(clean_field "${CERTIFICATE_KEY:--}")"
+    printf 'certificate_state\t%s\n' "$cert_state"
+    printf 'key_state\t%s\n' "$key_state"
+    printf 'key_match\t%s\n' "$key_match"
+    printf 'hostname_match\t%s\n' "$hostname_match"
+    printf 'expiry_state\t%s\n' "$expiry_state"
+    printf 'not_after\t%s\n' "$(clean_field "$not_after")"
+    printf 'fingerprint_sha256\t%s\n' "$(clean_field "$fingerprint")"
+    printf 'acme_managed\t%s\n' "$acme_managed"
+    printf 'openssl_available\t%s\n' "$openssl_available"
+}
+
+validate_absolute_path() {
+    path=$1
+    label=$2
+    case "$path" in
+        /*) ;;
+        *) fail "$label must be an absolute path" ;;
+    esac
+    case "$path" in
+        *[!A-Za-z0-9_./+-]*) fail "$label contains unsupported characters" ;;
+    esac
+    [ -r "$path" ] || fail "$label is not readable: $path"
+    [ -f "$path" ] || fail "$label must resolve to a regular file: $path"
+}
+
+nginx_test() {
+    [ -x "$NGINX_BIN" ] || fail "nginx executable not found: $NGINX_BIN"
+    [ -r "$NGINX_CONF" ] || fail "nginx configuration not found: $NGINX_CONF"
+    "$NGINX_BIN" -t -c "$NGINX_CONF"
+}
+
+certificate_preflight() {
+    select_profile
+
+    [ "$PROFILE" != conflict ] || fail 'managed ingress profiles are mutually exclusive'
+    if [ "$MANAGED_TLS" -ne 1 ]; then
+        echo "nginx-telego-cert: profile $PROFILE has no local managed TLS certificate"
+        return 0
+    fi
+
+    [ -n "$HOSTNAME" ] || fail "$PROFILE hostname is required"
+    validate_absolute_path "$CERTIFICATE" "$PROFILE TLS certificate"
+    validate_absolute_path "$CERTIFICATE_KEY" "$PROFILE TLS private key"
+    [ "$CERTIFICATE" != "$CERTIFICATE_KEY" ] ||
+        fail "$PROFILE TLS certificate and private key must use different files"
+    openssl_ready || fail "openssl executable not found: $OPENSSL_BIN"
+
+    "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout >/dev/null 2>&1 ||
+        fail "$PROFILE TLS certificate is not a valid X.509 certificate: $CERTIFICATE"
+
+    work=$(mktemp -d /tmp/nginx-telego-cert.XXXXXX)
+    trap 'rm -rf "$work"' EXIT HUP INT TERM
+
+    "$OPENSSL_BIN" pkey -in "$CERTIFICATE_KEY" -pubout -out "$work/key.pub" -passin pass: >/dev/null 2>&1 ||
+        fail "$PROFILE TLS private key is invalid or encrypted: $CERTIFICATE_KEY"
+    "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -pubkey -noout >"$work/cert.pub" 2>/dev/null ||
+        fail "$PROFILE TLS certificate public key could not be read"
+    cmp -s "$work/cert.pub" "$work/key.pub" ||
+        fail "$PROFILE TLS certificate and private key do not match"
+
+    "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkhost "$HOSTNAME" >/dev/null 2>&1 ||
+        fail "$PROFILE TLS certificate does not cover hostname: $HOSTNAME"
+    "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkend 0 >/dev/null 2>&1 ||
+        fail "$PROFILE TLS certificate is expired"
+
+    nginx_test
+
+    trap - EXIT HUP INT TERM
+    rm -rf "$work"
+    echo "nginx-telego-cert: $PROFILE certificate preflight passed; nginx -t succeeded"
+}
+
+if [ "$MODE" = status ]; then
+    certificate_status_report
+else
+    certificate_preflight
+fi

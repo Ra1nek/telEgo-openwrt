@@ -34,7 +34,8 @@
       "fs": {
         "/etc/config/nginx_telego": "file",
         "/usr/libexec/nginx-telego-reconcile": "executable",
-        "/usr/libexec/nginx-telego-firewall": "executable"
+        "/usr/libexec/nginx-telego-firewall": "executable",
+        "/usr/libexec/nginx-telego-cert": "executable"
       }
     }
   },

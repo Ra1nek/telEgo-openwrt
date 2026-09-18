@@ -1,0 +1,38 @@
+#!/bin/sh
+# OpenWrt ACME hotplug integration for nginx-telego.
+#
+# acme-common invokes hotplug before publishing acme.renew/acme.issue. The stock
+# OpenWrt nginx service owns the actual acme.renew reload and performs nginx -t
+# before signaling the running master process. This hook intentionally does not
+# reload nginx itself; it adds an early telEgo certificate/config preflight and
+# remains safe when ACME emits duplicate renewed notifications.
+set -u
+
+CERT_BIN=${NGINX_TELEGO_CERT_BIN:-/usr/libexec/nginx-telego-cert}
+LOGGER_BIN=${LOGGER_BIN:-/usr/bin/logger}
+action=${ACTION:-}
+
+case "$action" in
+    renewed|issued) ;;
+    *) exit 0 ;;
+esac
+
+[ -x "$CERT_BIN" ] || exit 0
+
+if output=$("$CERT_BIN" preflight 2>&1); then
+    if [ -x "$LOGGER_BIN" ]; then
+        "$LOGGER_BIN" -t nginx-telego-acme -p daemon.info "$action: $output"
+    fi
+else
+    if [ -x "$LOGGER_BIN" ]; then
+        "$LOGGER_BIN" -t nginx-telego-acme -p daemon.err "$action preflight failed: $output"
+    else
+        echo "nginx-telego-acme: $action preflight failed: $output" >&2
+    fi
+    # Never block acme-common from emitting acme.renew. OpenWrt nginx performs
+    # its own nginx -t and refuses the reload if the renewed material is bad,
+    # preserving the already-running workers and certificate.
+    exit 0
+fi
+
+exit 0

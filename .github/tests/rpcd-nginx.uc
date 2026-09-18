@@ -13,6 +13,20 @@ const firewallPreflight = nginx.firewall_preflight.call();
 assert(firewallPreflight.ok && index(firewallPreflight.message, 'preflight passed') >= 0, 'firewall preflight RPC');
 assert(global.firewall_command == "/usr/libexec/nginx-telego-firewall 'preflight' 2>&1", 'firewall preflight uses dedicated helper');
 
+const certificateStatus = nginx.certificate_status.call();
+assert(certificateStatus.ok && certificateStatus.managed_tls, 'certificate status managed TLS');
+assert(certificateStatus.profile == 'direct_https', 'certificate status profile');
+assert(certificateStatus.certificate_state == 'valid' && certificateStatus.key_state == 'valid', 'certificate material state');
+assert(certificateStatus.key_match == '1' && certificateStatus.hostname_match == '1', 'certificate relationship state');
+assert(certificateStatus.expiry_state == 'ok' && certificateStatus.acme_managed, 'certificate expiry and ACME state');
+assert(certificateStatus.certificate == '/etc/ssl/acme/web.example.com.fullchain.crt', 'certificate path');
+assert(certificateStatus.certificate_key == '/etc/ssl/acme/web.example.com.key', 'certificate key path');
+assert(global.certificate_command == "/usr/libexec/nginx-telego-cert 'status' 2>&1", 'certificate status uses dedicated helper');
+
+const certificatePreflight = nginx.certificate_preflight.call();
+assert(certificatePreflight.ok && index(certificatePreflight.message, 'nginx -t succeeded') >= 0, 'certificate preflight RPC');
+assert(global.certificate_command == "/usr/libexec/nginx-telego-cert 'preflight' 2>&1", 'certificate preflight uses dedicated helper');
+
 const inventory = nginx.inventory.call();
 assert(inventory.ok && length(inventory.files) == 3, 'inventory rows');
 assert(inventory.unsafe_count == 2, 'unsafe inventory warning');
@@ -86,12 +100,18 @@ global.fixture.mode = 'firewall-failed';
 const firewallFailed = nginx.firewall_preflight.call();
 assert(!firewallFailed.ok && index(firewallFailed.error, 'preflight rejected') >= 0, 'firewall preflight failure explicit');
 
+global.fixture.mode = 'certificate-failed';
+const certificateFailed = nginx.certificate_preflight.call();
+assert(!certificateFailed.ok && index(certificateFailed.error, 'preflight rejected') >= 0, 'certificate preflight failure explicit');
+
 global.fixture.mode = 'failed';
 const failed = nginx.quarantine.call({ args: { name: '50-custom.conf' } });
 assert(!failed.ok && index(failed.error, 'rejected') >= 0, 'admin helper failures explicit');
 global.fixture.mode = 'popen-failed';
 const firewallUnavailable = nginx.firewall_status.call();
 assert(!firewallUnavailable.ok && firewallUnavailable.error == 'firewall-helper-unavailable', 'missing firewall helper explicit');
+const certificateUnavailable = nginx.certificate_status.call();
+assert(!certificateUnavailable.ok && certificateUnavailable.error == 'certificate-helper-unavailable', 'missing certificate helper explicit');
 const unavailable = nginx.inventory.call();
 assert(!unavailable.ok && unavailable.error == 'admin-helper-unavailable', 'missing admin helper explicit');
 const editorUnavailable = nginx.foreign_content.call({ args: { name: '50-custom.conf' } });
@@ -101,4 +121,4 @@ assert(!revisionUnavailable.ok && revisionUnavailable.error == 'editor-helper-un
 const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
 assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 
-print('rpcd Nginx P12 ingress and foreign lifecycle tests passed\n');
+print('rpcd Nginx P12 ACME ingress and foreign lifecycle tests passed\n');

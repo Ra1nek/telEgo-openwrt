@@ -18,7 +18,20 @@ const callFirewallPreflight = rpc.declare({
 	expect: { '': {} }
 });
 
+const callCertificateStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'certificate_status',
+	expect: { '': {} }
+});
+
+const callCertificatePreflight = rpc.declare({
+	object: 'telego.nginx',
+	method: 'certificate_preflight',
+	expect: { '': {} }
+});
+
 let firewallState = null;
+let certificateState = null;
 
 function isEnabled(config, section, option) {
 	return uci.get(config, section, option || 'enabled') === '1';
@@ -153,17 +166,83 @@ function notifyPreflight(result) {
 	);
 }
 
+function certificateStatusText() {
+	if (!certificateState || !certificateState.ok)
+		return _('Unavailable');
+	if (!certificateState.managed_tls)
+		return _('No local managed TLS certificate is active.');
+
+	const certState = certificateState.certificate_state || _('unknown');
+	const keyState = certificateState.key_state || _('unknown');
+	let matchState = _('unknown');
+	if (certificateState.key_match === '1' && certificateState.hostname_match === '1')
+		matchState = _('Certificate, key and hostname match');
+	else if (certificateState.key_match === '0')
+		matchState = _('Certificate and private key do not match');
+	else if (certificateState.hostname_match === '0')
+		matchState = _('Certificate does not cover the configured hostname');
+
+	let expiry = certificateState.expiry_state || _('unknown');
+	if (expiry === 'ok')
+		expiry = _('Valid for more than 30 days');
+	else if (expiry === 'warning')
+		expiry = _('Expires within 30 days');
+	else if (expiry === 'critical')
+		expiry = _('Expires within 7 days');
+	else if (expiry === 'expired')
+		expiry = _('Expired');
+
+	return [
+		_('Certificate') + ': ' + certState,
+		_('Private key') + ': ' + keyState,
+		matchState,
+		_('Expiry') + ': ' + expiry,
+		certificateState.not_after ? _('Not after') + ': ' + certificateState.not_after : null,
+		certificateState.acme_managed ? _('OpenWrt ACME path detected') : _('External certificate path')
+	].filter(Boolean).join(' · ');
+}
+
+function certificatePathText() {
+	if (!certificateState || !certificateState.ok || !certificateState.managed_tls)
+		return _('No local managed TLS certificate is active.');
+
+	return [
+		certificateState.certificate || _('not set'),
+		certificateState.certificate_key || _('not set')
+	].join(' · ');
+}
+
+function notifyCertificatePreflight(result) {
+	if (result && result.ok) {
+		ui.addNotification(
+			null,
+			E('p', {}, result.message || _('Certificate preflight passed.')),
+			'info'
+		);
+		return;
+	}
+
+	const error = result && result.error ? String(result.error) : _('unknown error');
+	ui.addNotification(
+		null,
+		E('p', {}, _('Certificate preflight failed:') + ' ' + error),
+		'danger'
+	);
+}
+
 return view.extend({
 	load: function () {
 		return Promise.all([
 			uci.load('nginx_telego'),
 			uci.load('telego'),
-			L.resolveDefault(callFirewallStatus(), null)
+			L.resolveDefault(callFirewallStatus(), null),
+			L.resolveDefault(callCertificateStatus(), null)
 		]);
 	},
 
 	render: function (data) {
 		firewallState = data && data[2] ? data[2] : null;
+		certificateState = data && data[3] ? data[3] : null;
 
 		const m = new form.Map(
 			'nginx_telego',
@@ -210,6 +289,50 @@ return view.extend({
 		o.depends('_mode', 'direct_https');
 		o.depends('_mode', 'cloudflare');
 		o.depends('_mode', 'shared');
+
+		o = s.option(
+			form.DummyValue,
+			'_certificate_status',
+			_('Certificate Status'),
+			_('Read-only X.509 status for the active local TLS profile, including key match, hostname coverage and expiry.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.depends('_mode', 'shared');
+		o.cfgvalue = certificateStatusText;
+
+		o = s.option(form.DummyValue, '_certificate_paths', _('Active Certificate Paths'));
+		o.depends('_mode', 'direct_https');
+		o.depends('_mode', 'shared');
+		o.cfgvalue = certificatePathText;
+
+		o = s.option(form.DummyValue, '_certificate_fingerprint', _('Certificate SHA-256'));
+		o.depends('_mode', 'direct_https');
+		o.depends('_mode', 'shared');
+		o.cfgvalue = function () {
+			return certificateState && certificateState.fingerprint_sha256
+				? certificateState.fingerprint_sha256
+				: _('Unavailable');
+		};
+
+		o = s.option(
+			form.Button,
+			'_certificate_preflight',
+			_('Certificate Preflight'),
+			_('Validates X.509 parsing, private key parsing, certificate/key match, hostname coverage, expiry and the complete Nginx configuration with nginx -t. No files or services are changed.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.depends('_mode', 'shared');
+		o.inputtitle = _('Run Certificate Preflight');
+		o.inputstyle = 'apply';
+		o.onclick = function () {
+			return L.resolveDefault(callCertificatePreflight(), {
+				ok: false,
+				error: 'rpc-failed'
+			}).then(function (result) {
+				notifyCertificatePreflight(result);
+				return result;
+			});
+		};
 
 		o = s.option(
 			form.Value,
@@ -273,6 +396,19 @@ return view.extend({
 		o.depends('_mode', 'direct_https');
 		o.cfgvalue = function () {
 			return 'WAN TCP/443 → firewall4 REDIRECT → Nginx :18443 → telEgo WEB 127.0.0.1:8080';
+		};
+
+		o = s.option(
+			form.DummyValue,
+			'_acme_dns01',
+			_('ACME DNS-01'),
+			_('OpenWrt ACME can issue and renew the certificate without taking over WAN ports 80 or 443. For an ACME-managed hostname, use /etc/ssl/acme/<hostname>.fullchain.crt and /etc/ssl/acme/<hostname>.key. The nginx-telego hotplug hook preflights renewed material before OpenWrt emits acme.renew; the stock Nginx service then performs nginx -t and reloads safely.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.cfgvalue = function () {
+			return certificateState && certificateState.acme_managed
+				? _('OpenWrt ACME path detected')
+				: _('See docs/P12_ACME_DNS01.md for the DNS-01 runbook.');
 		};
 
 		o = s.option(

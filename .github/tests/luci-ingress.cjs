@@ -36,6 +36,26 @@ const firewallStatus = {
 	error: ''
 };
 
+const certificateStatus = {
+	ok: true,
+	profile: 'direct_https',
+	profile_error: '',
+	managed_tls: true,
+	hostname: 'web.example.com',
+	certificate: '/etc/ssl/acme/web.example.com.fullchain.crt',
+	certificate_key: '/etc/ssl/acme/web.example.com.key',
+	certificate_state: 'valid',
+	key_state: 'valid',
+	key_match: '1',
+	hostname_match: '1',
+	expiry_state: 'ok',
+	not_after: 'Oct 20 00:00:00 2026 GMT',
+	fingerprint_sha256: 'AA:BB',
+	acme_managed: true,
+	openssl_available: true,
+	error: ''
+};
+
 const uci = {
 	load: async config => config,
 	get: (config, section, option) => store[config]?.[section]?.[option],
@@ -60,6 +80,16 @@ const rpc = {
 			return async () => {
 				rpcCalls.push('firewall_preflight');
 				return { ok: true, message: 'preflight passed', error: '' };
+			};
+		if (spec.method === 'certificate_status')
+			return async () => {
+				rpcCalls.push('certificate_status');
+				return certificateStatus;
+			};
+		if (spec.method === 'certificate_preflight')
+			return async () => {
+				rpcCalls.push('certificate_preflight');
+				return { ok: true, message: 'certificate preflight passed; nginx -t succeeded', error: '' };
 			};
 		throw new Error('unexpected RPC method ' + spec.method);
 	}
@@ -113,9 +143,11 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 (async () => {
 	const loaded = await ingress.load();
 	assert.equal(loaded[2], firewallStatus);
+	assert.equal(loaded[3], certificateStatus);
 	const rendered = await ingress.render(loaded);
 	assert.equal(rendered.config, 'nginx_telego');
 	assert.ok(rpcCalls.includes('firewall_status'));
+	assert.ok(rpcCalls.includes('certificate_status'));
 
 	const mode = options.find(o => o.name === '_mode');
 	assert.ok(mode, 'ingress mode selector exists');
@@ -189,6 +221,30 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	assert.ok(rpcCalls.includes('firewall_preflight'));
 	assert.equal(notifications.at(-1).style, 'info');
 
+	const certificate = options.find(o => o.name === '_certificate_status');
+	assert.deepEqual(certificate.dependencies, [['_mode', 'direct_https'], ['_mode', 'shared']]);
+	assert.ok(certificate.cfgvalue().includes('Certificate, key and hostname match'));
+	assert.ok(certificate.cfgvalue().includes('Valid for more than 30 days'));
+	assert.ok(certificate.cfgvalue().includes('OpenWrt ACME path detected'));
+
+	const paths = options.find(o => o.name === '_certificate_paths');
+	assert.ok(paths.cfgvalue().includes('/etc/ssl/acme/web.example.com.fullchain.crt'));
+	assert.ok(paths.cfgvalue().includes('/etc/ssl/acme/web.example.com.key'));
+
+	const fingerprint = options.find(o => o.name === '_certificate_fingerprint');
+	assert.equal(fingerprint.cfgvalue(), 'AA:BB');
+
+	const certPreflight = options.find(o => o.name === '_certificate_preflight');
+	assert.deepEqual(certPreflight.dependencies, [['_mode', 'direct_https'], ['_mode', 'shared']]);
+	const certPreflightResult = await certPreflight.onclick();
+	assert.equal(certPreflightResult.ok, true);
+	assert.ok(rpcCalls.includes('certificate_preflight'));
+	assert.equal(notifications.at(-1).style, 'info');
+
+	const acmeDns01 = options.find(o => o.name === '_acme_dns01');
+	assert.deepEqual(acmeDns01.dependencies, [['_mode', 'direct_https']]);
+	assert.equal(acmeDns01.cfgvalue(), 'OpenWrt ACME path detected');
+
 	const cfHost = options.find(o => o.name === 'cloudflare_hostname');
 	assert.deepEqual(cfHost.dependencies, [['_mode', 'cloudflare']]);
 	assert.equal(cfHost.validate(null, ''), true);
@@ -220,12 +276,15 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/etc/config/nginx_telego'], 'file');
 	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/usr/libexec/nginx-telego-reconcile'], 'executable');
 	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/usr/libexec/nginx-telego-firewall'], 'executable');
+	assert.equal(menu['admin/services/telego/ingress'].depends.fs['/usr/libexec/nginx-telego-cert'], 'executable');
 
 	const acl = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/rpcd/acl.d/luci-app-telego.json', 'utf8'))['luci-app-telego'];
 	assert.ok(acl.read.uci.includes('nginx_telego'));
 	assert.ok(acl.write.uci.includes('nginx_telego'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('firewall_status'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('firewall_preflight'));
+	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_status'));
+	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_preflight'));
 
-	console.log('LuCI P12 Direct HTTPS ingress tests passed');
+	console.log('LuCI P12 ACME Direct HTTPS ingress tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

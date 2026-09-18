@@ -677,3 +677,81 @@ msgstr "неизвестно"
 
 msgid "unknown error"
 msgstr "неизвестная ошибка"
+
+msgid "ACME DNS-01"
+msgstr "ACME DNS-01"
+
+msgid "Active Certificate Paths"
+msgstr "Активные пути сертификата"
+
+msgid "Certificate"
+msgstr "Сертификат"
+
+msgid "Certificate Preflight"
+msgstr "Предварительная проверка сертификата"
+
+msgid "Certificate Status"
+msgstr "Состояние сертификата"
+
+msgid "Certificate and private key do not match"
+msgstr "Сертификат и закрытый ключ не совпадают"
+
+msgid "Certificate does not cover the configured hostname"
+msgstr "Сертификат не покрывает настроенное имя хоста"
+
+msgid "Certificate preflight failed:"
+msgstr "Предварительная проверка сертификата не пройдена:"
+
+msgid "Certificate preflight passed."
+msgstr "Предварительная проверка сертификата пройдена."
+
+msgid "Certificate, key and hostname match"
+msgstr "Сертификат, ключ и имя хоста соответствуют друг другу"
+
+msgid "Expired"
+msgstr "Истёк"
+
+msgid "Expires within 30 days"
+msgstr "Истекает менее чем через 30 дней"
+
+msgid "Expires within 7 days"
+msgstr "Истекает менее чем через 7 дней"
+
+msgid "Expiry"
+msgstr "Срок действия"
+
+msgid "External certificate path"
+msgstr "Внешний путь к сертификату"
+
+msgid "No local managed TLS certificate is active."
+msgstr "Активный локальный управляемый TLS-сертификат отсутствует."
+
+msgid "Not after"
+msgstr "Действителен до"
+
+msgid "OpenWrt ACME can issue and renew the certificate without taking over WAN ports 80 or 443. For an ACME-managed hostname, use /etc/ssl/acme/<hostname>.fullchain.crt and /etc/ssl/acme/<hostname>.key. The nginx-telego hotplug hook preflights renewed material before OpenWrt emits acme.renew; the stock Nginx service then performs nginx -t and reloads safely."
+msgstr "OpenWrt ACME может выпускать и обновлять сертификат, не занимая WAN-порты 80 или 443. Для имени хоста под управлением ACME используйте /etc/ssl/acme/<hostname>.fullchain.crt и /etc/ssl/acme/<hostname>.key. Hotplug-hook nginx-telego предварительно проверяет обновлённые данные до события acme.renew, после чего штатный сервис Nginx выполняет nginx -t и безопасную перезагрузку."
+
+msgid "OpenWrt ACME path detected"
+msgstr "Обнаружен путь OpenWrt ACME"
+
+msgid "Private key"
+msgstr "Закрытый ключ"
+
+msgid "Read-only X.509 status for the active local TLS profile, including key match, hostname coverage and expiry."
+msgstr "Состояние X.509 активного локального TLS-профиля только для чтения: совпадение ключа, покрытие имени хоста и срок действия."
+
+msgid "Run Certificate Preflight"
+msgstr "Запустить проверку сертификата"
+
+msgid "See docs/P12_ACME_DNS01.md for the DNS-01 runbook."
+msgstr "См. руководство DNS-01 в docs/P12_ACME_DNS01.md."
+
+msgid "Valid for more than 30 days"
+msgstr "Действителен более 30 дней"
+
+msgid "Validates X.509 parsing, private key parsing, certificate/key match, hostname coverage, expiry and the complete Nginx configuration with nginx -t. No files or services are changed."
+msgstr "Проверяет разбор X.509, закрытый ключ, совпадение сертификата и ключа, покрытие имени хоста, срок действия и полную конфигурацию Nginx через nginx -t. Файлы и сервисы не изменяются."
+
+msgid "Certificate SHA-256"
+msgstr "SHA-256 сертификата"

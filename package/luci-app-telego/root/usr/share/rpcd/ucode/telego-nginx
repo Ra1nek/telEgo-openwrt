@@ -5,6 +5,7 @@ import { popen } from 'fs';
 const ADMIN = '/usr/libexec/nginx-telego-admin';
 const EDITOR = '/usr/libexec/nginx-telego-editor';
 const FIREWALL = '/usr/libexec/nginx-telego-firewall';
+const CERTIFICATE = '/usr/libexec/nginx-telego-cert';
 const MAX_EDIT_BYTES = 65536;
 
 function shell_quote(value) {
@@ -106,6 +107,96 @@ function firewall_status() {
 
 function firewall_preflight() {
 	const result = run_firewall(['preflight']);
+	return result.ok
+		? { ok: true, message: trim(result.output), error: '' }
+		: { ok: false, message: '', error: result.error };
+}
+
+function run_certificate(args) {
+	let command = CERTIFICATE;
+	for (let arg in args)
+		command += ' ' + shell_quote(arg);
+	command += ' 2>&1';
+
+	const proc = popen(command, 'r');
+	if (!proc)
+		return { ok: false, output: '', error: 'certificate-helper-unavailable' };
+
+	const output = proc.read('all') || '';
+	const exit_code = proc.close();
+	if (exit_code != 0)
+		return { ok: false, output: '', error: trim(output) || 'certificate-operation-failed' };
+
+	return { ok: true, output: output, error: '' };
+}
+
+function certificate_status() {
+	const result = run_certificate(['status']);
+	if (!result.ok)
+		return {
+			ok: false,
+			profile: 'unknown',
+			managed_tls: false,
+			error: result.error
+		};
+
+	const values = {};
+	for (let line in split(result.output, '\n')) {
+		line = rtrim(line, '\r');
+		if (!length(line))
+			continue;
+
+		const fields = split(line, '\t');
+		if (length(fields) != 2)
+			return { ok: false, profile: 'unknown', managed_tls: false, error: 'invalid-certificate-status' };
+
+		values[fields[0]] = fields[1];
+	}
+
+	const required = [
+		'profile',
+		'profile_error',
+		'managed_tls',
+		'hostname',
+		'certificate',
+		'certificate_key',
+		'certificate_state',
+		'key_state',
+		'key_match',
+		'hostname_match',
+		'expiry_state',
+		'not_after',
+		'fingerprint_sha256',
+		'acme_managed',
+		'openssl_available'
+	];
+	for (let key in required)
+		if (!(key in values))
+			return { ok: false, profile: 'unknown', managed_tls: false, error: 'invalid-certificate-status' };
+
+	return {
+		ok: true,
+		profile: values.profile,
+		profile_error: values.profile_error == '-' ? '' : values.profile_error,
+		managed_tls: values.managed_tls == '1',
+		hostname: values.hostname == '-' ? '' : values.hostname,
+		certificate: values.certificate == '-' ? '' : values.certificate,
+		certificate_key: values.certificate_key == '-' ? '' : values.certificate_key,
+		certificate_state: values.certificate_state,
+		key_state: values.key_state,
+		key_match: values.key_match,
+		hostname_match: values.hostname_match,
+		expiry_state: values.expiry_state,
+		not_after: values.not_after == '-' ? '' : values.not_after,
+		fingerprint_sha256: values.fingerprint_sha256 == '-' ? '' : values.fingerprint_sha256,
+		acme_managed: values.acme_managed == '1',
+		openssl_available: values.openssl_available == '1',
+		error: ''
+	};
+}
+
+function certificate_preflight() {
+	const result = run_certificate(['preflight']);
 	return result.ok
 		? { ok: true, message: trim(result.output), error: '' }
 		: { ok: false, message: '', error: result.error };
@@ -306,6 +397,8 @@ const methods = {
 	inventory: { call: function () { return inventory(); } },
 	firewall_status: { call: function () { return firewall_status(); } },
 	firewall_preflight: { call: function () { return firewall_preflight(); } },
+	certificate_status: { call: function () { return certificate_status(); } },
+	certificate_preflight: { call: function () { return certificate_preflight(); } },
 	managed_content: {
 		args: { role: '', side: '' },
 		call: function (request) { return managed_content(request.args.role, request.args.side); }

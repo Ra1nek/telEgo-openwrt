@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=16
+PKG_RELEASE:=17
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,7 +11,7 @@ define Package/nginx-telego
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Nginx integration for telEgo WEB Proxy
-  DEPENDS:=+telego-pkg +flock +firewall4
+  DEPENDS:=+telego-pkg +flock +firewall4 +openssl-util
   EXTRA_DEPENDS:=nginx-ssl (>=1.0)
 endef
 
@@ -20,9 +20,10 @@ Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
 copies, guarded administrator operations for foreign/custom conf.d files, a
 restricted transactional editor and lifecycle helper for foreign files, a
-transactional firewall4 manager for Direct HTTPS WAN/443 ownership, and opt-in
-native shared-port, Cloudflare Tunnel, or Direct HTTPS ingress profiles. Managed
-listeners are disabled by default.
+transactional firewall4 manager for Direct HTTPS WAN/443 ownership, X.509/ACME
+readiness checks with a renewal hotplug preflight, and opt-in native shared-port,
+Cloudflare Tunnel, or Direct HTTPS ingress profiles. Managed listeners are disabled
+by default.
 endef
 
 # This package only installs configuration and helper scripts; it has no source
@@ -64,10 +65,16 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-reconcile
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-firewall \
 		$(1)/usr/libexec/nginx-telego-firewall
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-cert \
+		$(1)/usr/libexec/nginx-telego-cert
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-admin \
 		$(1)/usr/libexec/nginx-telego-admin
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-editor \
 		$(1)/usr/libexec/nginx-telego-editor
+
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/acme
+	$(INSTALL_BIN) ./files/etc/hotplug.d/acme/90-nginx-telego \
+		$(1)/etc/hotplug.d/acme/90-nginx-telego
 endef
 
 define Package/nginx-telego/postinst
