@@ -176,6 +176,7 @@ For a new managed configuration:
 ```sh
 uci set nginx_telego.cloudflare.enabled='1'
 uci set nginx_telego.cloudflare.hostname='web.example.com'
+uci set nginx_telego.direct_https.enabled='0'
 uci set nginx_telego.shared.enabled='0'
 uci set nginx_telego.fallback.manage='1'
 uci commit nginx_telego
@@ -231,16 +232,17 @@ In that mode the package keeps the managed ingress but removes its own `85-teleg
 
 If `/etc/nginx/conf.d/zz-telego-cloudflare.conf` is already tested and working, **keep it**.
 
-Make sure both managed profiles remain disabled:
+Make sure all managed profiles remain disabled:
 
 ```sh
 uci set nginx_telego.cloudflare.enabled='0'
+uci set nginx_telego.direct_https.enabled='0'
 uci set nginx_telego.shared.enabled='0'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-With both profiles disabled, reconciliation removes only current nginx-telego-owned generated ingress/fallback state. It does not touch your `zz-telego-cloudflare.conf`, old alpha paths outside the registry, or another foreign regular `.conf` file.
+With all managed profiles disabled, reconciliation removes only current nginx-telego-owned generated ingress/fallback state. It does not touch your `zz-telego-cloudflare.conf`, old alpha paths outside the registry, or another foreign regular `.conf` file.
 
 A hand-written Cloudflare ingress should provide the same behavior as the managed profile:
 

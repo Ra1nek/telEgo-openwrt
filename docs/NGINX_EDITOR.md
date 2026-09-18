@@ -58,7 +58,7 @@ stale-content
 
 Таким образом обычное изменение того же файла через SSH или другой LuCI-сеанс не должно молча перетираться.
 
-P9 также использует тот же kernel `flock`:
+Редактор также использует тот же kernel `flock`:
 
 ```text
 /var/lock/nginx-telego-reconcile.lock
@@ -104,7 +104,7 @@ commit
 
 ## RPC / ACL
 
-P9 расширяет существующий ubus object:
+Редактор использует существующий ubus object:
 
 ```text
 telego.nginx
@@ -175,7 +175,7 @@ Managed package/generated файлы не получают кнопку реда
 
 ## Security invariants
 
-P9 обязан сохранять следующие свойства:
+Редактор обязан сохранять следующие свойства:
 
 1. browser/rpcd не передаёт helper произвольный filesystem path;
 2. editor никогда не редактирует package-owned или доказанно managed generated state;
@@ -190,7 +190,7 @@ P9 обязан сохранять следующие свойства:
 
 ## CI
 
-P9 проверяется как минимум следующими слоями:
+Редактор проверяется как минимум следующими слоями:
 
 - shell regression для `nginx-telego-editor`: edit, unchanged, stale revision, managed deny, reserved foreign, symlink, size limit, shared flock, `nginx -t` rollback и reload rollback;
 - native ucode RPC tests: OpenWrt-compatible quoted helper invocation, stdin content transfer, revision/error mapping;

@@ -40,7 +40,7 @@ splice-host
 splice-port
 ```
 
-Это относится только к endpoint-полям, связывающим telEgo с локальными TLS listeners Native Shared-Port. Остальные параметры `tls-fronting`, включая `mask-host`, `mask-port`, FakeTLS/DRS/Split-TLS и связанные runtime controls, не удаляются P11.
+Это относится только к endpoint-полям, связывающим telEgo с локальными TLS listeners Native Shared-Port. Остальные параметры `tls-fronting`, включая `mask-host`, `mask-port`, FakeTLS/DRS/Split-TLS и связанные runtime controls, не удаляются при переключении ingress-профиля.
 
 ## Почему значения не удаляются из UCI
 

@@ -176,6 +176,7 @@ grep -RnsE 'listen[[:space:]]+([^;[:space:]]*:)?18080([[:space:]]|;)' \
 ```sh
 uci set nginx_telego.cloudflare.enabled='1'
 uci set nginx_telego.cloudflare.hostname='web.example.com'
+uci set nginx_telego.direct_https.enabled='0'
 uci set nginx_telego.shared.enabled='0'
 uci set nginx_telego.fallback.manage='1'
 uci commit nginx_telego
@@ -235,12 +236,13 @@ Managed profile должен быть выключен:
 
 ```sh
 uci set nginx_telego.cloudflare.enabled='0'
+uci set nginx_telego.direct_https.enabled='0'
 uci set nginx_telego.shared.enabled='0'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-При выключенных профилях reconciliation удаляет только собственные current generated ingress/fallback файлы. Ваш `zz-telego-cloudflare.conf`, старые alpha-файлы вне registry и другие `foreign` regular `.conf` не затрагиваются.
+При выключенных всех managed profiles reconciliation удаляет только собственные current generated ingress/fallback файлы. Ваш `zz-telego-cloudflare.conf`, старые alpha-файлы вне registry и другие `foreign` regular `.conf` не затрагиваются.
 
 Ручной Cloudflare ingress должен выполнять те же функции, что managed profile:
 

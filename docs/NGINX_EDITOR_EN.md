@@ -58,7 +58,7 @@ stale-content
 
 This prevents ordinary SSH edits or another LuCI session from being silently overwritten.
 
-P9 also shares the same kernel `flock`:
+The editor also shares the same kernel `flock`:
 
 ```text
 /var/lock/nginx-telego-reconcile.lock
@@ -104,7 +104,7 @@ If `nginx -t` or reload fails, the original file is restored. If the submitted b
 
 ## RPC / ACL
 
-P9 extends the existing ubus object:
+The editor uses the existing ubus object:
 
 ```text
 telego.nginx
@@ -175,7 +175,7 @@ The editor displays an explicit warning that the operation applies only to an ad
 
 ## Security invariants
 
-P9 must preserve these properties:
+The editor must preserve these properties:
 
 1. browser/rpcd never supplies an arbitrary filesystem path to the helper;
 2. the editor never modifies package-owned or proven managed generated state;
@@ -190,7 +190,7 @@ P9 must preserve these properties:
 
 ## CI
 
-P9 is covered by at least these layers:
+The editor is covered by at least these layers:
 
 - shell regression for `nginx-telego-editor`: edit, unchanged, stale revision, managed deny, reserved foreign, symlink, size limit, shared flock, `nginx -t` rollback and reload rollback;
 - native ucode RPC tests: OpenWrt-compatible quoted helper invocation, stdin content transfer, revision/error mapping;

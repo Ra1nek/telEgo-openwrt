@@ -16,7 +16,7 @@ Lifecycle helper работает только с direct-child файлами:
 
 Имя обязано соответствовать allowlist безопасных `*.conf` names и не может содержать path traversal или произвольный absolute path.
 
-P10 не создаёт каталоги, snippets или файлы вне `/etc/nginx/conf.d/`. Quarantined files не переименовываются через lifecycle helper.
+Lifecycle helper не создаёт каталоги, snippets или файлы вне `/etc/nginx/conf.d/`. Quarantined files не переименовываются через lifecycle helper.
 
 ## Create
 
@@ -109,7 +109,7 @@ commit
 
 ## RPC / ACL
 
-P10 расширяет существующий локальный ubus object:
+Lifecycle использует существующий локальный ubus object:
 
 ```text
 telego.nginx
@@ -229,7 +229,7 @@ Lifecycle сохраняет следующие обязательные сво�
 9. active tree обязан пройти `nginx -t` до commit;
 10. reload failure откатывает filesystem state;
 11. create/rename не означает adoption в telEgo ownership;
-12. quarantined files не являются rename source P10.
+12. quarantined files не являются допустимым rename source lifecycle.
 
 ## CI
 

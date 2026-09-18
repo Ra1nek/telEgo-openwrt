@@ -91,7 +91,23 @@ curl -k -I https://<LAN-IP-роутера>/cgi-bin/luci/
 
 ## 4. WAN :443 должен попадать в Nginx :18443
 
-На клиенте **вне домашней сети**:
+На Linux/macOS/WSL-клиенте **вне домашней сети** можно запустить read-only helper:
+
+```sh
+wget -O /tmp/verify-direct-https-client.sh \
+  https://raw.githubusercontent.com/Ra1nek/telEgo-openwrt/develop/scripts/verify-direct-https-client.sh
+sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IP>
+```
+
+Для отдельной IPv6-проверки:
+
+```sh
+IP_FAMILY=6 sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IPV6>
+```
+
+Helper проверяет валидный public TLS, HTTP/2, фактический remote IP и TCP-доступность WAN :18443. Он не может заменить проверку Telegram Desktop, LAN LuCI или reboot.
+
+Ручная проверка на клиенте **вне домашней сети**:
 
 ```sh
 nslookup web.example.com

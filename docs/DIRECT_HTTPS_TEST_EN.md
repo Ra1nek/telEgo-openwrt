@@ -63,7 +63,23 @@ Expect LuCI/uhttpd, commonly `Server: uhttpd` or its normal login/redirect respo
 
 ## 4. WAN :443 must reach Nginx :18443
 
-From a client outside the home network:
+From a Linux/macOS/WSL client **outside the home network**, you can run the read-only helper:
+
+```sh
+wget -O /tmp/verify-direct-https-client.sh \
+  https://raw.githubusercontent.com/Ra1nek/telEgo-openwrt/develop/scripts/verify-direct-https-client.sh
+sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IP>
+```
+
+For a separate IPv6 check:
+
+```sh
+IP_FAMILY=6 sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IPV6>
+```
+
+The helper verifies public TLS validation, HTTP/2, the actual remote IP, and WAN TCP/18443 reachability. It cannot replace Telegram Desktop, LAN LuCI, or reboot checks.
+
+Manual check from a client outside the home network:
 
 ```sh
 nslookup web.example.com
