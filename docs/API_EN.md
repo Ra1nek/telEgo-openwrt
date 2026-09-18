@@ -11,7 +11,9 @@
 |---|---|---|
 | `ubus call telego status` | Read service state + selected counters | Local OpenWrt rpcd, read-only |
 | `ubus call telego.nginx inventory` | Inventory managed/foreign/quarantined Nginx files | Local OpenWrt rpcd, read-only |
-| `telego.nginx managed_content` | Read package-owned active/canonical content for diff | Local OpenWrt rpcd, read-only |
+| `telego.nginx firewall_status/firewall_preflight` | Direct HTTPS firewall status and safe preflight | Local OpenWrt rpcd, read-only |
+| `telego.nginx certificate_status/certificate_preflight` | TLS certificate readiness and `nginx -t` preflight | Local OpenWrt rpcd, read-only |
+| `telego.nginx managed_content/foreign_*` | Restricted Nginx content/revision reads | Local OpenWrt rpcd, read-only |
 | `telego.nginx quarantine/restore/delete_*` | Explicit guarded operations on foreign/custom `.conf` files | Local OpenWrt rpcd, write |
 | `telego.nginx repair` | Delegate managed-state repair to the P7 reconciler | Local OpenWrt rpcd, write |
 | UCI `telego` | Read/write main configuration | Local OpenWrt config |
@@ -74,9 +76,9 @@ flowchart LR
 
 Service state/PID come from `service.list`; process uptime is calculated from `/proc`; counters are parsed from the configured metrics endpoint.
 
-## Nginx file API: `telego.nginx`
+## Local Nginx/ingress API: `telego.nginx`
 
-P8 exposes a separate local ubus object:
+LuCI exposes a separate local ubus object:
 
 ```text
 telego.nginx
@@ -88,13 +90,47 @@ The backend lives at:
 package/luci-app-telego/root/usr/share/rpcd/ucode/telego-nginx
 ```
 
-It does **not perform direct filesystem mutations**. All privileged Nginx file operations are delegated to the fixed helper:
+It does **not perform direct filesystem/firewall/certificate mutations**. Privileged operations are delegated to fixed helpers:
 
 ```text
 /usr/libexec/nginx-telego-admin
+/usr/libexec/nginx-telego-firewall
+/usr/libexec/nginx-telego-cert
 ```
 
 Browser/rpcd input supplies only constrained method arguments to the helper, never an arbitrary absolute path. See [NGINX_FILES_EN.md](NGINX_FILES_EN.md) for the complete ownership and administration contract.
+
+### Ingress/certificate read-only methods
+
+`firewall_status` reports the package-owned Direct HTTPS redirect without changing firewall state:
+
+```sh
+ubus call telego.nginx firewall_status
+```
+
+Key fields are `profile_enabled`, `section_state` (`absent|owned|foreign`), `managed_match`, `wan_zone_count`, `wan_input`, `foreign_wan443`, `pending_changes`, and `error`.
+
+`firewall_preflight` checks WAN-zone safety, foreign WAN TCP/443 ownership, pending UCI changes, and `fw4 check` without applying firewall changes:
+
+```sh
+ubus call telego.nginx firewall_preflight
+```
+
+`certificate_status` reports certificate/key readiness for the active managed ingress:
+
+```sh
+ubus call telego.nginx certificate_status
+```
+
+The response includes `profile`, `managed_tls`, `hostname`, certificate/key paths, `certificate_state`, `key_state`, `key_match`, `hostname_match`, `expiry_state`, `not_after`, SHA-256 fingerprint, `acme_managed`, `openssl_available`, and `error`.
+
+`certificate_preflight` repeats strict certificate/key/hostname/expiry validation and ends with `nginx -t`:
+
+```sh
+ubus call telego.nginx certificate_preflight
+```
+
+Both preflight methods are read-only with respect to UCI/filesystem state and are intended for readiness checks before Save & Apply or certificate renewal.
 
 ### `inventory`
 
@@ -153,15 +189,18 @@ Successful response:
 
 Generated `ingress`/`fallback` roles are not readable through this method.
 
-### Mutation methods
+### Foreign-file read/write methods
 
-All mutation methods accept a logical file name, not a path:
+The restricted editor exposes read-only `foreign_content(name)` and `foreign_revision(name)`. Write methods accept a logical file name, not a path:
 
 ```sh
 ubus call telego.nginx quarantine '{"name":"50-custom.conf"}'
 ubus call telego.nginx restore '{"name":"50-custom.conf"}'
 ubus call telego.nginx delete_active '{"name":"50-custom.conf"}'
 ubus call telego.nginx delete_quarantined '{"name":"50-custom.conf"}'
+ubus call telego.nginx create_foreign '{"name":"60-custom.conf","content":"..."}'
+ubus call telego.nginx replace_active '{"name":"50-custom.conf","revision":"<sha256>","content":"..."}'
+ubus call telego.nginx rename_active '{"name":"50-custom.conf","new_name":"51-custom.conf","revision":"<sha256>"}'
 ```
 
 Successful mutations share this response shape:
@@ -257,19 +296,19 @@ Consequences:
     "ubus": {
       "service": ["list"],
       "telego": ["status"],
-      "telego.nginx": ["inventory", "managed_content"]
+      "telego.nginx": ["inventory", "managed_content", "foreign_content", "foreign_revision", "firewall_status", "firewall_preflight", "certificate_status", "certificate_preflight"]
     }
   },
   "write": {
     "uci": ["telego", "nginx_telego"],
     "ubus": {
-      "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "repair"]
+      "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "replace_active", "create_foreign", "rename_active", "repair"]
     }
   }
 }
 ```
 
-`telego.status` remains read-only. `telego.nginx` deliberately separates read and write methods. Normal configuration is persisted through UCI; P8 write methods are only for explicit Nginx file-administration operations.
+`telego.status` remains read-only. `telego.nginx` deliberately separates status/preflight/read methods from file-mutation methods. Firewall/certificate preflight does not change UCI or runtime state; normal configuration is persisted through UCI.
 
 ## Configuration through UCI
 

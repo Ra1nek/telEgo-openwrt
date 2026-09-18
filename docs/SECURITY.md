@@ -242,11 +242,28 @@ Path `419` удаляет request body/content metadata и carrier-sensitive hea
 > [!IMPORTANT]
 > Не обходите `419` sanitization ради упрощения custom Nginx deployment. Это часть privacy boundary между WEB carrier и decoy/ordinary site.
 
+## Direct HTTPS firewall boundary
+
+Direct HTTPS намеренно использует Nginx listener `0.0.0.0:18443`, потому что firewall4 redirect должен доставлять локально адресованный WAN-трафик независимо от динамического WAN IP. Сам `:18443` **не является публичным ingress-портом**.
+
+`nginx-telego-firewall` владеет только именованной секцией:
+
+```text
+firewall.telego_direct_https
+```
+
+Она перенаправляет только WAN TCP/443 в local `:18443`. Manager отказывается включать Direct HTTPS при чужом WAN/443 redirect, зарезервированной foreign-секции, незакоммиченных firewall UCI changes или WAN input policy `ACCEPT`. LAN TCP/443 остаётся вне этого redirect и должен продолжать обслуживаться uhttpd/LuCI.
+
+> [!IMPORTANT]
+> После изменения сторонних firewall rules отдельно проверяйте, что WAN TCP/18443 не стал доступен напрямую. Полная процедура: [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md).
+
 ## TLS certificates и ответственность deployment
 
-`nginx-telego` не поставляет реальный certificate, private key, public hostname или полный TLS `server {}`. Это administrator-managed deployment assets.
+`nginx-telego` **не поставляет** реальный certificate, private key или public hostname. Эти deployment assets принадлежат администратору либо OpenWrt ACME.
 
-Защищайте private keys согласно обычной практике OpenWrt/Nginx и не помещайте их в репозиторий.
+При включённом managed Direct HTTPS или Native Shared-Port пакет генерирует Nginx TLS `server {}` из явно настроенных путей certificate/key. Перед apply/renewal выполняются certificate/key/hostname checks и `nginx -t`; сами secret key bytes пакет не генерирует и не сохраняет в UCI.
+
+Для OpenWrt ACME используйте стабильные symlink-пути и DNS-01 из [инструкции TLS-сертификата](TLS_CERTIFICATE.md). Защищайте private keys согласно обычной практике OpenWrt/Nginx и не помещайте их в репозиторий.
 
 ## APK integrity и signing trust
 
@@ -278,9 +295,9 @@ Stable release tag должен совпадать с `PKG_VERSION`. Release wor
 ## Checklist перед публикацией в Internet
 
 - [ ] Проверить нужный MTProxy bind address/port.
-- [ ] Проверить, что firewall/NAT публикуют только необходимые ports.
+- [ ] Проверить, что firewall/NAT публикуют только необходимые ports; для Direct HTTPS WAN TCP/18443 не должен быть доступен напрямую.
 - [ ] Оставить private listeners WEB Proxy и metrics на loopback, если нет отдельно reviewed причины менять это.
-- [ ] Использовать валидный administrator-managed TLS certificate для public Nginx side.
+- [ ] Использовать валидный administrator/ACME-managed TLS certificate и выполнить certificate preflight.
 - [ ] Убедиться, что Nginx включает project snippet и сохраняет sanitized `419` path.
 - [ ] Оставить DRS и Split-TLS включёнными, кроме controlled compatibility test.
 - [ ] Использовать уникальные random secrets и ротировать любой раскрытый secret.
@@ -300,3 +317,5 @@ Stable release tag должен совпадать с `PKG_VERSION`. Release wor
 - [Установка](INSTALL.md)
 - [Local integration / API](API.md)
 - [Nginx ownership / administration](NGINX_FILES.md)
+- [TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)
+- [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)

@@ -1,10 +1,10 @@
-# P9 — Restricted Nginx Editor
+# Restricted Nginx Editor
 
 [Русский](NGINX_EDITOR.md) · [**English**](NGINX_EDITOR_EN.md)
 
-P9 adds a restricted editor to **Services → telEgo → Nginx Files** for existing administrator-owned/foreign `*.conf` files.
+The **Services → telEgo → Nginx Files** page provides a restricted editor for existing administrator-owned/foreign `*.conf` files. This capability was historically introduced in P9.
 
-P9 does not change the P6/P7/P8 ownership model: editing a file does not make it telEgo-owned and does not modify `ownership.tsv`.
+The editor does not change the P6/P7/P8 ownership model: editing a file does not make it telEgo-owned and does not modify `ownership.tsv`.
 
 ## Scope
 
@@ -25,7 +25,7 @@ Editing is forbidden for:
 - arbitrary absolute paths;
 - file creation or rename.
 
-Creating or renaming `.conf` files is intentionally outside the first P9 scope.
+Creating or renaming `.conf` files is intentionally outside the original editor scope.
 
 ## Backend boundary
 

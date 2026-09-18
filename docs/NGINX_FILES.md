@@ -2,7 +2,7 @@
 
 [**Русский**](NGINX_FILES.md) · [English](NGINX_FILES_EN.md)
 
-Этот документ фиксирует итоговый контракт **P6 — Managed Nginx File Ownership**, **P7 — Reconciliation Engine** и **P8 — Nginx File Inventory & Administration**. P6 отвечает за однозначное владение и диагностику drift, P7 — за безопасное приведение package-owned/generated состояния к desired state из UCI, P8 — за явные администраторские операции над custom/foreign `.conf` без нарушения границ P6/P7.
+Этот документ описывает текущий контракт ownership/reconciliation и безопасные администраторские операции над Nginx-файлами. Исторические этапы P6/P7/P8 сформировали эту модель, но для эксплуатации важны конечные правила: package-owned и generated paths имеют доказуемого владельца, а custom/foreign `.conf` не перезаписываются молча.
 
 ## Source of truth
 
@@ -52,6 +52,20 @@ path    role    ownership    presence    source
 | `/etc/nginx/conf.d/85-telego-fallback.conf` | `fallback` | `generated` | `conditional` | `renderer` |
 
 `nginx-telego` не объявляет весь `/etc/nginx/conf.d/` своей собственностью. Неизвестные файлы остаются administrator/application-owned.
+
+### Что может содержать `80-telego-ingress.conf`
+
+Один conditional path используется тремя **взаимоисключающими** managed ingress-профилями:
+
+| Профиль | Основной Nginx listener | Назначение |
+|---|---|---|
+| Direct HTTPS | `0.0.0.0:18443` | backend для package-owned WAN TCP/443 firewall redirect |
+| Cloudflare Tunnel | `127.0.0.1:18080` | loopback origin для `cloudflared` |
+| Native Shared-Port | `127.0.0.1:8443` + certificate source `:8444` | TLS splice после public telEgo `:443` |
+
+Renderer никогда не объединяет эти профили в одном generated ingress. При Direct HTTPS firewall ownership живёт отдельно в `firewall.telego_direct_https`; Nginx file ownership и firewall ownership намеренно не смешиваются.
+
+
 
 ### Почему в `package/nginx-telego/files/conf.d/` лежит только `20-telego-core.conf`
 
@@ -325,7 +339,7 @@ P8 отдельно ограничивает administrator targets безопа�
 Контракт проверяется на нескольких уровнях:
 
 1. ownership tests: drift, source failure, symlink/directory/FIFO, path boundary и canonical role markers;
-2. renderer tests: Cloudflare/Native contracts, conflicts, strict role-aware ownership и atomic rollback;
+2. renderer tests: Direct HTTPS/Cloudflare/Native contracts, port conflicts, strict role-aware ownership и atomic rollback;
 3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transition, реальный concurrent apply под kernel flock и uninstall path;
 4. P8 admin tests: inventory, ownership protection, quarantine/restore/delete, collision handling, symlink/unsafe targets, общий flock с P7, rollback при `nginx -t`/reload failure и delegation `repair → reconciler`;
 5. rpcd/LuCI tests: shell quoting и parsing `telego.nginx`, ACL/menu/RPC/UI contract, запрет прямой работы rpcd с `/etc/nginx/conf.d` и отсутствие arbitrary editor;

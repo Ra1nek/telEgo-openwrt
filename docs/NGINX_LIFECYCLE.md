@@ -1,14 +1,14 @@
-# P10 — жизненный цикл чужих файлов Nginx
+# Жизненный цикл чужих файлов Nginx
 
 [**Русский**](NGINX_LIFECYCLE.md) · [English](NGINX_LIFECYCLE_EN.md)
 
-P10 расширяет P8/P9 двумя явными операциями над administrator-owned/foreign файлами Nginx: **созданием** нового `*.conf` и **переименованием** существующего активного foreign-файла.
+Жизненный цикл administrator-owned/foreign файлов Nginx включает две дополнительные явные операции: **создание** нового `*.conf` и **переименование** существующего активного foreign-файла. Исторически они добавлены на этапе P10 поверх P8/P9.
 
-P10 не меняет ownership model P6/P7/P8/P9. Созданный или переименованный файл остаётся чужим/принадлежащим администратору и не добавляется в `ownership.tsv`.
+Эти операции не меняют ownership model P6/P7/P8/P9. Созданный или переименованный файл остаётся чужим/принадлежащим администратору и не добавляется в `ownership.tsv`.
 
 ## Scope
 
-P10 работает только с direct-child файлами:
+Lifecycle helper работает только с direct-child файлами:
 
 ```text
 /etc/nginx/conf.d/NAME.conf
@@ -16,7 +16,7 @@ P10 работает только с direct-child файлами:
 
 Имя обязано соответствовать allowlist безопасных `*.conf` names и не может содержать path traversal или произвольный absolute path.
 
-P10 не создаёт каталоги, snippets или файлы вне `/etc/nginx/conf.d/`. Quarantined files не переименовываются через P10.
+P10 не создаёт каталоги, snippets или файлы вне `/etc/nginx/conf.d/`. Quarantined files не переименовываются через lifecycle helper.
 
 ## Create
 
@@ -175,7 +175,7 @@ Browser/rpcd передаёт helper logical names, а не filesystem paths. Co
 
 ## LuCI flow
 
-На странице **Службы → telEgo → Файлы Nginx** P10 добавляет:
+На странице **Службы → telEgo → Файлы Nginx** Lifecycle UI добавляет:
 
 - верхнюю кнопку **Создать файл**;
 - действие **Переименовать** у active foreign rows.
@@ -216,7 +216,7 @@ inventory refresh
 
 ## Security invariants
 
-P10 сохраняет следующие обязательные свойства:
+Lifecycle сохраняет следующие обязательные свойства:
 
 1. нет arbitrary-path filesystem API;
 2. create/rename ограничены `/etc/nginx/conf.d/*.conf` direct child names;
@@ -233,7 +233,7 @@ P10 сохраняет следующие обязательные свойст�
 
 ## CI
 
-P10 проверяется следующими слоями:
+Lifecycle проверяется следующими слоями:
 
 - shell regression `nginx-telego-editor`: create, duplicate target, managed target deny, size limit, shared flock, `nginx -t` rollback, reload rollback, rename, collision, stale revision, managed target deny, large-file revision/rename и rollback;
 - native ucode RPC tests: `foreign_revision`, create/rename invocation, stdin transfer, quoting и error mapping;
@@ -241,4 +241,4 @@ P10 проверяется следующими слоями:
 - i18n coverage;
 - APK layout/rootfs smoke и OpenWrt 25.12.x compatibility matrix.
 
-P10 не заменяет P8 quarantine/delete и P9 editor. Он расширяет тот же restricted foreign-file lifecycle, сохраняя общий ownership, lock и transaction boundary.
+Lifecycle не заменяет P8 quarantine/delete и P9 editor. Он расширяет тот же restricted foreign-file lifecycle, сохраняя общий ownership, lock и transaction boundary.

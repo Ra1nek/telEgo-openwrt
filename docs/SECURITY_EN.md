@@ -240,11 +240,28 @@ The `419` path removes request body/content metadata and carrier-sensitive heade
 > [!IMPORTANT]
 > Do not bypass the `419` sanitization to simplify a custom Nginx deployment. It is part of the privacy boundary between the WEB carrier and the decoy/ordinary site.
 
+## Direct HTTPS firewall boundary
+
+Direct HTTPS intentionally uses an Nginx listener on `0.0.0.0:18443` so a firewall4 redirect can deliver locally addressed WAN traffic without depending on a static WAN IP. Port `:18443` itself is **not a public ingress port**.
+
+`nginx-telego-firewall` owns only the named section:
+
+```text
+firewall.telego_direct_https
+```
+
+It redirects WAN TCP/443 to local `:18443`. The manager refuses Direct HTTPS when a foreign WAN/443 redirect exists, the reserved section is foreign, uncommitted firewall UCI changes exist, or the WAN input policy is `ACCEPT`. LAN TCP/443 is outside this redirect and remains available to uhttpd/LuCI.
+
+> [!IMPORTANT]
+> After changing unrelated firewall rules, verify separately that WAN TCP/18443 did not become directly reachable. See the [Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md).
+
 ## TLS certificates and deployment ownership
 
-`nginx-telego` does not ship a real certificate, private key, public hostname, or complete TLS `server {}`. Those remain administrator-managed deployment assets.
+`nginx-telego` does **not ship** a real certificate, private key, or public hostname. Those deployment assets belong to the administrator or OpenWrt ACME.
 
-Protect private keys according to normal OpenWrt/Nginx practice and avoid placing them in this repository.
+When managed Direct HTTPS or Native Shared-Port is enabled, the package generates the Nginx TLS `server {}` from explicitly configured certificate/key paths. Certificate/key/hostname checks and `nginx -t` run before apply/renewal; the package does not generate private-key material or store private-key bytes in UCI.
+
+For OpenWrt ACME, use the stable symlink paths and DNS-01 procedure in the [TLS certificate guide](TLS_CERTIFICATE_EN.md). Protect private keys according to normal OpenWrt/Nginx practice and avoid placing them in this repository.
 
 ## APK integrity and signing trust
 
@@ -278,9 +295,9 @@ Stable release tags must match `PKG_VERSION`. The release workflow supplies the 
 Before exposing telEgo to the Internet:
 
 - [ ] Confirm the intended MTProxy bind address/port.
-- [ ] Confirm firewall/NAT rules expose only required ports.
+- [ ] Confirm firewall/NAT rules expose only required ports; Direct HTTPS must not expose WAN TCP/18443 directly.
 - [ ] Keep WEB Proxy and metrics private listeners on loopback unless you have a reviewed reason to change them.
-- [ ] Use a valid administrator-managed TLS certificate for the public Nginx side.
+- [ ] Use a valid administrator/ACME-managed TLS certificate and run the certificate preflight.
 - [ ] Confirm Nginx includes the project snippet without removing the sanitized `419` path.
 - [ ] Keep DRS and Split-TLS enabled unless you are performing a controlled compatibility test.
 - [ ] Use unique random secrets and rotate any secret that was disclosed.
@@ -300,3 +317,5 @@ For a suspected vulnerability, avoid posting working credentials, private keys, 
 - [Installation](INSTALL_EN.md)
 - [Local integration / API](API_EN.md)
 - [Nginx ownership / administration](NGINX_FILES_EN.md)
+- [TLS certificate / ACME DNS-01](TLS_CERTIFICATE_EN.md)
+- [Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)

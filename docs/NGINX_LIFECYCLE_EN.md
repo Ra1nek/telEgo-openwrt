@@ -1,14 +1,14 @@
-# P10 — Foreign Nginx File Lifecycle
+# Foreign Nginx File Lifecycle
 
 [Русский](NGINX_LIFECYCLE.md) · [**English**](NGINX_LIFECYCLE_EN.md)
 
-P10 extends P8/P9 with two explicit operations for administrator-owned/foreign Nginx files: **creating** a new `*.conf` file and **renaming** an existing active foreign file.
+The lifecycle for administrator-owned/foreign Nginx files includes two additional explicit operations: **creating** a new `*.conf` file and **renaming** an existing active foreign file. They were historically introduced in P10 on top of P8/P9.
 
-P10 does not change the P6/P7/P8/P9 ownership model. A created or renamed file remains foreign/administrator-owned and is never added to `ownership.tsv`.
+These operations do not change the P6/P7/P8/P9 ownership model. A created or renamed file remains foreign/administrator-owned and is never added to `ownership.tsv`.
 
 ## Scope
 
-P10 operates only on direct-child files:
+The lifecycle helper operates only on direct-child files:
 
 ```text
 /etc/nginx/conf.d/NAME.conf
@@ -16,7 +16,7 @@ P10 operates only on direct-child files:
 
 The name must match the allowlist for safe `*.conf` names and cannot contain path traversal or an arbitrary absolute path.
 
-P10 does not create directories, snippets, or files outside `/etc/nginx/conf.d/`. Quarantined files cannot be renamed through P10.
+P10 does not create directories, snippets, or files outside `/etc/nginx/conf.d/`. Quarantined files cannot be renamed through the lifecycle helper.
 
 ## Create
 
@@ -175,7 +175,7 @@ Browser/rpcd supplies logical names to the helper rather than filesystem paths. 
 
 ## LuCI flow
 
-On **Services → telEgo → Nginx Files**, P10 adds:
+On **Services → telEgo → Nginx Files**, The lifecycle UI adds:
 
 - a top-level **Create file** action;
 - a **Rename** action on active foreign rows.
@@ -216,7 +216,7 @@ Create/rename errors are displayed inside the current modal. The submit button i
 
 ## Security invariants
 
-P10 preserves these mandatory properties:
+The lifecycle preserves these mandatory properties:
 
 1. no arbitrary-path filesystem API;
 2. create/rename are restricted to `/etc/nginx/conf.d/*.conf` direct-child names;
@@ -233,7 +233,7 @@ P10 preserves these mandatory properties:
 
 ## CI
 
-P10 is covered by these layers:
+The lifecycle is covered by these layers:
 
 - `nginx-telego-editor` shell regression: create, duplicate target, managed-target denial, size limit, shared flock, `nginx -t` rollback, reload rollback, rename, collision, stale revision, managed-target denial, large-file revision/rename, and rollback;
 - native ucode RPC tests: `foreign_revision`, create/rename invocation, stdin transfer, quoting, and error mapping;
@@ -241,4 +241,4 @@ P10 is covered by these layers:
 - i18n coverage;
 - APK layout/rootfs smoke and the OpenWrt 25.12.x compatibility matrix.
 
-P10 does not replace P8 quarantine/delete or the P9 editor. It extends the same restricted foreign-file lifecycle while preserving the shared ownership, lock, and transaction boundary.
+The lifecycle does not replace P8 quarantine/delete or the P9 editor. It extends the same restricted foreign-file lifecycle while preserving the shared ownership, lock, and transaction boundary.

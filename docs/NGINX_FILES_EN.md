@@ -1,8 +1,8 @@
-# `nginx-telego` Nginx ownership, reconciliation, and P8 administration
+# `nginx-telego`: Nginx ownership, reconciliation, and file administration
 
 [Русский](NGINX_FILES.md) · **English**
 
-This document defines the final **P6 — Managed Nginx File Ownership**, **P7 — Reconciliation Engine**, and **P8 — Nginx File Inventory & Administration** contracts. P6 identifies ownership and drift, P7 safely reconciles package-owned/generated state to the desired UCI state, and P8 exposes explicit administrator operations for custom/foreign `.conf` files without weakening the P6/P7 boundary.
+This document describes the current ownership/reconciliation contract and the safe administrator operations for Nginx files. Historical P6/P7/P8 stages formed this model, but the operational rules are the important part: package-owned and generated paths have provable ownership while custom/foreign `.conf` files are never silently overwritten.
 
 ## Source of truth
 
@@ -52,6 +52,20 @@ path    role    ownership    presence    source
 | `/etc/nginx/conf.d/85-telego-fallback.conf` | `fallback` | `generated` | `conditional` | `renderer` |
 
 `nginx-telego` does not claim the whole `/etc/nginx/conf.d/` directory. Unknown administrator/application files remain foreign.
+
+### What `80-telego-ingress.conf` may contain
+
+One conditional path is shared by three **mutually exclusive** managed ingress profiles:
+
+| Profile | Primary Nginx listener | Purpose |
+|---|---|---|
+| Direct HTTPS | `0.0.0.0:18443` | backend for the package-owned WAN TCP/443 firewall redirect |
+| Cloudflare Tunnel | `127.0.0.1:18080` | loopback origin for `cloudflared` |
+| Native Shared-Port | `127.0.0.1:8443` plus certificate source `:8444` | TLS splice behind public telEgo `:443` |
+
+The renderer never combines these profiles in one generated ingress. Direct HTTPS firewall ownership lives separately in `firewall.telego_direct_https`; Nginx file ownership and firewall ownership intentionally remain separate boundaries.
+
+
 
 ### Why `package/nginx-telego/files/conf.d/` contains only `20-telego-core.conf`
 
@@ -325,7 +339,7 @@ P8 separately restricts administrator targets to safe direct-child `.conf` names
 The contract is verified at multiple levels:
 
 1. ownership tests: drift, canonical-source failures, symlink/directory/FIFO cases, path boundaries, and canonical role markers;
-2. renderer tests: Cloudflare/Native contracts, conflicts, strict role-aware ownership, and atomic rollback;
+2. renderer tests: Direct HTTPS/Cloudflare/Native contracts, port conflicts, strict role-aware ownership, and atomic rollback;
 3. reconciler tests: package repair, `nginx -t`/reload rollback, foreign files, fallback transitions, real concurrent apply under kernel flock, and uninstall cleanup;
 4. P8 admin tests: inventory, ownership protection, quarantine/restore/delete, collision handling, symlink/unsafe targets, shared flock with P7, rollback on `nginx -t`/reload failure, and `repair → reconciler` delegation;
 5. rpcd/LuCI tests: `telego.nginx` parsing/shell quoting, ACL/menu/RPC/UI contract, no direct rpcd access to `/etc/nginx/conf.d`, and no arbitrary editor;
