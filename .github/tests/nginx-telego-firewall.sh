@@ -186,6 +186,73 @@ sed -i 's/wan|zone|input|reject/wan|zone|input|accept/' "$FIREWALL_CONFIG"
 if "$MANAGER" apply >"$work/accept.out" 2>&1; then exit 1; fi
 grep -q 'input ACCEPT' "$work/accept.out"
 
+
+# A specific WAN input ACCEPT for the private Direct HTTPS backend is unsafe
+# even when the zone default is REJECT/DROP.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+backend_allow|rule||
+backend_allow|rule|src|wan
+backend_allow|rule|proto|tcp
+backend_allow|rule|dest_port|18443
+backend_allow|rule|target|ACCEPT
+STATE
+cp "$FIREWALL_CONFIG" "$work/before"
+if "$MANAGER" apply >"$work/backend-allow.out" 2>&1; then
+  echo 'foreign WAN/18443 input rule was unexpectedly accepted' >&2
+  exit 1
+fi
+grep -q "exposes reserved Direct HTTPS backend WAN TCP/18443" "$work/backend-allow.out"
+cmp "$work/before" "$FIREWALL_CONFIG"
+
+# Broad/ranged WAN rules that include 18443 are also conflicts.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+backend_range|rule||
+backend_range|rule|src|wan
+backend_range|rule|proto|tcp
+backend_range|rule|dest_port|18000-19000
+backend_range|rule|target|accept
+STATE
+if "$MANAGER" apply >"$work/backend-range.out" 2>&1; then exit 1; fi
+grep -q 'WAN TCP/18443' "$work/backend-range.out"
+
+# Space-separated UCI port lists cannot hide the reserved backend.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+backend_list|rule||
+backend_list|rule|src|wan
+backend_list|rule|proto|tcp
+backend_list|rule|dest_port|80 18443
+backend_list|rule|target|ACCEPT
+STATE
+if "$MANAGER" apply >"$work/backend-list.out" 2>&1; then exit 1; fi
+grep -q 'WAN TCP/18443' "$work/backend-list.out"
+
+# A WAN redirect published directly on 18443 violates the reserved-backend
+# contract even if it forwards elsewhere.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+backend_redirect|redirect||
+backend_redirect|redirect|src|wan
+backend_redirect|redirect|proto|tcp
+backend_redirect|redirect|src_dport|18443
+backend_redirect|redirect|dest_port|9443
+STATE
+if "$MANAGER" apply >"$work/backend-redirect.out" 2>&1; then exit 1; fi
+grep -q "redirect:backend_redirect" "$work/backend-redirect.out"
+
+# UDP-only backend rules do not conflict with the TCP listener.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+backend_udp|rule||
+backend_udp|rule|src|wan
+backend_udp|rule|proto|udp
+backend_udp|rule|dest_port|18443
+backend_udp|rule|target|ACCEPT
+STATE
+"$MANAGER" apply >/dev/null
+
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
 telego_direct_https|redirect||
@@ -246,6 +313,7 @@ grep -Eq '^managed_match[[:space:]]+0$' <<<"$status"
 grep -Eq '^wan_zone_count[[:space:]]+1$' <<<"$status"
 grep -Eq '^wan_input[[:space:]]+reject$' <<<"$status"
 grep -Eq '^foreign_wan443[[:space:]]+-$' <<<"$status"
+grep -Eq '^foreign_wan18443[[:space:]]+-$' <<<"$status"
 grep -Eq '^pending_changes[[:space:]]+0$' <<<"$status"
 [[ ! -e "$FW4_COUNT" ]]
 [[ ! -s "$RELOAD_LOG" ]]
@@ -270,6 +338,18 @@ foreign_status|redirect|src_dport|443
 STATE
 status=$("$MANAGER" status)
 grep -Eq '^foreign_wan443[[:space:]]+foreign_status$' <<<"$status"
+
+# Status also surfaces direct backend exposure without mutating state.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+backend_status|rule||
+backend_status|rule|src|wan
+backend_status|rule|proto|tcp
+backend_status|rule|dest_port|18443
+backend_status|rule|target|ACCEPT
+STATE
+status=$("$MANAGER" status)
+grep -Eq '^foreign_wan18443[[:space:]]+rule:backend_status$' <<<"$status"
 
 baseline
 block="$work/block"

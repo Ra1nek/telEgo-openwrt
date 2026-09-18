@@ -12,7 +12,7 @@ const store = {
 		fallback: { manage: '1' }
 	},
 	telego: {
-		general: { bind_to: '0.0.0.0:443' },
+		general: { enabled: '1', bind_to: '0.0.0.0:443' },
 		web_proxy: {
 			enabled: '1', bind_to: '127.0.0.1:8080', hostname: 'web.example.com',
 			trusted_proxy_cidrs: ['127.0.0.1/32']
@@ -32,6 +32,7 @@ const firewallStatus = {
 	wan_zone_count: 1,
 	wan_input: 'reject',
 	foreign_wan443: '',
+	foreign_wan18443: '',
 	pending_changes: false,
 	error: ''
 };
@@ -153,6 +154,12 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	assert.ok(mode, 'ingress mode selector exists');
 	assert.deepEqual(mode.values.map(v => v[0]), ['disabled', 'direct_https', 'cloudflare', 'shared']);
 	assert.equal(mode.cfgvalue(), 'disabled');
+	assert.notEqual(mode.validate(null, 'direct_https'), true, 'Direct HTTPS rejects MTProxy on public TCP/443');
+	store.telego.general.bind_to = '0.0.0.0:9443';
+	assert.equal(mode.validate(null, 'direct_https'), true, 'Direct HTTPS accepts MTProxy on another port');
+	store.telego.web_proxy.enabled = '0';
+	assert.notEqual(mode.validate(null, 'cloudflare'), true, 'managed ingress rejects a broken telEgo WEB contract');
+	store.telego.web_proxy.enabled = '1';
 
 	store.nginx_telego.direct_https.enabled = '1';
 	assert.equal(mode.cfgvalue(), 'direct_https');
@@ -208,11 +215,16 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	directCert.remove();
 	assert.equal(store.nginx_telego.direct_https.certificate, undefined);
 
+	const portOwnership = options.find(o => o.name === '_direct_https_ports');
+	assert.deepEqual(portOwnership.dependencies, [['_mode', 'direct_https']]);
+	assert.ok(portOwnership.cfgvalue().includes('MTProxy: 0.0.0.0:9443'));
+
 	const firewall = options.find(o => o.name === '_firewall_status');
 	assert.deepEqual(firewall.dependencies, [['_mode', 'direct_https']]);
 	assert.ok(firewall.cfgvalue().includes('Owned and in sync'));
 	assert.ok(firewall.cfgvalue().includes('WAN input: reject'));
 	assert.ok(firewall.cfgvalue().includes('Foreign WAN TCP/443: none'));
+	assert.ok(firewall.cfgvalue().includes('Foreign WAN TCP/18443: none'));
 
 	const preflight = options.find(o => o.name === '_firewall_preflight');
 	assert.deepEqual(preflight.dependencies, [['_mode', 'direct_https']]);

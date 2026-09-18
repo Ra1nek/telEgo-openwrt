@@ -155,6 +155,9 @@ validate_web_contract() {
     expected_hostname=$1
     profile=$2
 
+    service_enabled=$(uci_get telego general enabled 0)
+    is_enabled "$service_enabled" || fail "$profile requires telego.general.enabled=1"
+
     web_enabled=$(uci_get telego web_proxy enabled 0)
     is_enabled "$web_enabled" || fail "$profile requires telego.web_proxy.enabled=1"
 
@@ -171,6 +174,23 @@ validate_web_contract() {
     trusted=$(uci_get telego web_proxy trusted_proxy_cidrs '')
     list_has_word "$trusted" '127.0.0.1/32' ||
         fail "$profile requires 127.0.0.1/32 in telego.web_proxy.trusted_proxy_cidrs"
+}
+
+validate_direct_https_contract() {
+    hostname=$1
+    validate_web_contract "$hostname" 'Direct HTTPS ingress'
+
+    # Direct HTTPS dedicates WAN TCP/443 to the Nginx WEB edge. Keeping the
+    # telEgo MTProxy listener on port 443 would make the topology ambiguous:
+    # WAN/443 is redirected before it can reach telEgo, while LAN/443 remains
+    # reserved for uhttpd/LuCI. Operators who need MTProxy and WEB on the same
+    # public 443 must use Native Shared-Port instead.
+    public_bind=$(uci_get telego general bind_to '0.0.0.0:443')
+    case "$public_bind" in
+        *:443)
+            fail 'Direct HTTPS reserves WAN TCP/443 for WEB/Nginx; move telego.general.bind_to to another port (for example 0.0.0.0:9443), or use Native Shared-Port to share public TCP/443'
+            ;;
+    esac
 }
 
 validate_shared_contract() {
@@ -417,7 +437,7 @@ fi
 
 if is_enabled "$direct_https_enabled"; then
     validate_hostname "$direct_https_hostname" 'Direct HTTPS hostname'
-    validate_web_contract "$direct_https_hostname" 'Direct HTTPS ingress'
+    validate_direct_https_contract "$direct_https_hostname"
     direct_https_certificate=$(uci_get nginx_telego direct_https certificate '')
     direct_https_certificate_key=$(uci_get nginx_telego direct_https certificate_key '')
     validate_tls_material "$direct_https_certificate" "$direct_https_certificate_key" 'Direct HTTPS'
@@ -489,11 +509,13 @@ if is_enabled "$direct_https_enabled"; then
 # deliver packets without changing uhttpd/LuCI ownership of LAN TCP/443.
 server {
     listen 0.0.0.0:18443 ssl default_server;
+    listen [::]:18443 ssl default_server;
     ssl_reject_handshake on;
 }
 
 server {
     listen 0.0.0.0:18443 ssl;
+    listen [::]:18443 ssl;
     http2 on;
     server_name $direct_https_hostname;
     client_max_body_size 16m;

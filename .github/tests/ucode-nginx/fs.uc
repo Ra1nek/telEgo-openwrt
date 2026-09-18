@@ -37,7 +37,7 @@ function popen(command, mode) {
 
 		let output = '';
 		if (index(command, " 'status'") >= 0)
-			output = 'profile_enabled\t1\nsection_state\towned\nmanaged_match\t1\nwan_zone_count\t1\nwan_input\treject\nforeign_wan443\t-\npending_changes\t0\n';
+			output = 'profile_enabled\t1\nsection_state\towned\nmanaged_match\t1\nwan_zone_count\t1\nwan_input\treject\nforeign_wan443\t-\nforeign_wan18443\t-\npending_changes\t0\n';
 		else if (index(command, " 'preflight'") >= 0)
 			output = 'nginx-telego-firewall: Direct HTTPS firewall preflight passed for WAN TCP/443 -> :18443\n';
 		return { read: function(kind) { return output; }, close: function() { return 0; } };

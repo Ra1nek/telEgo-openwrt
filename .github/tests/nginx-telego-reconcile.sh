@@ -48,6 +48,7 @@ case "$2" in
   nginx_telego.cloudflare.enabled) printf '%s\n' "${FIX_CF_ENABLED:-0}" ;;
   nginx_telego.cloudflare.hostname) printf '%s\n' "${FIX_CF_HOSTNAME:-}" ;;
   nginx_telego.fallback.manage) printf '%s\n' "${FIX_FALLBACK_MANAGE:-1}" ;;
+  telego.general.enabled) printf '%s\n' "${FIX_GENERAL_ENABLED:-1}" ;;
   telego.general.bind_to) printf '%s\n' "${FIX_PUBLIC_BIND:-0.0.0.0:443}" ;;
   telego.web_proxy.enabled) printf '%s\n' "${FIX_WEB_ENABLED:-1}" ;;
   telego.web_proxy.hostname) printf '%s\n' "${FIX_WEB_HOSTNAME:-web.example.com}" ;;

@@ -744,8 +744,8 @@ msgstr "Состояние X.509 активного локального TLS-п�
 msgid "Run Certificate Preflight"
 msgstr "Запустить проверку сертификата"
 
-msgid "See docs/P12_ACME_DNS01.md for the DNS-01 runbook."
-msgstr "См. руководство DNS-01 в docs/P12_ACME_DNS01.md."
+msgid "See docs/TLS_CERTIFICATE.md for the DNS-01 runbook."
+msgstr "См. руководство DNS-01 в docs/TLS_CERTIFICATE.md."
 
 msgid "Valid for more than 30 days"
 msgstr "Действителен более 30 дней"
@@ -755,3 +755,23 @@ msgstr "Проверяет разбор X.509, закрытый ключ, сов
 
 msgid "Certificate SHA-256"
 msgstr "SHA-256 сертификата"
+
+
+msgid "Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves WAN TCP/443 for WEB/Nginx, so MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443."
+msgstr "Direct HTTPS и Cloudflare — обычные режимы входа. Direct HTTPS резервирует WAN TCP/443 для WEB/Nginx, поэтому MTProxy должен использовать другой публичный порт. Native Shared-Port остаётся доступен, когда WEB и MTProxy должны совместно использовать публичный TCP/443."
+
+msgid "Direct HTTPS reserves WAN TCP/443 for WEB/Nginx. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443."
+msgstr "Direct HTTPS резервирует WAN TCP/443 для WEB/Nginx. Перенесите listener MTProxy telEgo на другой порт или используйте Native Shared-Port для совместного использования публичного TCP/443."
+
+msgid "Foreign WAN TCP/18443"
+msgstr "Чужой WAN TCP/18443"
+
+msgid "Port Ownership"
+msgstr "Владение портами"
+
+msgid "Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx. The telEgo MTProxy listener must use another port; LAN TCP/443 remains with uhttpd/LuCI."
+msgstr "Direct HTTPS выделяет WAN TCP/443 для WEB/Nginx. Listener MTProxy telEgo должен использовать другой порт; LAN TCP/443 остаётся за uhttpd/LuCI."
+
+
+msgid "Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration first."
+msgstr "Managed WEB ingress требует включённые telEgo и WEB Proxy, bind 127.0.0.1:8080, WEB hostname и доверенный 127.0.0.1/32. Сначала исправьте настройки в «Службы → telEgo → Конфигурация»."

@@ -50,6 +50,25 @@ function profileConflict() {
 	return (flags.shared ? 1 : 0) + (flags.cloudflare ? 1 : 0) + (flags.direct_https ? 1 : 0) > 1;
 }
 
+function managedWebContractError() {
+	const serviceEnabled = isEnabled('telego', 'general');
+	const webEnabled = isEnabled('telego', 'web_proxy');
+	const webBind = uci.get('telego', 'web_proxy', 'bind_to') || '127.0.0.1:8080';
+	const webHostname = uci.get('telego', 'web_proxy', 'hostname') || '';
+
+	if (!serviceEnabled || !webEnabled || webBind !== '127.0.0.1:8080' || !webHostname || !hasTrustedLoopback())
+		return _('Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration first.');
+
+	return null;
+}
+
+function directHttpsPortError() {
+	const bind = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
+	return /:443$/.test(bind)
+		? _('Direct HTTPS reserves WAN TCP/443 for WEB/Nginx. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443.')
+		: null;
+}
+
 function profileMode() {
 	const flags = profileFlags();
 	const enabled = (flags.shared ? 1 : 0) + (flags.cloudflare ? 1 : 0) + (flags.direct_https ? 1 : 0);
@@ -139,11 +158,15 @@ function firewallStatusText() {
 	const conflict = firewallState.foreign_wan443 && firewallState.foreign_wan443 !== '-'
 		? firewallState.foreign_wan443
 		: _('none');
+	const backendConflict = firewallState.foreign_wan18443 && firewallState.foreign_wan18443 !== '-'
+		? firewallState.foreign_wan18443
+		: _('none');
 
 	return [
 		_('Managed rule') + ': ' + state,
 		_('WAN input') + ': ' + (firewallState.wan_input || _('unknown')),
 		_('Foreign WAN TCP/443') + ': ' + conflict,
+		_('Foreign WAN TCP/18443') + ': ' + backendConflict,
 		_('Pending firewall changes') + ': ' + (firewallState.pending_changes ? _('Yes') : _('No'))
 	].join(' · ');
 }
@@ -258,7 +281,7 @@ return view.extend({
 			form.ListValue,
 			'_mode',
 			_('Mode'),
-			_('Direct HTTPS and Cloudflare are normal ingress modes. Native Shared-Port remains available as an advanced compatibility mode. Save & Apply invokes the nginx-telego reconciliation engine through the OpenWrt reload trigger.')
+			_('Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves WAN TCP/443 for WEB/Nginx, so MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443.')
 		);
 		o.value('disabled', _('Disabled'));
 		o.value('direct_https', 'Direct HTTPS');
@@ -266,6 +289,19 @@ return view.extend({
 		o.value('shared', _('Native Shared-Port (Advanced)'));
 		o.default = 'disabled';
 		o.cfgvalue = profileMode;
+		o.validate = function (sectionId, value) {
+			if (value !== 'disabled') {
+				const webError = managedWebContractError();
+				if (webError)
+					return webError;
+			}
+			if (value === 'direct_https') {
+				const error = directHttpsPortError();
+				if (error)
+					return error;
+			}
+			return true;
+		};
 		o.write = function (sectionId, value) {
 			uci.set('nginx_telego', 'direct_https', 'enabled', value === 'direct_https' ? '1' : '0');
 			uci.set('nginx_telego', 'cloudflare', 'enabled', value === 'cloudflare' ? '1' : '0');
@@ -400,6 +436,18 @@ return view.extend({
 
 		o = s.option(
 			form.DummyValue,
+			'_direct_https_ports',
+			_('Port Ownership'),
+			_('Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx. The telEgo MTProxy listener must use another port; LAN TCP/443 remains with uhttpd/LuCI.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.cfgvalue = function () {
+			const bind = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
+			return 'WEB: WAN :443 · Nginx backend: :18443 · MTProxy: ' + bind;
+		};
+
+		o = s.option(
+			form.DummyValue,
 			'_acme_dns01',
 			_('ACME DNS-01'),
 			_('OpenWrt ACME can issue and renew the certificate without taking over WAN ports 80 or 443. For an ACME-managed hostname, use /etc/ssl/acme/<hostname>.fullchain.crt and /etc/ssl/acme/<hostname>.key. The nginx-telego hotplug hook preflights renewed material before OpenWrt emits acme.renew; the stock Nginx service then performs nginx -t and reloads safely.')
@@ -408,7 +456,7 @@ return view.extend({
 		o.cfgvalue = function () {
 			return certificateState && certificateState.acme_managed
 				? _('OpenWrt ACME path detected')
-				: _('See docs/P12_ACME_DNS01.md for the DNS-01 runbook.');
+				: _('See docs/TLS_CERTIFICATE.md for the DNS-01 runbook.');
 		};
 
 		o = s.option(

@@ -23,6 +23,7 @@ case "$2" in
   nginx_telego.direct_https.certificate) printf '%s\n' "${FIX_DIRECT_CERT:-}" ;;
   nginx_telego.direct_https.certificate_key) printf '%s\n' "${FIX_DIRECT_KEY:-}" ;;
   nginx_telego.fallback.manage) printf '%s\n' "${FIX_FALLBACK_MANAGE:-1}" ;;
+  telego.general.enabled) printf '%s\n' "${FIX_GENERAL_ENABLED:-1}" ;;
   telego.general.bind_to) printf '%s\n' "${FIX_PUBLIC_BIND:-0.0.0.0:443}" ;;
   telego.web_proxy.enabled) printf '%s\n' "${FIX_WEB_ENABLED:-1}" ;;
   telego.web_proxy.hostname) printf '%s\n' "${FIX_WEB_HOSTNAME:-web.example.com}" ;;
@@ -143,14 +144,32 @@ grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_O
 # Direct HTTPS owns real WEB TLS on the private firewall redirect backend.
 export FIX_SHARED_ENABLED=0 FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=1
 export FIX_DIRECT_HOSTNAME=direct.example.com FIX_WEB_HOSTNAME=direct.example.com
+export FIX_PUBLIC_BIND=0.0.0.0:9443
 "$RENDER" apply
 grep -q 'listen 0.0.0.0:18443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'listen [::]:18443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'listen 0.0.0.0:18443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'listen [::]:18443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'server_name direct.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'http2 on;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate $FIX_DIRECT_CERT;" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate_key $FIX_DIRECT_KEY;" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+
+# Direct HTTPS owns WAN/443 for WEB. MTProxy on the same port is rejected
+# before generated state changes; Native Shared-Port is the supported shared-443 mode.
+cp "$NGINX_TELEGO_INGRESS_OUTPUT" "$work/before-port-contract"
+export FIX_PUBLIC_BIND=0.0.0.0:443
+if "$RENDER" apply >"$work/direct-port.out" 2>&1; then exit 1; fi
+cmp "$work/before-port-contract" "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'Direct HTTPS reserves WAN TCP/443' "$work/direct-port.out"
+export FIX_PUBLIC_BIND=0.0.0.0:9443
+
+# A managed WEB ingress cannot be published while the telEgo daemon is disabled.
+export FIX_GENERAL_ENABLED=0
+if "$RENDER" apply >"$work/service-disabled.out" 2>&1; then exit 1; fi
+grep -q 'requires telego.general.enabled=1' "$work/service-disabled.out"
+export FIX_GENERAL_ENABLED=1
 
 # PEM shape is checked before generated state changes; nginx -t remains the
 # authoritative syntax/key-pair check on the router.

@@ -33,6 +33,17 @@ cloudflare=$(uci -q get nginx_telego.cloudflare.enabled 2>/dev/null || true)
 [ "${shared:-0}" != 1 ] && pass "Native Shared-Port disabled" || fail "Native Shared-Port is also enabled"
 [ "${cloudflare:-0}" != 1 ] && pass "Cloudflare profile disabled" || fail "Cloudflare profile is also enabled"
 
+
+service_enabled=$(uci -q get telego.general.enabled 2>/dev/null || true)
+[ "$service_enabled" = 1 ] && pass "telEgo service enabled" || fail "telego.general.enabled is not 1"
+
+mtproxy_bind=$(uci -q get telego.general.bind_to 2>/dev/null || true)
+case "$mtproxy_bind" in
+	*:443) fail "MTProxy listener $mtproxy_bind conflicts with Direct HTTPS WAN/443 ownership; use another MTProxy port or Native Shared-Port" ;;
+	'') fail "telego.general.bind_to is missing" ;;
+	*) pass "MTProxy listener uses separate port: $mtproxy_bind" ;;
+esac
+
 FW=/usr/libexec/nginx-telego-firewall
 CERT=/usr/libexec/nginx-telego-cert
 NGINX=/usr/sbin/nginx
@@ -53,7 +64,21 @@ if [ -x "$FW" ]; then
 			*) pass "WAN input policy is $wan_input" ;;
 		esac
 		foreign=$(field "$fw_status" foreign_wan443)
-		[ -z "$foreign" ] || [ "$foreign" = "-" ] 			&& pass "no foreign WAN TCP/443 redirect detected" 			|| fail "foreign WAN TCP/443 owner detected: $foreign"
+		if [ -z "$foreign" ]; then
+			fail "firewall status did not report foreign_wan443"
+		elif [ "$foreign" = "-" ]; then
+			pass "no foreign WAN TCP/443 redirect detected"
+		else
+			fail "foreign WAN TCP/443 owner detected: $foreign"
+		fi
+		backend_foreign=$(field "$fw_status" foreign_wan18443)
+		if [ -z "$backend_foreign" ]; then
+			fail "firewall status did not report foreign_wan18443; install the matching nginx-telego package revision"
+		elif [ "$backend_foreign" = "-" ]; then
+			pass "no foreign WAN TCP/18443 exposure detected"
+		else
+			fail "reserved backend WAN TCP/18443 is exposed by: $backend_foreign"
+		fi
 	fi
 	if "$FW" preflight >/tmp/nginx-telego-fw-preflight.$$ 2>&1; then
 		pass "firewall preflight"
@@ -129,7 +154,12 @@ printf '%s\n' "$listeners" | grep -Eq '[:.]8080[[:space:]].*(telego|/telego)' 	&
 printf '%s\n' "$listeners" | grep -Eq '[:.]443[[:space:]].*(uhttpd|/uhttpd)' 	&& pass "uhttpd is listening on local :443 for LuCI" 	|| warn "could not prove uhttpd ownership of local :443 from netstat; verify from a LAN client"
 
 if [ -r /etc/nginx/conf.d/80-telego-ingress.conf ]; then
-	grep -q '0.0.0.0:18443' /etc/nginx/conf.d/80-telego-ingress.conf 		&& pass "generated Direct HTTPS listener is present" 		|| fail "80-telego-ingress.conf does not contain :18443"
+	grep -q '0.0.0.0:18443' /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "generated IPv4 Direct HTTPS listener is present" \
+		|| fail "80-telego-ingress.conf does not contain IPv4 :18443"
+	grep -Fq '[::]:18443' /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "generated IPv6 Direct HTTPS listener is present" \
+		|| fail "80-telego-ingress.conf does not contain IPv6 :18443"
 else
 	fail "/etc/nginx/conf.d/80-telego-ingress.conf is missing"
 fi

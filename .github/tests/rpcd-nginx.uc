@@ -6,7 +6,7 @@ const firewallStatus = nginx.firewall_status.call();
 assert(firewallStatus.ok && firewallStatus.profile_enabled, 'firewall status profile enabled');
 assert(firewallStatus.section_state == 'owned' && firewallStatus.managed_match, 'firewall managed state');
 assert(firewallStatus.wan_zone_count == 1 && firewallStatus.wan_input == 'reject', 'firewall WAN status');
-assert(firewallStatus.foreign_wan443 == '' && !firewallStatus.pending_changes, 'firewall conflict status');
+assert(firewallStatus.foreign_wan443 == '' && firewallStatus.foreign_wan18443 == '' && !firewallStatus.pending_changes, 'firewall conflict status');
 assert(global.firewall_command == "/usr/libexec/nginx-telego-firewall 'status' 2>&1", 'firewall status uses dedicated helper');
 
 const firewallPreflight = nginx.firewall_preflight.call();
