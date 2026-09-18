@@ -1,0 +1,105 @@
+#!/bin/sh
+# Add newly introduced nginx_telego UCI defaults without overwriting user state.
+set -eu
+
+UCI_BIN=${UCI_BIN:-/sbin/uci}
+PACKAGE=${NGINX_TELEGO_UCI_PACKAGE:-nginx_telego}
+
+CHANGED=0
+TX_ACTIVE=0
+
+fail() {
+	echo "nginx-telego-config-migrate: $*" >&2
+	exit 1
+}
+
+cleanup() {
+	rc=$?
+	trap - EXIT HUP INT TERM
+	if [ "$rc" -ne 0 ] && [ "$TX_ACTIVE" -eq 1 ]; then
+		"$UCI_BIN" -q revert "$PACKAGE" >/dev/null 2>&1 || true
+	fi
+	exit "$rc"
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+pending=$("$UCI_BIN" -q changes "$PACKAGE" 2>/dev/null || true)
+[ -z "$pending" ] ||
+	fail "uncommitted $PACKAGE UCI changes are present; save or revert them before package migration"
+
+validate_section() {
+	section=$1
+	expected=$2
+
+	if actual=$("$UCI_BIN" -q get "$PACKAGE.$section" 2>/dev/null); then
+		[ "$actual" = "$expected" ] ||
+			fail "section $PACKAGE.$section has type '$actual', expected '$expected'"
+	fi
+}
+
+ensure_section() {
+	section=$1
+	type=$2
+
+	if "$UCI_BIN" -q get "$PACKAGE.$section" >/dev/null 2>&1; then
+		return 0
+	fi
+
+	"$UCI_BIN" set "$PACKAGE.$section=$type"
+	CHANGED=1
+}
+
+ensure_option() {
+	section=$1
+	option=$2
+	value=$3
+
+	if "$UCI_BIN" -q get "$PACKAGE.$section.$option" >/dev/null 2>&1; then
+		return 0
+	fi
+
+	"$UCI_BIN" set "$PACKAGE.$section.$option=$value"
+	CHANGED=1
+}
+
+# Validate every named section before staging any change. This prevents a
+# malformed/foreign section from causing a partially migrated pending config.
+validate_section shared shared
+validate_section cloudflare cloudflare
+validate_section direct_https direct_https
+validate_section fallback fallback
+
+TX_ACTIVE=1
+
+ensure_section shared shared
+ensure_option shared enabled 0
+ensure_option shared hostname ''
+ensure_option shared certificate ''
+ensure_option shared certificate_key ''
+
+ensure_section cloudflare cloudflare
+ensure_option cloudflare enabled 0
+ensure_option cloudflare hostname ''
+
+ensure_section direct_https direct_https
+ensure_option direct_https enabled 0
+ensure_option direct_https hostname ''
+ensure_option direct_https certificate ''
+ensure_option direct_https certificate_key ''
+
+ensure_section fallback fallback
+ensure_option fallback manage 1
+
+if [ "$CHANGED" -eq 1 ]; then
+	"$UCI_BIN" commit "$PACKAGE"
+	echo "nginx-telego-config-migrate: added missing $PACKAGE defaults without overwriting user values"
+else
+	echo "nginx-telego-config-migrate: $PACKAGE already contains all managed defaults"
+fi
+
+TX_ACTIVE=0
+trap - EXIT HUP INT TERM
