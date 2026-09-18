@@ -11,6 +11,23 @@ python3 -m py_compile .github/scripts/apply-upstream-patches.py .github/scripts/
 python3 - <<'PY'
 from pathlib import Path
 
+bridge = Path('telego-src/pkg/webproxy/bridge.go').read_text(encoding='utf-8')
+capability = Path('telego-src/pkg/webproxy/capability.go').read_text(encoding='utf-8')
+
+required_bridge = (
+    'globalThis.TelegramWebProxy',
+    '#android=',
+    'tproxy-android-init',
+)
+for marker in required_bridge:
+    assert marker in bridge, f'missing Android WEB bridge marker: {marker}'
+
+assert 'tdesktop-web-proxy-bridge-v1\\n' in capability
+print('upstream Android WEB bridge compatibility contract passed')
+PY
+python3 - <<'PY'
+from pathlib import Path
+
 text = Path('install.sh').read_text()
 
 capture = '''    if [ "$SEL_NGINX" -eq 1 ] && [ -x /etc/init.d/nginx ] && /etc/init.d/nginx status >/dev/null 2>&1; then WAS_NGINX_RUNNING=1; fi'''

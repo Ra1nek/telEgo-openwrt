@@ -150,7 +150,7 @@ curl -k --connect-timeout 5 https://web.example.com:18443/
 
 Если 18443 доступен напрямую, проверьте чужие firewall rules и WAN input policy.
 
-## 6. Реальный Telegram Desktop WEB
+## 6. Реальные Telegram WEB-клиенты: Desktop и Android
 
 До теста откройте LuCI:
 
@@ -158,16 +158,34 @@ curl -k --connect-timeout 5 https://web.example.com:18443/
 Services → telEgo → Status
 ```
 
-Зафиксируйте исходные значения WEB runtime. Затем подключите Telegram Desktop через настроенный WEB Proxy и выполните реальный трафик: открыть диалог, загрузить сообщения/медиа, оставить соединение активным несколько минут.
+Зафиксируйте исходные значения WEB runtime.
 
-Проверка считается успешной, если:
+### Telegram Desktop
 
-- Telegram Desktop подключается без циклических reconnect;
-- `Active WEB Sessions` становится больше нуля во время работы;
+Подключите Desktop через настроенный WEB Proxy и выполните реальный трафик: открыть диалог, загрузить сообщения/медиа, оставить соединение активным несколько минут.
+
+### Telegram Android WEB Proxy
+
+Android-клиент использует тот же server-side WEB protocol, но другой client boundary: приватный Android System WebView с origin-scoped `TelegramWebProxy`. Для текущего Android proof-of-concept нужны WebView features `WEB_MESSAGE_LISTENER`, `WEB_MESSAGE_ARRAY_BUFFER` и `DOCUMENT_START_SCRIPT`; при отсутствии любой из них client fail-closes и WEB proxy не подключается.
+
+Перед тестом:
+
+- обновите Android System WebView/его provider;
+- держите Telegram в foreground;
+- используйте тот же canonical hostname и тот же 16-byte/`dd` MTProxy secret;
+- не добавляйте `https://`, port или path в поле Server;
+- помните, что WEB всегда использует HTTPS/443.
+
+Во время подключения смотрите `Active WEB Sessions` / `Active WEB Streams`. Если Desktop работает, а Android остаётся «Недоступен», используйте отдельный сценарий в [Диагностике](TROUBLESHOOTING.md#android-web-proxy-недоступен-а-desktop-работает).
+
+Общий PASS для каждого активного клиента:
+
+- соединение не уходит в циклический reconnect;
+- `Active WEB Sessions` становится больше нуля;
 - `Active WEB Streams` реагирует на активность;
 - `Carrier Retries` не растёт непрерывно без восстановления;
 - `Backpressure Events` не показывает постоянный runaway;
-- в `logread -e telego` и `logread -e nginx` нет повторяющихся ошибок TLS/upstream.
+- в `logread -e telego` и `logread -e nginx` нет повторяющихся TLS/upstream ошибок.
 
 Для `https-lanes` внешний HTTP/2 test из предыдущего раздела обязателен.
 
@@ -238,6 +256,7 @@ nginx -t -c /etc/nginx/uci.conf
 | TLS | certificate/key/hostname совпадают |
 | HTTP/2 | public endpoint сообщает HTTP/2 |
 | Telegram Desktop | WEB session реально работает |
+| Telegram Android | WEB session работает в foreground на актуальном Android System WebView |
 | Reboot | topology сохраняется |
 | Rollback | redirect/18443 удалены, Cloudflare :18080 восстановлен |
 

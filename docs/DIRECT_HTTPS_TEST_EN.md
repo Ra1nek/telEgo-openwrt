@@ -110,11 +110,29 @@ curl -k --connect-timeout 5 https://web.example.com:18443/
 
 A secure baseline is that direct WAN TCP/18443 is unreachable. Only WAN TCP/443 should be published through the package-owned redirect.
 
-## 6. Real Telegram Desktop WEB traffic
+## 6. Real Telegram WEB clients: Desktop and Android
 
-Open **Services → telEgo → Status**, note the WEB runtime values, then connect Telegram Desktop through the configured WEB Proxy and generate real traffic for several minutes.
+Open **Services → telEgo → Status** and note the WEB runtime values.
 
-PASS requires a stable connection, non-zero Active WEB Sessions during use, activity in Active WEB Streams, no endless Carrier Retry growth, no runaway Backpressure Events, and no repeating TLS/upstream errors in telEgo/Nginx logs.
+### Telegram Desktop
+
+Connect Desktop through the configured WEB Proxy and generate real traffic for several minutes.
+
+### Telegram Android WEB Proxy
+
+Android uses the same server-side WEB protocol but a different client boundary: a private Android System WebView with the origin-scoped `TelegramWebProxy` object. The current Android proof of concept requires the WebView features `WEB_MESSAGE_LISTENER`, `WEB_MESSAGE_ARRAY_BUFFER`, and `DOCUMENT_START_SCRIPT`; if any feature is missing, the client fails closed instead of falling back to a direct Telegram path.
+
+Before testing:
+
+- update Android System WebView/the active provider;
+- keep Telegram in the foreground;
+- use the same canonical hostname and the same 16-byte/`dd` MTProxy secret;
+- do not add `https://`, a port, or a path to the Server field;
+- WEB always uses HTTPS/443.
+
+Watch Active WEB Sessions/Streams while enabling it. If Desktop works but Android remains unavailable, follow [Troubleshooting](TROUBLESHOOTING_EN.md#android-web-proxy-is-unavailable-while-desktop-works).
+
+PASS for each active client requires a stable connection, non-zero Active WEB Sessions, stream activity, no endless Carrier Retry growth, no runaway Backpressure Events, and no repeating TLS/upstream errors in telEgo/Nginx logs.
 
 For `https-lanes`, the public HTTP/2 test above is mandatory.
 
@@ -150,6 +168,7 @@ See [Cloudflare Tunnel](CLOUDFLARE_EN.md) for the complete rollback target.
 | TLS | certificate/key/hostname match |
 | HTTP/2 | public endpoint negotiates HTTP/2 |
 | Telegram Desktop | real WEB session works |
+| Telegram Android | WEB session works in foreground with a current Android System WebView |
 | Reboot | topology persists |
 | Rollback | redirect/:18443 removed and Cloudflare :18080 restored |
 

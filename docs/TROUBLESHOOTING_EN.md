@@ -184,6 +184,28 @@ Check:
 
 Do not expose the private telEgo WEB listener directly to the Internet.
 
+## Android WEB Proxy is unavailable while Desktop works
+
+If the same hostname/secret works in Telegram Desktop but Android WEB Proxy stays unavailable, do not change the server protocol blindly. The pinned telEgo source already contains the Android bridge markers `TelegramWebProxy`, `#android=<nonce>`, and `tproxy-android-init`; Android uses the same server-side WEB protocol through a stricter private WebView boundary.
+
+Check in this order:
+
+1. **Android System WebView/provider.** Update the active WebView provider. The current Android proof of concept requires `WEB_MESSAGE_LISTENER`, `WEB_MESSAGE_ARRAY_BUFFER`, and `DOCUMENT_START_SCRIPT`. A missing feature must fail closed.
+2. **Foreground.** Keep Telegram visible while testing. The current Android carrier is foreground-scoped and its renderer may be suspended or destroyed in the background.
+3. **No redirects/challenges.** Android accepts main-frame navigation only to the exact `https://<hostname>:443` bridge URL, rejects redirects, and blocks off-origin browser requests. A CDN/WAF interstitial, Managed/JS Challenge, CAPTCHA, or redirect can therefore break Android even when Desktop still works.
+4. **Cloudflare A/B.** When Cloudflare Tunnel/Proxy is used, inspect Cloudflare Security Events during one connection attempt. If a challenge/block appears, use a narrow exception for the WEB hostname/bridge/API traffic rather than globally disabling TLS or DDoS protection. If possible, compare the same telEgo profile over Direct HTTPS without Cloudflare to isolate edge policy from server/WebView behavior.
+5. **Server evidence.** During the Android attempt inspect:
+   ```sh
+   ubus call telego status
+   logread -e telego | tail -n 120
+   logread -e nginx | tail -n 120
+   ```
+   If Active WEB Sessions never increases, the failure is before session creation: WebView capability, TLS/redirect/Cloudflare edge, or bridge navigation. If a session appears but streams do not grow, continue with carrier/frame diagnostics.
+6. **A normal browser is not enough.** Loading `https://hostname/` in Chrome proves DNS/TLS/site reachability, not the origin-scoped WebView bridge.
+7. **Do not disclose the bridge capability/secret.** Sanitized status/logs are sufficient; never paste the real `?bridge=...` URL into issues or chat.
+
+Desktop and Android must use the same server profile; there is no separate Android carrier mode on the server.
+
 ## Nginx fallback behaves unexpectedly
 
 `telego.locations` distinguishes:

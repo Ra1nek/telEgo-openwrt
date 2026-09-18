@@ -91,7 +91,7 @@
 - LAN TCP/443 остаётся за uhttpd/LuCI;
 - WAN TCP/443 проходит через package-owned firewall4 redirect в Nginx :18443;
 - WAN TCP/18443 не публикуется напрямую;
-- public HTTP/2, реальный Telegram Desktop WEB и reboot persistence;
+- public HTTP/2, реальные Telegram Desktop и Android WEB-клиенты и reboot persistence;
 - контролируемый rollback на Cloudflare :18080.
 
 ### [Конфигурация и LuCI](CONFIGURATION.md)
