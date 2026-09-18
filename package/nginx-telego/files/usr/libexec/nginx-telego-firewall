@@ -23,14 +23,14 @@ BACKEND_PORT=18443
 MODE=apply
 
 usage() {
-    echo "Usage: $0 [apply|check|remove]" >&2
+    echo "Usage: $0 [apply|check|preflight|status|remove]" >&2
     exit 2
 }
 
 [ "$#" -le 1 ] || usage
 if [ "$#" -eq 1 ]; then
     case "$1" in
-        apply|check|remove) MODE=$1 ;;
+        apply|check|preflight|status|remove) MODE=$1 ;;
         *) usage ;;
     esac
 fi
@@ -192,16 +192,24 @@ redirect_targets_wan_https() {
     port_matches_public_https "$port"
 }
 
-check_foreign_wan_https() {
+first_foreign_wan_https() {
     owned_state=$(managed_section_state)
     for section in $(list_sections redirect); do
         if [ "$section" = "$MANAGED_SECTION" ] && [ "$owned_state" = owned ]; then
             continue
         fi
         if redirect_targets_wan_https "$section"; then
-            fail "foreign firewall redirect '$section' already claims WAN TCP/$PUBLIC_PORT"
+            printf '%s' "$section"
+            return 0
         fi
     done
+    return 1
+}
+
+check_foreign_wan_https() {
+    conflict=$(first_foreign_wan_https || true)
+    [ -z "$conflict" ] ||
+        fail "foreign firewall redirect '$conflict' already claims WAN TCP/$PUBLIC_PORT"
 }
 
 check_no_pending_firewall_changes() {
@@ -228,6 +236,50 @@ preflight_enable() {
 
     check_foreign_wan_https
     check_fw4
+}
+
+firewall_status_report() {
+    direct_enabled=$(uci_get_path nginx_telego.direct_https.enabled 0)
+    if is_enabled "$direct_enabled"; then
+        profile_enabled=1
+    else
+        profile_enabled=0
+    fi
+
+    section_state=$(managed_section_state)
+    managed_match=0
+    if [ "$section_state" = owned ] && managed_section_matches_desired; then
+        managed_match=1
+    fi
+
+    wan_count=0
+    wan_section=''
+    for section in $(list_sections zone); do
+        name=$(uci_get_path "firewall.$section.name" '')
+        [ "$name" = "$WAN_ZONE" ] || continue
+        wan_count=$((wan_count + 1))
+        wan_section=$section
+    done
+
+    wan_input=unknown
+    if [ "$wan_count" -eq 1 ]; then
+        wan_input=$(effective_wan_input_policy "$wan_section")
+    fi
+
+    conflict=$(first_foreign_wan_https || true)
+    [ -n "$conflict" ] || conflict='-'
+
+    pending_changes=0
+    changes=$($UCI_BIN -q changes firewall 2>/dev/null || true)
+    [ -z "$changes" ] || pending_changes=1
+
+    printf 'profile_enabled\t%s\n' "$profile_enabled"
+    printf 'section_state\t%s\n' "$section_state"
+    printf 'managed_match\t%s\n' "$managed_match"
+    printf 'wan_zone_count\t%s\n' "$wan_count"
+    printf 'wan_input\t%s\n' "$wan_input"
+    printf 'foreign_wan443\t%s\n' "$conflict"
+    printf 'pending_changes\t%s\n' "$pending_changes"
 }
 
 managed_section_matches_desired() {
@@ -373,6 +425,19 @@ commit_and_reload_transaction() {
 }
 
 acquire_lock
+
+if [ "$MODE" = status ]; then
+    validate_firewall_config_path
+    firewall_status_report
+    exit 0
+fi
+
+if [ "$MODE" = preflight ]; then
+    validate_firewall_config_path
+    preflight_enable
+    echo "nginx-telego-firewall: Direct HTTPS firewall preflight passed for WAN TCP/$PUBLIC_PORT -> :$BACKEND_PORT"
+    exit 0
+fi
 
 if [ "$MODE" = check ]; then
     validate_firewall_config_path

@@ -29,6 +29,19 @@ function popen(command, mode) {
 			close: function() { return editor_exit_code(); }
 		};
 	}
+	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-firewall ') == 0) {
+		global.firewall_command = command;
+		if (global.fixture?.mode == 'popen-failed') return null;
+		if (global.fixture?.mode == 'firewall-failed')
+			return { read: function(kind) { return 'nginx-telego-firewall: preflight rejected\n'; }, close: function() { return 1; } };
+
+		let output = '';
+		if (index(command, " 'status'") >= 0)
+			output = 'profile_enabled\t1\nsection_state\towned\nmanaged_match\t1\nwan_zone_count\t1\nwan_input\treject\nforeign_wan443\t-\npending_changes\t0\n';
+		else if (index(command, " 'preflight'") >= 0)
+			output = 'nginx-telego-firewall: Direct HTTPS firewall preflight passed for WAN TCP/443 -> :18443\n';
+		return { read: function(kind) { return output; }, close: function() { return 0; } };
+	}
 	global.admin_command = command;
 	if (global.fixture?.mode == 'popen-failed') return null;
 	let output = '';

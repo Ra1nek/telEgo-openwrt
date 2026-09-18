@@ -1,27 +1,53 @@
 'use strict';
 
 'require form';
+'require rpc';
+'require ui';
 'require uci';
 'require view';
+
+const callFirewallStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'firewall_status',
+	expect: { '': {} }
+});
+
+const callFirewallPreflight = rpc.declare({
+	object: 'telego.nginx',
+	method: 'firewall_preflight',
+	expect: { '': {} }
+});
+
+let firewallState = null;
 
 function isEnabled(config, section, option) {
 	return uci.get(config, section, option || 'enabled') === '1';
 }
 
+function profileFlags() {
+	return {
+		shared: isEnabled('nginx_telego', 'shared'),
+		cloudflare: isEnabled('nginx_telego', 'cloudflare'),
+		direct_https: isEnabled('nginx_telego', 'direct_https')
+	};
+}
+
 function profileConflict() {
-	return isEnabled('nginx_telego', 'shared') && isEnabled('nginx_telego', 'cloudflare');
+	const flags = profileFlags();
+	return (flags.shared ? 1 : 0) + (flags.cloudflare ? 1 : 0) + (flags.direct_https ? 1 : 0) > 1;
 }
 
 function profileMode() {
-	const shared = isEnabled('nginx_telego', 'shared');
-	const cloudflare = isEnabled('nginx_telego', 'cloudflare');
+	const flags = profileFlags();
+	const enabled = (flags.shared ? 1 : 0) + (flags.cloudflare ? 1 : 0) + (flags.direct_https ? 1 : 0);
 
-	if (shared && !cloudflare)
-		return 'shared';
-	if (cloudflare && !shared)
+	if (enabled !== 1)
+		return 'disabled';
+	if (flags.direct_https)
+		return 'direct_https';
+	if (flags.cloudflare)
 		return 'cloudflare';
-
-	return 'disabled';
+	return 'shared';
 }
 
 function setOrUnset(config, section, option, value) {
@@ -39,11 +65,18 @@ function hasTrustedLoopback() {
 
 function validateAbsolutePath(sectionId, value) {
 	if (!value)
-		return _('An absolute path is required for Native Shared-Port mode.');
+		return _('An absolute path is required.');
 
 	return /^\/[A-Za-z0-9_./+\-]+$/.test(value)
 		? true
 		: _('Use an absolute path containing only letters, digits, underscore, dot, slash, plus or hyphen.');
+}
+
+function validateIngressHostname(sectionId, value) {
+	const webHostname = uci.get('telego', 'web_proxy', 'hostname') || '';
+	return !value || !webHostname || value === webHostname
+		? true
+		: _('The ingress hostname must match the telEgo WEB Proxy hostname.');
 }
 
 function webContractText() {
@@ -78,19 +111,64 @@ function sharedContractText() {
 	].join(' · ');
 }
 
+function firewallStatusText() {
+	if (!firewallState || !firewallState.ok)
+		return _('Unavailable');
+
+	let state;
+	if (firewallState.section_state === 'owned')
+		state = firewallState.managed_match ? _('Owned and in sync') : _('Owned but drifted');
+	else if (firewallState.section_state === 'foreign')
+		state = _('Foreign reserved section');
+	else
+		state = _('Absent');
+
+	const conflict = firewallState.foreign_wan443 && firewallState.foreign_wan443 !== '-'
+		? firewallState.foreign_wan443
+		: _('none');
+
+	return [
+		_('Managed rule') + ': ' + state,
+		_('WAN input') + ': ' + (firewallState.wan_input || _('unknown')),
+		_('Foreign WAN TCP/443') + ': ' + conflict,
+		_('Pending firewall changes') + ': ' + (firewallState.pending_changes ? _('Yes') : _('No'))
+	].join(' · ');
+}
+
+function notifyPreflight(result) {
+	if (result && result.ok) {
+		ui.addNotification(
+			null,
+			E('p', {}, result.message || _('Firewall preflight passed.')),
+			'info'
+		);
+		return;
+	}
+
+	const error = result && result.error ? String(result.error) : _('unknown error');
+	ui.addNotification(
+		null,
+		E('p', {}, _('Firewall preflight failed:') + ' ' + error),
+		'danger'
+	);
+}
+
 return view.extend({
 	load: function () {
 		return Promise.all([
 			uci.load('nginx_telego'),
-			uci.load('telego')
+			uci.load('telego'),
+			L.resolveDefault(callFirewallStatus(), null)
 		]);
 	},
 
-	render: function () {
+	render: function (data) {
+		firewallState = data && data[2] ? data[2] : null;
+
 		const m = new form.Map(
 			'nginx_telego',
 			_('WEB Ingress / Nginx Integration'),
-			_('Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated by nginx-telego before Nginx is reloaded.')
+			_('Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated before public traffic is changed.')
 		);
 
 		let s = m.section(form.TypedSection, 'shared', _('Ingress Profile'));
@@ -101,18 +179,18 @@ return view.extend({
 			form.ListValue,
 			'_mode',
 			_('Mode'),
-			_('Selecting a mode updates the existing shared.enabled and cloudflare.enabled UCI flags. Save & Apply invokes the nginx-telego reconciliation engine through the OpenWrt reload trigger.')
+			_('Direct HTTPS and Cloudflare are normal ingress modes. Native Shared-Port remains available as an advanced compatibility mode. Save & Apply invokes the nginx-telego reconciliation engine through the OpenWrt reload trigger.')
 		);
 		o.value('disabled', _('Disabled'));
+		o.value('direct_https', 'Direct HTTPS');
 		o.value('cloudflare', 'Cloudflare Tunnel');
-		o.value('shared', 'Native Shared-Port');
+		o.value('shared', _('Native Shared-Port (Advanced)'));
 		o.default = 'disabled';
-		o.cfgvalue = function () {
-			return profileMode();
-		};
+		o.cfgvalue = profileMode;
 		o.write = function (sectionId, value) {
-			uci.set('nginx_telego', 'shared', 'enabled', value === 'shared' ? '1' : '0');
+			uci.set('nginx_telego', 'direct_https', 'enabled', value === 'direct_https' ? '1' : '0');
 			uci.set('nginx_telego', 'cloudflare', 'enabled', value === 'cloudflare' ? '1' : '0');
+			uci.set('nginx_telego', 'shared', 'enabled', value === 'shared' ? '1' : '0');
 		};
 
 		o = s.option(form.DummyValue, '_profile_state', _('Status'));
@@ -129,8 +207,101 @@ return view.extend({
 
 		o = s.option(form.DummyValue, '_web_contract', _('Current telEgo WEB Contract'));
 		o.cfgvalue = webContractText;
+		o.depends('_mode', 'direct_https');
 		o.depends('_mode', 'cloudflare');
 		o.depends('_mode', 'shared');
+
+		o = s.option(
+			form.Value,
+			'direct_https_hostname',
+			_('Hostname'),
+			_('Leave empty to reuse telego.web_proxy.hostname. When set, it must match that hostname exactly.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.datatype = 'hostname';
+		o.rmempty = true;
+		o.cfgvalue = function () {
+			return uci.get('nginx_telego', 'direct_https', 'hostname') || '';
+		};
+		o.write = function (sectionId, value) {
+			setOrUnset('nginx_telego', 'direct_https', 'hostname', value);
+		};
+		o.remove = function () {
+			uci.unset('nginx_telego', 'direct_https', 'hostname');
+		};
+		o.validate = validateIngressHostname;
+
+		o = s.option(
+			form.Value,
+			'direct_https_certificate',
+			_('TLS Certificate'),
+			_('Absolute path to the certificate chain used by the Direct HTTPS Nginx listener on local port 18443.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.rmempty = false;
+		o.cfgvalue = function () {
+			return uci.get('nginx_telego', 'direct_https', 'certificate') || '';
+		};
+		o.write = function (sectionId, value) {
+			setOrUnset('nginx_telego', 'direct_https', 'certificate', value);
+		};
+		o.remove = function () {
+			uci.unset('nginx_telego', 'direct_https', 'certificate');
+		};
+		o.validate = validateAbsolutePath;
+
+		o = s.option(
+			form.Value,
+			'direct_https_certificate_key',
+			_('TLS Private Key'),
+			_('Absolute path to the matching private key. nginx-telego never creates or renews certificates.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.rmempty = false;
+		o.cfgvalue = function () {
+			return uci.get('nginx_telego', 'direct_https', 'certificate_key') || '';
+		};
+		o.write = function (sectionId, value) {
+			setOrUnset('nginx_telego', 'direct_https', 'certificate_key', value);
+		};
+		o.remove = function () {
+			uci.unset('nginx_telego', 'direct_https', 'certificate_key');
+		};
+		o.validate = validateAbsolutePath;
+
+		o = s.option(form.DummyValue, '_direct_https_flow', _('Direct HTTPS Flow'));
+		o.depends('_mode', 'direct_https');
+		o.cfgvalue = function () {
+			return 'WAN TCP/443 → firewall4 REDIRECT → Nginx :18443 → telEgo WEB 127.0.0.1:8080';
+		};
+
+		o = s.option(
+			form.DummyValue,
+			'_firewall_status',
+			_('Firewall Status'),
+			_('Status is read without changing firewall configuration. Direct HTTPS owns only firewall.telego_direct_https.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.cfgvalue = firewallStatusText;
+
+		o = s.option(
+			form.Button,
+			'_firewall_preflight',
+			_('Firewall Preflight'),
+			_('Checks WAN zone safety, foreign TCP/443 ownership, pending UCI changes and fw4 syntax without changing firewall rules.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.inputtitle = _('Run Preflight');
+		o.inputstyle = 'apply';
+		o.onclick = function () {
+			return L.resolveDefault(callFirewallPreflight(), {
+				ok: false,
+				error: 'rpc-failed'
+			}).then(function (result) {
+				notifyPreflight(result);
+				return result;
+			});
+		};
 
 		o = s.option(
 			form.Value,
@@ -150,17 +321,47 @@ return view.extend({
 		o.remove = function () {
 			uci.unset('nginx_telego', 'cloudflare', 'hostname');
 		};
-		o.validate = function (sectionId, value) {
-			const webHostname = uci.get('telego', 'web_proxy', 'hostname') || '';
-			return !value || !webHostname || value === webHostname
-				? true
-				: _('The ingress hostname must match the telEgo WEB Proxy hostname.');
-		};
+		o.validate = validateIngressHostname;
 
 		o = s.option(form.DummyValue, '_cloudflare_origin', _('Cloudflare Tunnel Service URL'));
 		o.depends('_mode', 'cloudflare');
 		o.cfgvalue = function () { return 'http://127.0.0.1:18080'; };
 		o.description = _('Configure the Cloudflare Published Application to use this local HTTP origin. Public TLS terminates at Cloudflare.');
+
+		o = s.option(
+			form.Flag,
+			'fallback_manage',
+			_('Manage Local Fallback'),
+			_('Provide the minimal loopback-only ordinary-site fallback on 127.0.0.1:8090. Disable this only when another local Nginx server already owns that listener.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.depends('_mode', 'cloudflare');
+		o.depends('_mode', 'shared');
+		o.default = '1';
+		o.cfgvalue = function () {
+			return uci.get('nginx_telego', 'fallback', 'manage') || '1';
+		};
+		o.write = function (sectionId, value) {
+			uci.set('nginx_telego', 'fallback', 'manage', value === '1' ? '1' : '0');
+		};
+
+		o = s.option(form.DummyValue, '_safety', _('Apply Safety'));
+		o.cfgvalue = function () {
+			return _('Conflict detection · nginx -t · fw4 check · transactional rollback · administrator-owned files and firewall rules are never overwritten');
+		};
+
+		s = m.section(form.TypedSection, 'shared', _('Advanced — Native Shared-Port'));
+		s.anonymous = true;
+		s.addremove = false;
+
+		o = s.option(
+			form.DummyValue,
+			'_native_advanced_note',
+			_('Advanced Compatibility Mode'),
+			_('Native Shared-Port keeps telEgo on public TCP/443 and splices WEB TLS to private Nginx listeners. Use it only when you intentionally need the legacy shared-port topology.')
+		);
+		o.depends('_mode', 'shared');
+		o.cfgvalue = function () { return _('Enabled'); };
 
 		o = s.option(
 			form.Value,
@@ -171,12 +372,7 @@ return view.extend({
 		o.depends('_mode', 'shared');
 		o.datatype = 'hostname';
 		o.rmempty = true;
-		o.validate = function (sectionId, value) {
-			const webHostname = uci.get('telego', 'web_proxy', 'hostname') || '';
-			return !value || !webHostname || value === webHostname
-				? true
-				: _('The ingress hostname must match the telEgo WEB Proxy hostname.');
-		};
+		o.validate = validateIngressHostname;
 
 		o = s.option(
 			form.Value,
@@ -212,27 +408,6 @@ return view.extend({
 		o.depends('_mode', 'shared');
 		o.cfgvalue = sharedContractText;
 		o.description = _('Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. nginx-telego refuses to apply the managed Nginx state if this contract is not satisfied.');
-
-		o = s.option(
-			form.Flag,
-			'fallback_manage',
-			_('Manage Local Fallback'),
-			_('Provide the minimal loopback-only ordinary-site fallback on 127.0.0.1:8090. Disable this only when another local Nginx server already owns that listener.')
-		);
-		o.depends('_mode', 'cloudflare');
-		o.depends('_mode', 'shared');
-		o.default = '1';
-		o.cfgvalue = function () {
-			return uci.get('nginx_telego', 'fallback', 'manage') || '1';
-		};
-		o.write = function (sectionId, value) {
-			uci.set('nginx_telego', 'fallback', 'manage', value === '1' ? '1' : '0');
-		};
-
-		o = s.option(form.DummyValue, '_safety', _('Apply Safety'));
-		o.cfgvalue = function () {
-			return _('Conflict detection · nginx -t · atomic rollback · administrator-owned files are never overwritten');
-		};
 
 		return m.render();
 	}

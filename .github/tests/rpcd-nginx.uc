@@ -2,6 +2,17 @@ global.fixture = { mode: 'ok', content: 'canonical\n', editor_content: '# custom
 const plugin = loadfile('package/luci-app-telego/root/usr/share/rpcd/ucode/telego-nginx', { raw_mode: true, module_search_path: [getenv('PWD') + '/.github/tests/ucode-nginx/*.uc'] })();
 const nginx = plugin['telego.nginx'];
 
+const firewallStatus = nginx.firewall_status.call();
+assert(firewallStatus.ok && firewallStatus.profile_enabled, 'firewall status profile enabled');
+assert(firewallStatus.section_state == 'owned' && firewallStatus.managed_match, 'firewall managed state');
+assert(firewallStatus.wan_zone_count == 1 && firewallStatus.wan_input == 'reject', 'firewall WAN status');
+assert(firewallStatus.foreign_wan443 == '' && !firewallStatus.pending_changes, 'firewall conflict status');
+assert(global.firewall_command == "/usr/libexec/nginx-telego-firewall 'status' 2>&1", 'firewall status uses dedicated helper');
+
+const firewallPreflight = nginx.firewall_preflight.call();
+assert(firewallPreflight.ok && index(firewallPreflight.message, 'preflight passed') >= 0, 'firewall preflight RPC');
+assert(global.firewall_command == "/usr/libexec/nginx-telego-firewall 'preflight' 2>&1", 'firewall preflight uses dedicated helper');
+
 const inventory = nginx.inventory.call();
 assert(inventory.ok && length(inventory.files) == 3, 'inventory rows');
 assert(inventory.unsafe_count == 2, 'unsafe inventory warning');
@@ -71,10 +82,16 @@ assert(nginx.delete_active.call({ args: { name: '50-custom.conf' } }).ok, 'activ
 assert(nginx.delete_quarantined.call({ args: { name: '50-custom.conf' } }).ok, 'quarantine delete RPC');
 assert(nginx.repair.call().ok, 'repair RPC');
 
+global.fixture.mode = 'firewall-failed';
+const firewallFailed = nginx.firewall_preflight.call();
+assert(!firewallFailed.ok && index(firewallFailed.error, 'preflight rejected') >= 0, 'firewall preflight failure explicit');
+
 global.fixture.mode = 'failed';
 const failed = nginx.quarantine.call({ args: { name: '50-custom.conf' } });
 assert(!failed.ok && index(failed.error, 'rejected') >= 0, 'admin helper failures explicit');
 global.fixture.mode = 'popen-failed';
+const firewallUnavailable = nginx.firewall_status.call();
+assert(!firewallUnavailable.ok && firewallUnavailable.error == 'firewall-helper-unavailable', 'missing firewall helper explicit');
 const unavailable = nginx.inventory.call();
 assert(!unavailable.ok && unavailable.error == 'admin-helper-unavailable', 'missing admin helper explicit');
 const editorUnavailable = nginx.foreign_content.call({ args: { name: '50-custom.conf' } });
@@ -84,4 +101,4 @@ assert(!revisionUnavailable.ok && revisionUnavailable.error == 'editor-helper-un
 const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
 assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 
-print('rpcd Nginx P10 foreign lifecycle tests passed\n');
+print('rpcd Nginx P12 ingress and foreign lifecycle tests passed\n');

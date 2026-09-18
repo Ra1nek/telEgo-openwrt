@@ -17,12 +17,13 @@ assert.equal(page.action.path, 'telego/nginx-files');
 assert.equal(page.depends.fs['/usr/libexec/nginx-telego-admin'], 'executable');
 assert.equal(page.depends.fs['/usr/libexec/nginx-telego-editor'], 'executable');
 assert.equal(page.depends.fs['/usr/share/nginx-telego/ownership.tsv'], 'file');
-assert.deepEqual(acl.read.ubus['telego.nginx'], ['inventory', 'managed_content', 'foreign_content', 'foreign_revision']);
+assert.deepEqual(acl.read.ubus['telego.nginx'], ['inventory', 'managed_content', 'foreign_content', 'foreign_revision', 'firewall_status', 'firewall_preflight']);
 assert.deepEqual(acl.write.ubus['telego.nginx'], ['quarantine', 'restore', 'delete_active', 'delete_quarantined', 'replace_active', 'create_foreign', 'rename_active', 'repair']);
-assert.match(makefile, /PKG_RELEASE:=13/);
-assert.match(i18nMakefile, /PKG_RELEASE:=8/);
-assert.match(nginxMakefile, /PKG_RELEASE:=15/);
+assert.match(makefile, /PKG_RELEASE:=14/);
+assert.match(i18nMakefile, /PKG_RELEASE:=9/);
+assert.match(nginxMakefile, /PKG_RELEASE:=16/);
 assert.match(nginxMakefile, /nginx-telego-editor/);
+assert.match(nginxMakefile, /nginx-telego-firewall/);
 
 const methods = ['inventory','managed_content','foreign_content','foreign_revision','quarantine','restore','delete_active','delete_quarantined','replace_active','create_foreign','rename_active','repair'];
 for (const method of methods) assert.match(rpc, new RegExp('\\b' + method.replace('_', '\\_') + '\\s*:'));

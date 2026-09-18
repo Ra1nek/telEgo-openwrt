@@ -4,6 +4,7 @@ import { popen } from 'fs';
 
 const ADMIN = '/usr/libexec/nginx-telego-admin';
 const EDITOR = '/usr/libexec/nginx-telego-editor';
+const FIREWALL = '/usr/libexec/nginx-telego-firewall';
 const MAX_EDIT_BYTES = 65536;
 
 function shell_quote(value) {
@@ -26,6 +27,88 @@ function run_admin(args) {
 		return { ok: false, output: '', error: trim(output) || 'admin-operation-failed' };
 
 	return { ok: true, output: output, error: '' };
+}
+
+function run_firewall(args) {
+	let command = FIREWALL;
+	for (let arg in args)
+		command += ' ' + shell_quote(arg);
+	command += ' 2>&1';
+
+	const proc = popen(command, 'r');
+	if (!proc)
+		return { ok: false, output: '', error: 'firewall-helper-unavailable' };
+
+	const output = proc.read('all') || '';
+	const exit_code = proc.close();
+	if (exit_code != 0)
+		return { ok: false, output: '', error: trim(output) || 'firewall-operation-failed' };
+
+	return { ok: true, output: output, error: '' };
+}
+
+function firewall_status() {
+	const result = run_firewall(['status']);
+	if (!result.ok)
+		return {
+			ok: false,
+			profile_enabled: false,
+			section_state: 'unknown',
+			managed_match: false,
+			wan_zone_count: 0,
+			wan_input: 'unknown',
+			foreign_wan443: '',
+			pending_changes: false,
+			error: result.error
+		};
+
+	const values = {};
+	for (let line in split(result.output, '\n')) {
+		line = rtrim(line, '\r');
+		if (!length(line))
+			continue;
+
+		const fields = split(line, '\t');
+		if (length(fields) != 2)
+			return { ok: false, error: 'invalid-firewall-status' };
+
+		values[fields[0]] = fields[1];
+	}
+
+	const required = [
+		'profile_enabled',
+		'section_state',
+		'managed_match',
+		'wan_zone_count',
+		'wan_input',
+		'foreign_wan443',
+		'pending_changes'
+	];
+	for (let key in required)
+		if (!(required[key] in values))
+			return { ok: false, error: 'invalid-firewall-status' };
+
+	if (!(values.section_state in ['absent', 'owned', 'foreign']))
+		return { ok: false, error: 'invalid-firewall-status' };
+
+	return {
+		ok: true,
+		profile_enabled: values.profile_enabled == '1',
+		section_state: values.section_state,
+		managed_match: values.managed_match == '1',
+		wan_zone_count: int(+values.wan_zone_count),
+		wan_input: values.wan_input,
+		foreign_wan443: values.foreign_wan443 == '-' ? '' : values.foreign_wan443,
+		pending_changes: values.pending_changes == '1',
+		error: ''
+	};
+}
+
+function firewall_preflight() {
+	const result = run_firewall(['preflight']);
+	return result.ok
+		? { ok: true, message: trim(result.output), error: '' }
+		: { ok: false, message: '', error: result.error };
 }
 
 function valid_name(name) {
@@ -221,6 +304,8 @@ function rename_active(name, new_name, revision) {
 
 const methods = {
 	inventory: { call: function () { return inventory(); } },
+	firewall_status: { call: function () { return firewall_status(); } },
+	firewall_preflight: { call: function () { return firewall_preflight(); } },
 	managed_content: {
 		args: { role: '', side: '' },
 		call: function (request) { return managed_content(request.args.role, request.args.side); }

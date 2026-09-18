@@ -593,3 +593,87 @@ msgstr "Для режима Native Shared-Port требуется абсолют
 
 msgid "Use an absolute path containing only letters, digits, underscore, dot, slash, plus or hyphen."
 msgstr "Используйте абсолютный путь только из букв, цифр, подчёркивания, точки, косой черты, плюса и дефиса."
+
+msgid "Absolute path to the certificate chain used by the Direct HTTPS Nginx listener on local port 18443."
+msgstr "Абсолютный путь к цепочке сертификатов для listener Direct HTTPS Nginx на локальном порту 18443."
+
+msgid "Advanced Compatibility Mode"
+msgstr "Расширенный режим совместимости"
+
+msgid "Advanced — Native Shared-Port"
+msgstr "Расширенные настройки — Native Shared-Port"
+
+msgid "An absolute path is required."
+msgstr "Требуется абсолютный путь."
+
+msgid "Checks WAN zone safety, foreign TCP/443 ownership, pending UCI changes and fw4 syntax without changing firewall rules."
+msgstr "Проверяет безопасность зоны WAN, наличие чужого владельца TCP/443, неприменённые изменения UCI и синтаксис fw4, не изменяя правила firewall."
+
+msgid "Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated before public traffic is changed."
+msgstr "Выберите один управляемый профиль WEB-входа. Режим «Отключено» не трогает созданную вручную конфигурацию Nginx; управляемые профили взаимоисключающие и проверяются до изменения обработки публичного трафика."
+
+msgid "Conflict detection · nginx -t · fw4 check · transactional rollback · administrator-owned files and firewall rules are never overwritten"
+msgstr "Проверка конфликтов · nginx -t · fw4 check · транзакционный rollback · файлы и правила firewall администратора никогда не перезаписываются"
+
+msgid "Direct HTTPS Flow"
+msgstr "Схема Direct HTTPS"
+
+msgid "Direct HTTPS and Cloudflare are normal ingress modes. Native Shared-Port remains available as an advanced compatibility mode. Save & Apply invokes the nginx-telego reconciliation engine through the OpenWrt reload trigger."
+msgstr "Direct HTTPS и Cloudflare — обычные режимы входа. Native Shared-Port остаётся доступен как расширенный режим совместимости. «Сохранить и применить» запускает согласование nginx-telego через триггер перезагрузки OpenWrt."
+
+msgid "Firewall Preflight"
+msgstr "Предварительная проверка firewall"
+
+msgid "Firewall Status"
+msgstr "Состояние firewall"
+
+msgid "Firewall preflight failed:"
+msgstr "Предварительная проверка firewall не пройдена:"
+
+msgid "Firewall preflight passed."
+msgstr "Предварительная проверка firewall пройдена."
+
+msgid "Foreign WAN TCP/443"
+msgstr "Чужой WAN TCP/443"
+
+msgid "Foreign reserved section"
+msgstr "Зарезервированная секция занята чужим правилом"
+
+msgid "Managed rule"
+msgstr "Управляемое правило"
+
+msgid "Native Shared-Port (Advanced)"
+msgstr "Native Shared-Port (расширенный режим)"
+
+msgid "Native Shared-Port keeps telEgo on public TCP/443 and splices WEB TLS to private Nginx listeners. Use it only when you intentionally need the legacy shared-port topology."
+msgstr "Native Shared-Port оставляет telEgo на публичном TCP/443 и передаёт WEB TLS на приватные listener Nginx. Используйте этот режим только если вам намеренно нужна прежняя shared-port топология."
+
+msgid "Owned and in sync"
+msgstr "Принадлежит telEgo и синхронизировано"
+
+msgid "Owned but drifted"
+msgstr "Принадлежит telEgo, но отличается от ожидаемого состояния"
+
+msgid "Pending firewall changes"
+msgstr "Неприменённые изменения firewall"
+
+msgid "Run Preflight"
+msgstr "Запустить проверку"
+
+msgid "Status is read without changing firewall configuration. Direct HTTPS owns only firewall.telego_direct_https."
+msgstr "Статус читается без изменения конфигурации firewall. Direct HTTPS владеет только секцией firewall.telego_direct_https."
+
+msgid "Unavailable"
+msgstr "Недоступно"
+
+msgid "WAN input"
+msgstr "Входящий трафик WAN"
+
+msgid "none"
+msgstr "нет"
+
+msgid "unknown"
+msgstr "неизвестно"
+
+msgid "unknown error"
+msgstr "неизвестная ошибка"

@@ -53,6 +53,8 @@ async function check(initialStatus, ingressMode = 'disabled') {
 		get: (config, section, option) => {
 			if (config === 'nginx_telego' && section === 'cloudflare' && option === 'enabled')
 				return ingressMode === 'cloudflare' ? '1' : '0';
+			if (config === 'nginx_telego' && section === 'direct_https' && option === 'enabled')
+				return ingressMode === 'direct_https' ? '1' : '0';
 			if (config === 'nginx_telego' && section === 'shared' && option === 'enabled')
 				return ingressMode === 'shared' ? '1' : '0';
 			return '1';
@@ -80,11 +82,11 @@ async function check(initialStatus, ingressMode = 'disabled') {
 	const certPort = options.find(o => o.section === 'tls_fronting' && o.name === 'cert_port');
 	const spliceHost = options.find(o => o.section === 'tls_fronting' && o.name === 'splice_host');
 	const splicePort = options.find(o => o.section === 'tls_fronting' && o.name === 'splice_port');
-	if (ingressMode === 'cloudflare') {
-		assert.equal(certHost, undefined, 'Cloudflare WEB must not expose local certificate host');
-		assert.equal(certPort, undefined, 'Cloudflare WEB must not expose local certificate port');
-		assert.equal(spliceHost, undefined, 'Cloudflare WEB must not expose local splice host');
-		assert.equal(splicePort, undefined, 'Cloudflare WEB must not expose local splice port');
+	if (ingressMode === 'cloudflare' || ingressMode === 'direct_https') {
+		assert.equal(certHost, undefined, 'External TLS WEB mode must not expose local certificate host');
+		assert.equal(certPort, undefined, 'External TLS WEB mode must not expose local certificate port');
+		assert.equal(spliceHost, undefined, 'External TLS WEB mode must not expose local splice host');
+		assert.equal(splicePort, undefined, 'External TLS WEB mode must not expose local splice port');
 	} else {
 		assert.equal(certHost.datatype, 'host', 'certificate source accepts loopback IP or hostname');
 		assert.equal(spliceHost.datatype, 'host', 'splice target accepts loopback IP or hostname');
@@ -163,6 +165,7 @@ const healthyStatus = {
 	await check(null);
 	await check(healthyStatus);
 	await check(healthyStatus, 'cloudflare');
+	await check(healthyStatus, 'direct_https');
 	await check(healthyStatus, 'shared');
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	console.log('LuCI configuration tests passed');

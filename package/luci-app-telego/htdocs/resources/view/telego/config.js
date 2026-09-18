@@ -222,9 +222,13 @@ function updateStatusError(errorText, root) {
 }
 
 function makeConfigMap() {
-	const cloudflareWeb =
-		uci.get('nginx_telego', 'cloudflare', 'enabled') === '1' &&
-		uci.get('nginx_telego', 'shared', 'enabled') !== '1';
+	const sharedWeb = uci.get('nginx_telego', 'shared', 'enabled') === '1';
+	const externalTlsWeb =
+		!sharedWeb &&
+		(
+			uci.get('nginx_telego', 'cloudflare', 'enabled') === '1' ||
+			uci.get('nginx_telego', 'direct_https', 'enabled') === '1'
+		);
 	const m = new form.Map(
 		'telego',
 		_('telEgo Configuration'),
@@ -307,7 +311,7 @@ function makeConfigMap() {
 	o.datatype = 'port';
 	o.default = '443';
 
-	if (!cloudflareWeb) {
+	if (!externalTlsWeb) {
 		o = s.option(
 			form.Value,
 			'cert_host',
@@ -342,7 +346,7 @@ function makeConfigMap() {
 	o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
 	o.datatype = 'hostname';
 
-	if (!cloudflareWeb) {
+	if (!externalTlsWeb) {
 		o = s.option(
 			form.Value,
 			'splice_host',

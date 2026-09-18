@@ -237,6 +237,40 @@ cp "$FIREWALL_CONFIG" "$work/before"
 cmp "$work/before" "$FIREWALL_CONFIG"
 [[ ! -s "$RELOAD_LOG" ]]
 
+# LuCI status is read-only and machine-readable.
+baseline
+status=$("$MANAGER" status)
+grep -Eq '^profile_enabled[[:space:]]+1$' <<<"$status"
+grep -Eq '^section_state[[:space:]]+absent$' <<<"$status"
+grep -Eq '^managed_match[[:space:]]+0$' <<<"$status"
+grep -Eq '^wan_zone_count[[:space:]]+1$' <<<"$status"
+grep -Eq '^wan_input[[:space:]]+reject$' <<<"$status"
+grep -Eq '^foreign_wan443[[:space:]]+-$' <<<"$status"
+grep -Eq '^pending_changes[[:space:]]+0$' <<<"$status"
+[[ ! -e "$FW4_COUNT" ]]
+[[ ! -s "$RELOAD_LOG" ]]
+
+# LuCI preflight validates Direct HTTPS readiness even before the profile is
+# enabled, and never mutates firewall state.
+baseline
+sed -i 's/direct_https|direct_https|enabled|1/direct_https|direct_https|enabled|0/' "$NGINX_CONFIG_STATE"
+cp "$FIREWALL_CONFIG" "$work/before"
+"$MANAGER" preflight >/dev/null
+cmp "$work/before" "$FIREWALL_CONFIG"
+[[ $(cat "$FW4_COUNT") == 1 ]]
+[[ ! -s "$RELOAD_LOG" ]]
+
+# Status surfaces foreign WAN/443 ownership without failing the read.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+foreign_status|redirect||
+foreign_status|redirect|src|wan
+foreign_status|redirect|proto|tcp
+foreign_status|redirect|src_dport|443
+STATE
+status=$("$MANAGER" status)
+grep -Eq '^foreign_wan443[[:space:]]+foreign_status$' <<<"$status"
+
 baseline
 block="$work/block"
 FW4_BLOCK="$block" "$MANAGER" check >"$work/first.out" 2>&1 &
