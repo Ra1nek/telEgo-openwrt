@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.2
-PKG_RELEASE:=14
+PKG_RELEASE:=15
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -11,7 +11,7 @@ define Package/nginx-telego
   CATEGORY:=Network
   SUBMENU:=Web Servers/Proxies
   TITLE:=Nginx integration for telEgo WEB Proxy
-  DEPENDS:=+telego-pkg +flock
+  DEPENDS:=+telego-pkg +flock +firewall4
   EXTRA_DEPENDS:=nginx-ssl (>=1.0)
 endef
 
@@ -19,9 +19,10 @@ define Package/nginx-telego/description
 Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
 copies, guarded administrator operations for foreign/custom conf.d files, a
-restricted transactional editor and lifecycle helper for foreign files, and
-opt-in native shared-port, Cloudflare Tunnel, or Direct HTTPS ingress profiles.
-Managed listeners are disabled by default.
+restricted transactional editor and lifecycle helper for foreign files, a
+transactional firewall4 manager for Direct HTTPS WAN/443 ownership, and opt-in
+native shared-port, Cloudflare Tunnel, or Direct HTTPS ingress profiles. Managed
+listeners are disabled by default.
 endef
 
 # This package only installs configuration and helper scripts; it has no source
@@ -61,6 +62,8 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-files
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-reconcile \
 		$(1)/usr/libexec/nginx-telego-reconcile
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-firewall \
+		$(1)/usr/libexec/nginx-telego-firewall
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-admin \
 		$(1)/usr/libexec/nginx-telego-admin
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-editor \
@@ -78,6 +81,9 @@ define Package/nginx-telego/prerm
 	#!/bin/sh
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
 	[ "$${PKG_UPGRADE}" = "1" ] && exit 0
+	if [ -x /usr/libexec/nginx-telego-firewall ]; then
+		/usr/libexec/nginx-telego-firewall remove || exit $$?
+	fi
 	[ -x /usr/libexec/nginx-telego-reconcile ] || exit 0
 	/usr/libexec/nginx-telego-reconcile remove-generated
 	exit $$?

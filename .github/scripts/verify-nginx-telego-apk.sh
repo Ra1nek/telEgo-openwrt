@@ -45,6 +45,7 @@ assert_regular /usr/share/nginx-telego/ownership.tsv 644
 assert_regular /usr/libexec/nginx-telego-files 755
 assert_regular /usr/libexec/nginx-telego-render 755
 assert_regular /usr/libexec/nginx-telego-reconcile 755
+assert_regular /usr/libexec/nginx-telego-firewall 755
 assert_regular /usr/libexec/nginx-telego-admin 755
 assert_regular /usr/libexec/nginx-telego-editor 755
 

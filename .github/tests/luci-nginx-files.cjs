@@ -21,7 +21,7 @@ assert.deepEqual(acl.read.ubus['telego.nginx'], ['inventory', 'managed_content',
 assert.deepEqual(acl.write.ubus['telego.nginx'], ['quarantine', 'restore', 'delete_active', 'delete_quarantined', 'replace_active', 'create_foreign', 'rename_active', 'repair']);
 assert.match(makefile, /PKG_RELEASE:=13/);
 assert.match(i18nMakefile, /PKG_RELEASE:=8/);
-assert.match(nginxMakefile, /PKG_RELEASE:=14/);
+assert.match(nginxMakefile, /PKG_RELEASE:=15/);
 assert.match(nginxMakefile, /nginx-telego-editor/);
 
 const methods = ['inventory','managed_content','foreign_content','foreign_revision','quarantine','restore','delete_active','delete_quarantined','replace_active','create_foreign','rename_active','repair'];

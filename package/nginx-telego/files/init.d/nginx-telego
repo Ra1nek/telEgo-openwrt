@@ -5,9 +5,34 @@ STOP=19
 USE_PROCD=1
 
 RECONCILE=${NGINX_TELEGO_RECONCILE:-/usr/libexec/nginx-telego-reconcile}
+FIREWALL_MANAGER=${NGINX_TELEGO_FIREWALL:-/usr/libexec/nginx-telego-firewall}
+UCI_BIN=${UCI_BIN:-/sbin/uci}
+
+is_enabled() {
+	case "$1" in
+		1|true|yes|on) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+direct_https_enabled() {
+	value=$($UCI_BIN -q get nginx_telego.direct_https.enabled 2>/dev/null || true)
+	is_enabled "$value"
+}
 
 apply_config() {
-	"$RECONCILE" apply
+	if direct_https_enabled; then
+		# Fail before exposing/changing the Nginx backend when WAN/443 cannot be
+		# owned safely. Then render Nginx before installing the public redirect.
+		"$FIREWALL_MANAGER" check || return 1
+		"$RECONCILE" apply || return 1
+		"$FIREWALL_MANAGER" apply
+	else
+		# Remove any package-owned WAN redirect before removing or switching the
+		# backend listener so public traffic is never sent to a dead :18443.
+		"$FIREWALL_MANAGER" apply || return 1
+		"$RECONCILE" apply
+	fi
 }
 
 start_service() {
@@ -18,8 +43,8 @@ reload_service() {
 	apply_config
 }
 
-# Managed files are configuration, not a daemon instance. Stopping this helper
-# must not remove a valid Nginx listener from an already running router.
+# Managed files and firewall state are configuration, not a daemon instance.
+# Stopping this helper must not silently rewrite administrator-selected ingress.
 stop_service() {
 	:
 }

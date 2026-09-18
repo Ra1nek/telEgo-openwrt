@@ -1,0 +1,451 @@
+#!/bin/sh
+# Manage the firewall4 redirect used by the Direct HTTPS ingress profile.
+#
+# Ownership is deliberately narrow: only the named UCI section
+# firewall.telego_direct_https with the package marker below is managed. Foreign
+# WAN/443 redirects are detected and never replaced. The firewall file is
+# snapshotted before every mutation, validated with `fw4 check`, and restored if
+# validation or reload fails.
+set -eu
+
+UCI_BIN=${UCI_BIN:-/sbin/uci}
+FW4_BIN=${FW4_BIN:-/sbin/fw4}
+FIREWALL_INIT=${FIREWALL_INIT:-/etc/init.d/firewall}
+FIREWALL_CONFIG=${FIREWALL_CONFIG:-/etc/config/firewall}
+FLOCK_BIN=${NGINX_TELEGO_FLOCK_BIN:-${FLOCK_BIN:-/usr/bin/flock}}
+LOCK_FILE=${NGINX_TELEGO_FIREWALL_LOCK_FILE:-/var/lock/nginx-telego-firewall.lock}
+
+MANAGED_SECTION=telego_direct_https
+MANAGED_NAME='telEgo Direct HTTPS (managed)'
+WAN_ZONE=wan
+PUBLIC_PORT=443
+BACKEND_PORT=18443
+MODE=apply
+
+usage() {
+    echo "Usage: $0 [apply|check|remove]" >&2
+    exit 2
+}
+
+[ "$#" -le 1 ] || usage
+if [ "$#" -eq 1 ]; then
+    case "$1" in
+        apply|check|remove) MODE=$1 ;;
+        *) usage ;;
+    esac
+fi
+
+fail() {
+    echo "nginx-telego-firewall: $*" >&2
+    exit 1
+}
+
+uci_get_path() {
+    path=$1
+    default=${2-}
+    value=$($UCI_BIN -q get "$path" 2>/dev/null || true)
+    [ -n "$value" ] || value=$default
+    printf '%s' "$value"
+}
+
+is_enabled() {
+    case "$1" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+list_sections() {
+    type=$1
+    $UCI_BIN -q show firewall 2>/dev/null |
+        sed -n "s/^firewall\.\([^=]*\)=${type}$/\1/p"
+}
+
+managed_section_state() {
+    type=$(uci_get_path "firewall.$MANAGED_SECTION" '')
+    if [ -z "$type" ]; then
+        printf '%s' absent
+        return 0
+    fi
+
+    name=$(uci_get_path "firewall.$MANAGED_SECTION.name" '')
+    if [ "$type" = redirect ] && [ "$name" = "$MANAGED_NAME" ]; then
+        printf '%s' owned
+    else
+        printf '%s' foreign
+    fi
+}
+
+find_wan_zone() {
+    found=''
+    count=0
+    for section in $(list_sections zone); do
+        name=$(uci_get_path "firewall.$section.name" '')
+        [ "$name" = "$WAN_ZONE" ] || continue
+        count=$((count + 1))
+        found=$section
+    done
+
+    [ "$count" -eq 1 ] || fail "expected exactly one firewall zone named '$WAN_ZONE' (found $count)"
+
+    enabled=$(uci_get_path "firewall.$found.enabled" '1')
+    is_enabled "$enabled" || fail "firewall zone '$WAN_ZONE' is disabled"
+
+    printf '%s' "$found"
+}
+
+first_defaults_section() {
+    for section in $(list_sections defaults); do
+        printf '%s' "$section"
+        return 0
+    done
+    return 1
+}
+
+effective_wan_input_policy() {
+    zone_section=$1
+    policy=$(uci_get_path "firewall.$zone_section.input" '')
+    if [ -z "$policy" ]; then
+        defaults_section=$(first_defaults_section || true)
+        if [ -n "$defaults_section" ]; then
+            policy=$(uci_get_path "firewall.$defaults_section.input" '')
+        fi
+    fi
+    [ -n "$policy" ] || policy=drop
+    printf '%s' "$policy" | tr '[:upper:]' '[:lower:]'
+}
+
+proto_matches_tcp() {
+    value=$1
+    [ -n "$value" ] || return 0
+
+    for proto in $value; do
+        case "$proto" in
+            tcp|tcpudp|6|all|any|'*'|!*) return 0 ;;
+        esac
+    done
+    return 1
+}
+
+port_matches_public_https() {
+    value=$1
+    [ -n "$value" ] || return 0
+
+    inverted=0
+    case "$value" in
+        !*) inverted=1; value=${value#!} ;;
+    esac
+
+    contains=1
+    case "$value" in
+        *-*) sep=- ;;
+        *:*) sep=: ;;
+        *)
+            [ "$value" = "$PUBLIC_PORT" ] && contains=0 || contains=1
+            if [ "$inverted" -eq 1 ]; then
+                [ "$contains" -ne 0 ]
+            else
+                [ "$contains" -eq 0 ]
+            fi
+            return
+            ;;
+    esac
+
+    low=${value%%"$sep"*}
+    high=${value#*"$sep"}
+    case "$low:$high" in
+        *[!0-9:]*|:|*:) return 1 ;;
+    esac
+    if [ "$low" -le "$PUBLIC_PORT" ] 2>/dev/null && [ "$high" -ge "$PUBLIC_PORT" ] 2>/dev/null; then
+        contains=0
+    else
+        contains=1
+    fi
+
+    if [ "$inverted" -eq 1 ]; then
+        [ "$contains" -ne 0 ]
+    else
+        [ "$contains" -eq 0 ]
+    fi
+}
+
+redirect_is_enabled() {
+    section=$1
+    value=$(uci_get_path "firewall.$section.enabled" '1')
+    is_enabled "$value"
+}
+
+redirect_targets_wan_https() {
+    section=$1
+    redirect_is_enabled "$section" || return 1
+
+    src=$(uci_get_path "firewall.$section.src" '')
+    [ "$src" = "$WAN_ZONE" ] || return 1
+
+    target=$(uci_get_path "firewall.$section.target" 'dnat' | tr '[:upper:]' '[:lower:]')
+    [ "$target" != snat ] || return 1
+
+    proto=$(uci_get_path "firewall.$section.proto" '')
+    proto_matches_tcp "$proto" || return 1
+
+    port=$(uci_get_path "firewall.$section.src_dport" '')
+    port_matches_public_https "$port"
+}
+
+check_foreign_wan_https() {
+    owned_state=$(managed_section_state)
+    for section in $(list_sections redirect); do
+        if [ "$section" = "$MANAGED_SECTION" ] && [ "$owned_state" = owned ]; then
+            continue
+        fi
+        if redirect_targets_wan_https "$section"; then
+            fail "foreign firewall redirect '$section' already claims WAN TCP/$PUBLIC_PORT"
+        fi
+    done
+}
+
+check_no_pending_firewall_changes() {
+    changes=$($UCI_BIN -q changes firewall 2>/dev/null || true)
+    [ -z "$changes" ] || fail 'uncommitted firewall UCI changes are present; commit or revert them before Direct HTTPS reconciliation'
+}
+
+check_fw4() {
+    [ -x "$FW4_BIN" ] || fail "fw4 executable not found: $FW4_BIN"
+    "$FW4_BIN" -q check
+}
+
+preflight_enable() {
+    check_no_pending_firewall_changes
+
+    state=$(managed_section_state)
+    [ "$state" != foreign ] ||
+        fail "reserved firewall section '$MANAGED_SECTION' exists but is not owned by nginx-telego"
+
+    wan_section=$(find_wan_zone)
+    wan_input=$(effective_wan_input_policy "$wan_section")
+    [ "$wan_input" != accept ] ||
+        fail "firewall zone '$WAN_ZONE' has input ACCEPT; refusing to expose the Direct HTTPS backend port $BACKEND_PORT directly from WAN"
+
+    check_foreign_wan_https
+    check_fw4
+}
+
+managed_section_matches_desired() {
+    [ "$(managed_section_state)" = owned ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.src" '')" = "$WAN_ZONE" ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.proto" '')" = tcp ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.src_dport" '')" = "$PUBLIC_PORT" ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.dest_port" '')" = "$BACKEND_PORT" ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.family" '')" = any ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.target" '' | tr '[:upper:]' '[:lower:]')" = dnat ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.reflection" '')" = 0 ] || return 1
+    is_enabled "$(uci_get_path "firewall.$MANAGED_SECTION.enabled" '0')" || return 1
+
+    lines=$($UCI_BIN -q show "firewall.$MANAGED_SECTION" 2>/dev/null | wc -l | tr -d ' ')
+    [ "$lines" = 10 ]
+}
+
+validate_firewall_config_path() {
+    [ -f "$FIREWALL_CONFIG" ] && [ ! -L "$FIREWALL_CONFIG" ] ||
+        fail "firewall configuration must be a regular non-symlink file: $FIREWALL_CONFIG"
+}
+
+lock_held=0
+work=''
+tx_active=0
+runtime_touched=0
+
+acquire_lock() {
+    [ -x "$FLOCK_BIN" ] || fail "flock executable not found: $FLOCK_BIN"
+    mkdir -p "$(dirname "$LOCK_FILE")"
+    if [ -L "$LOCK_FILE" ] || { [ -e "$LOCK_FILE" ] && [ ! -f "$LOCK_FILE" ]; }; then
+        fail "firewall lock path is not a regular file: $LOCK_FILE"
+    fi
+    exec 9>>"$LOCK_FILE" || fail "could not open firewall lock: $LOCK_FILE"
+    if ! "$FLOCK_BIN" -n 9; then
+        exec 9>&-
+        fail 'another firewall reconciliation is already running'
+    fi
+    lock_held=1
+}
+
+snapshot_firewall() {
+    validate_firewall_config_path
+    work=$(mktemp -d /tmp/nginx-telego-firewall.XXXXXX)
+    cp -p "$FIREWALL_CONFIG" "$work/firewall.before"
+}
+
+record_applied_firewall() {
+    cp -p "$FIREWALL_CONFIG" "$work/firewall.applied"
+}
+
+rollback_transaction() {
+    [ -n "$work" ] || return 1
+    [ -f "$work/firewall.before" ] || return 1
+    [ -f "$work/firewall.applied" ] || return 1
+
+    pending=$($UCI_BIN -q changes firewall 2>/dev/null || true)
+    if [ -n "$pending" ]; then
+        echo 'nginx-telego-firewall: rollback refused because new uncommitted firewall changes appeared concurrently' >&2
+        return 1
+    fi
+
+    if ! cmp -s "$work/firewall.applied" "$FIREWALL_CONFIG"; then
+        echo "nginx-telego-firewall: rollback refused because $FIREWALL_CONFIG changed concurrently" >&2
+        return 1
+    fi
+
+    cp -p "$work/firewall.before" "$FIREWALL_CONFIG" || return 1
+    "$UCI_BIN" -q revert firewall >/dev/null 2>&1 || true
+
+    if [ "$runtime_touched" -eq 1 ]; then
+        if ! check_fw4; then
+            echo 'nginx-telego-firewall: restored firewall configuration failed fw4 check' >&2
+            return 1
+        fi
+        if [ ! -x "$FIREWALL_INIT" ] || ! "$FIREWALL_INIT" reload; then
+            echo 'nginx-telego-firewall: failed to reload restored firewall configuration' >&2
+            return 1
+        fi
+    fi
+    return 0
+}
+
+cleanup() {
+    rc=$?
+    trap - EXIT HUP INT TERM
+
+    if [ "$tx_active" -eq 1 ]; then
+        if rollback_transaction; then
+            echo 'nginx-telego-firewall: firewall transaction rolled back' >&2
+        else
+            echo 'nginx-telego-firewall: FIREWALL ROLLBACK FAILED; manual recovery is required' >&2
+            rc=1
+        fi
+    fi
+
+    [ -z "$work" ] || rm -rf "$work"
+    if [ "$lock_held" -eq 1 ]; then
+        exec 9>&-
+    fi
+    exit "$rc"
+}
+
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+write_managed_section() {
+    "$UCI_BIN" -q delete "firewall.$MANAGED_SECTION" >/dev/null 2>&1 || true
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION=redirect"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.name=$MANAGED_NAME"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.src=$WAN_ZONE"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.proto=tcp"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.src_dport=$PUBLIC_PORT"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.dest_port=$BACKEND_PORT"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.family=any"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.target=dnat"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.reflection=0"
+    "$UCI_BIN" set "firewall.$MANAGED_SECTION.enabled=1"
+    "$UCI_BIN" commit firewall
+}
+
+remove_managed_section() {
+    "$UCI_BIN" -q delete "firewall.$MANAGED_SECTION"
+    "$UCI_BIN" commit firewall
+}
+
+commit_and_reload_transaction() {
+    record_applied_firewall
+    if ! check_fw4; then
+        echo 'nginx-telego-firewall: candidate firewall configuration failed fw4 check' >&2
+        exit 1
+    fi
+
+    [ -x "$FIREWALL_INIT" ] || fail "firewall init script not found: $FIREWALL_INIT"
+    runtime_touched=1
+    if ! "$FIREWALL_INIT" reload; then
+        echo 'nginx-telego-firewall: firewall reload failed' >&2
+        exit 1
+    fi
+    tx_active=0
+}
+
+acquire_lock
+
+if [ "$MODE" = check ]; then
+    validate_firewall_config_path
+    direct_enabled=$(uci_get_path nginx_telego.direct_https.enabled 0)
+    if is_enabled "$direct_enabled"; then
+        preflight_enable
+        echo "nginx-telego-firewall: Direct HTTPS firewall preflight passed for WAN TCP/$PUBLIC_PORT -> :$BACKEND_PORT"
+    else
+        check_no_pending_firewall_changes
+        check_fw4
+        echo 'nginx-telego-firewall: Direct HTTPS firewall redirect is disabled'
+    fi
+    exit 0
+fi
+
+check_no_pending_firewall_changes
+validate_firewall_config_path
+
+if [ "$MODE" = remove ]; then
+    state=$(managed_section_state)
+    case "$state" in
+        absent)
+            echo 'nginx-telego-firewall: managed Direct HTTPS firewall redirect is already absent'
+            exit 0
+            ;;
+        foreign)
+            echo "nginx-telego-firewall: reserved section '$MANAGED_SECTION' is foreign; leaving it unchanged" >&2
+            exit 0
+            ;;
+        owned) ;;
+    esac
+
+    check_fw4
+    snapshot_firewall
+    tx_active=1
+    remove_managed_section
+    commit_and_reload_transaction
+    echo 'nginx-telego-firewall: managed Direct HTTPS firewall redirect removed'
+    exit 0
+fi
+
+direct_enabled=$(uci_get_path nginx_telego.direct_https.enabled 0)
+
+if is_enabled "$direct_enabled"; then
+    preflight_enable
+    if managed_section_matches_desired; then
+        echo 'nginx-telego-firewall: managed Direct HTTPS firewall redirect already matches desired state'
+        exit 0
+    fi
+
+    snapshot_firewall
+    tx_active=1
+    write_managed_section
+    commit_and_reload_transaction
+    echo "nginx-telego-firewall: WAN TCP/$PUBLIC_PORT now redirects to local Nginx :$BACKEND_PORT"
+else
+    state=$(managed_section_state)
+    case "$state" in
+        absent)
+            echo 'nginx-telego-firewall: Direct HTTPS disabled and no managed firewall redirect exists'
+            exit 0
+            ;;
+        foreign)
+            echo "nginx-telego-firewall: Direct HTTPS disabled; reserved foreign section '$MANAGED_SECTION' was left unchanged" >&2
+            exit 0
+            ;;
+        owned) ;;
+    esac
+
+    check_fw4
+    snapshot_firewall
+    tx_active=1
+    remove_managed_section
+    commit_and_reload_transaction
+    echo 'nginx-telego-firewall: Direct HTTPS disabled; managed firewall redirect removed'
+fi

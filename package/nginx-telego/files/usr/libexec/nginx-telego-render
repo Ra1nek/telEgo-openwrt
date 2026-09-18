@@ -484,7 +484,7 @@ fi
 if is_enabled "$direct_https_enabled"; then
     cat >>"$ingress_candidate" <<EOF_DIRECT_HTTPS
 
-# Direct HTTPS backend: P12.2 redirects WAN TCP/443 -> Nginx :18443.
+# Direct HTTPS backend: nginx-telego-firewall redirects WAN TCP/443 -> Nginx :18443.
 # The listener intentionally binds all local addresses so firewall4 REDIRECT can
 # deliver packets without changing uhttpd/LuCI ownership of LAN TCP/443.
 server {
