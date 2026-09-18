@@ -100,7 +100,7 @@ STATE
 }
 
 baseline
-"$MIGRATOR" >"$work/first.out"
+sh "$MIGRATOR" >"$work/first.out"
 
 # Existing administrator values survive.
 grep -Fqx 'shared|shared|hostname|legacy.example.com' "$STATE"
@@ -120,7 +120,7 @@ grep -Fqx 'direct_https|direct_https|certificate_key|' "$STATE"
 
 # Re-running is a no-op and does not commit again.
 cp "$STATE" "$work/after-first"
-"$MIGRATOR" >"$work/second.out"
+sh "$MIGRATOR" >"$work/second.out"
 cmp "$work/after-first" "$STATE"
 [[ $(grep -c '^commit$' "$UCI_LOG") == 1 ]]
 grep -q 'already contains all managed defaults' "$work/second.out"
@@ -132,7 +132,7 @@ direct_https|cloudflare||
 direct_https|cloudflare|enabled|1
 STATE
 cp "$STATE" "$work/before-foreign"
-if "$MIGRATOR" >"$work/foreign.out" 2>&1; then
+if sh "$MIGRATOR" >"$work/foreign.out" 2>&1; then
 	echo 'foreign direct_https section type was unexpectedly accepted' >&2
 	exit 1
 fi
@@ -145,7 +145,7 @@ baseline
 cp "$STATE" "$PENDING"
 printf '%s\n' 'cloudflare|cloudflare|hostname|pending.example.com' >>"$PENDING"
 cp "$STATE" "$work/before-pending"
-if "$MIGRATOR" >"$work/pending.out" 2>&1; then
+if sh "$MIGRATOR" >"$work/pending.out" 2>&1; then
 	echo 'pre-existing pending UCI changes were unexpectedly accepted' >&2
 	exit 1
 fi
