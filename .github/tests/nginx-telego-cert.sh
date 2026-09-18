@@ -8,7 +8,7 @@ trap 'rm -rf -- "$work"' EXIT
 
 openssl_bin=$(command -v openssl)
 "$openssl_bin" req -x509 -newkey rsa:2048 -nodes   -keyout "$work/key.pem" -out "$work/cert.pem" -days 45   -subj /CN=web.example.com -addext subjectAltName=DNS:web.example.com >/dev/null 2>&1
-"$openssl_bin" genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$work/wrong.key" >/dev/null 2>&1
+"$openssl_bin" genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048   -out "$work/wrong.key" >/dev/null 2>&1
 
 cat >"$work/uci" <<'SH'
 #!/bin/sh
@@ -50,10 +50,13 @@ export WEB_HOSTNAME='web.example.com'
 export DIRECT_ENABLED=1
 export SHARED_ENABLED=0
 export CLOUDFLARE_ENABLED=0
+unset DIRECT_HOSTNAME SHARED_HOSTNAME SHARED_CERT_FILE SHARED_CERT_KEY NGINX_TEST_FAIL || true
 
 status=$("$HELPER" status)
 grep -Eq '^profile[[:space:]]+direct_https$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+1
+grep -Eq '^managed_tls[[:space:]]+1$' <<<"$status"
+grep -Eq '^hostname[[:space:]]+web\.example\.com$' <<<"$status"
+grep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
 grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
 grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
 grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
@@ -91,84 +94,28 @@ if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
 fi
 unset NGINX_TEST_FAIL
 
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^hostname[[:space:]]+web\.example\.comgrep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
+# Symlinked certificate/key paths remain supported for ACME-style stable links.
+ln -s "$work/cert.pem" "$work/cert-link.pem"
+ln -s "$work/key.pem" "$work/key-link.pem"
+export CERT_FILE="$work/cert-link.pem"
+export CERT_KEY="$work/key-link.pem"
+"$HELPER" preflight >/dev/null
+export CERT_FILE="$work/cert.pem"
 export CERT_KEY="$work/key.pem"
 
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
+# Cloudflare has no local TLS material and must not run nginx -t.
 export DIRECT_ENABLED=0
 export CLOUDFLARE_ENABLED=1
 : >"$NGINX_TEST_LOG"
 "$HELPER" preflight >"$work/cloudflare.out"
 grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
 [[ ! -s "$NGINX_TEST_LOG" ]]
-
 status=$("$HELPER" status)
 grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
 grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
 grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
 
+# Conflicting managed profiles are rejected.
 export DIRECT_ENABLED=1
 export SHARED_ENABLED=1
 if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
@@ -177,669 +124,29 @@ if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
 fi
 grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
 
-export SHARED_ENABLED=0
+# Shared mode uses its own managed certificate settings.
+export DIRECT_ENABLED=0
+export SHARED_ENABLED=1
 export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
+export SHARED_HOSTNAME='web.example.com'
+export SHARED_CERT_FILE="$work/cert.pem"
+export SHARED_CERT_KEY="$work/key.pem"
 status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
+grep -Eq '^profile[[:space:]]+shared$' <<<"$status"
+grep -Eq '^managed_tls[[:space:]]+1$' <<<"$status"
 grep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
+"$HELPER" preflight >/dev/null
 
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
+# Missing certificate is visible in read-only status and rejected by preflight.
 export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
+export DIRECT_ENABLED=1
 export CERT_FILE="$work/missing.pem"
 status=$("$HELPER" status)
 grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^hostname[[:space:]]+web\.example\.com
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export DIRECT_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
+if "$HELPER" preflight >"$work/missing.out" 2>&1; then
+  echo 'certificate preflight unexpectedly accepted missing certificate' >&2
   exit 1
 fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-unset DIRECT_HOSTNAME
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^hostname[[:space:]]+web\.example\.comgrep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+valid
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export DIRECT_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-unset DIRECT_HOSTNAME
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^hostname[[:space:]]+web\.example\.comgrep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export DIRECT_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-unset DIRECT_HOSTNAME
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^hostname[[:space:]]+web\.example\.comgrep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
-
-echo 'nginx-telego certificate readiness tests passed'
- <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_state[[:space:]]+valid$' <<<"$status"
-grep -Eq '^key_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^hostname_match[[:space:]]+1$' <<<"$status"
-grep -Eq '^expiry_state[[:space:]]+ok$' <<<"$status"
-grep -Eq '^openssl_available[[:space:]]+1$' <<<"$status"
-grep -Eq '^acme_managed[[:space:]]+0$' <<<"$status"
-grep -Eq '^not_after[[:space:]]+.+$' <<<"$status"
-grep -Eq '^fingerprint_sha256[[:space:]]+[0-9A-F:]+$' <<<"$status"
-
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/preflight.out"
-grep -q 'certificate preflight passed; nginx -t succeeded' "$work/preflight.out"
-grep -Fqx -- "-t -c $work/uci.conf" "$NGINX_TEST_LOG"
-
-export WEB_HOSTNAME='other.example.com'
-if "$HELPER" preflight >"$work/hostname.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted wrong hostname' >&2
-  exit 1
-fi
-grep -q 'does not cover hostname' "$work/hostname.out"
-export WEB_HOSTNAME='web.example.com'
-
-export CERT_KEY="$work/wrong.key"
-if "$HELPER" preflight >"$work/key.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted mismatched key' >&2
-  exit 1
-fi
-grep -q 'certificate and private key do not match' "$work/key.out"
-export CERT_KEY="$work/key.pem"
-
-export NGINX_TEST_FAIL=1
-if "$HELPER" preflight >"$work/nginx.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted failed nginx -t' >&2
-  exit 1
-fi
-unset NGINX_TEST_FAIL
-
-export DIRECT_ENABLED=0
-export CLOUDFLARE_ENABLED=1
-: >"$NGINX_TEST_LOG"
-"$HELPER" preflight >"$work/cloudflare.out"
-grep -q 'profile cloudflare has no local managed TLS certificate' "$work/cloudflare.out"
-[[ ! -s "$NGINX_TEST_LOG" ]]
-
-status=$("$HELPER" status)
-grep -Eq '^profile[[:space:]]+cloudflare$' <<<"$status"
-grep -Eq '^managed_tls[[:space:]]+0$' <<<"$status"
-grep -Eq '^certificate_state[[:space:]]+not-applicable$' <<<"$status"
-
-export DIRECT_ENABLED=1
-export SHARED_ENABLED=1
-if "$HELPER" preflight >"$work/conflict.out" 2>&1; then
-  echo 'certificate preflight unexpectedly accepted conflicting ingress profiles' >&2
-  exit 1
-fi
-grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
-
-export SHARED_ENABLED=0
-export CLOUDFLARE_ENABLED=0
-export CERT_FILE="$work/missing.pem"
-status=$("$HELPER" status)
-grep -Eq '^certificate_state[[:space:]]+missing$' <<<"$status"
+grep -q 'TLS certificate is not readable' "$work/missing.out"
 
 echo 'nginx-telego certificate readiness tests passed'
