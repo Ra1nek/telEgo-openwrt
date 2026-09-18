@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.5
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -63,6 +63,8 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-files
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-reconcile \
 		$(1)/usr/libexec/nginx-telego-reconcile
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-config-migrate \
+		$(1)/usr/libexec/nginx-telego-config-migrate
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-firewall \
 		$(1)/usr/libexec/nginx-telego-firewall
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-cert \
@@ -82,6 +84,8 @@ define Package/nginx-telego/postinst
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
 	[ -x /usr/libexec/telego-package-reconcile ] || exit 1
 	/usr/libexec/telego-package-reconcile
+	[ -x /usr/libexec/nginx-telego-config-migrate ] || exit 1
+	/usr/libexec/nginx-telego-config-migrate
 endef
 
 define Package/nginx-telego/prerm
