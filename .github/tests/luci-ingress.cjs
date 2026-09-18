@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const options = [];
+const sections = [];
 const notifications = [];
 const rpcCalls = [];
 const store = {
@@ -105,6 +106,7 @@ class Map {
 		this.config = config; this.title = title; this.description = description;
 	}
 	section(kind, section, title) {
+		sections.push({ section, title });
 		return {
 			section, title, anonymous: false, addremove: true,
 			option(type, name) {
@@ -149,6 +151,8 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	assert.equal(rendered.config, 'nginx_telego');
 	assert.ok(rpcCalls.includes('firewall_status'));
 	assert.ok(rpcCalls.includes('certificate_status'));
+	assert.deepEqual(sections, [{ section: 'shared', title: 'Ingress Profile' }],
+		'Native Shared-Port options must not render as a separate always-visible card');
 
 	const mode = options.find(o => o.name === '_mode');
 	assert.ok(mode, 'ingress mode selector exists');
