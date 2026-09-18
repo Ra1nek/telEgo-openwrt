@@ -41,6 +41,12 @@ cp "$TEST_FEED/${url##*/}" "$4"
 """,
             "apk": """#!/bin/sh
 echo "apk $*" >> "$TEST_LOG"
+if [ "$1" = info ] && [ "$2" = -e ]; then
+    case "$3" in
+      acme-acmesh|acme-acmesh-dnsapi|luci-app-acme) [ "${ACME_INSTALLED:-0}" = 1 ]; exit $? ;;
+      *) exit 0 ;;
+    esac
+fi
 case "$*" in
   *--simulate*) exit "${SIMULATE_FAIL:-0}" ;;
 esac
@@ -123,9 +129,26 @@ fi
         self.assertIn("nginx-ssl", log)
         self.assertIn("./nginx-telego-", log)
         self.assertNotIn("./luci-i18n-telego-ru-", log)
+        add_commands = [line for line in log.splitlines() if line.startswith("apk add ")]
+        self.assertTrue(add_commands)
+        self.assertFalse(any("acme-acmesh" in line for line in add_commands),
+                         "ACME must remain opt-in on a normal install")
         self.assertIn("--simulate", log)
         self.assertEqual(self.config.read_text(), "original user configuration\n")
         self.assertEqual(len(list((self.root / "backups").rglob("telego"))), 1)
+
+    def test_acme_dns01_addon_is_explicit_and_uses_openwrt_packages(self):
+        result = self.run_script("--no-ru", "--acme", "--allow-untrusted")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        log = self.log.read_text()
+        add_commands = [line for line in log.splitlines() if line.startswith("apk add ")]
+        self.assertTrue(add_commands)
+        for package in ("acme-acmesh", "acme-acmesh-dnsapi", "luci-app-acme"):
+            self.assertTrue(any(package in line for line in add_commands), package)
+        self.assertIn("./nginx-telego-", log)
+        self.assertIn("ACME DNS-01 is installed, but no certificate or DNS credentials were created", result.stdout)
+        self.assertNotIn("acme-acmesh-", self.manifest.read_text(),
+                         "OpenWrt system add-ons must not become project release APKs")
 
     def test_success_prunes_config_backups_but_not_package_owned(self):
         sentinel = self.seed_install_backups(5)

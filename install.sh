@@ -4,10 +4,11 @@
 set -eu
 
 REPOSITORY='Ra1nek/telEgo-openwrt'
-PRODUCT_VERSION='0.6.1'
+PRODUCT_VERSION='0.6.2'
 RELEASE='develop-latest'
 UI_LANG=''
 WITH_RU='auto'
+WITH_ACME='auto'
 ASSUME_YES=0
 ALLOW_UNTRUSTED=0
 MODE='auto'
@@ -29,6 +30,7 @@ SEL_CORE=0
 SEL_LUCI=0
 SEL_NGINX=0
 SEL_RU=0
+SEL_ACME=0
 REM_CORE=0
 REM_LUCI=0
 REM_NGINX=0
@@ -38,6 +40,7 @@ INST_CORE=0
 INST_LUCI=0
 INST_NGINX=0
 INST_RU=0
+INST_ACME=0
 
 APK_FILES=''
 BASE_URL=''
@@ -145,6 +148,8 @@ Usage: sh install.sh [options]
   --lang ru|en         Interface language
   --ru                 Include Russian LuCI translation
   --no-ru              Exclude Russian LuCI translation
+  --acme               Add OpenWrt ACME DNS-01 support (off by default)
+  --no-acme            Do not add the optional ACME packages
   --release TAG        Release asset set; default: develop-latest
   --allow-untrusted    Explicitly allow APKs without a trusted signing key
   --uninstall          Enter uninstall mode
@@ -168,6 +173,8 @@ while [ "$#" -gt 0 ]; do
             ;;
         --ru) WITH_RU=1 ;;
         --no-ru) WITH_RU=0 ;;
+        --acme) WITH_ACME=1 ;;
+        --no-acme) WITH_ACME=0 ;;
         --allow-untrusted) ALLOW_UNTRUSTED=1 ;;
         --uninstall) MODE='uninstall' ;;
         --yes) ASSUME_YES=1 ;;
@@ -272,6 +279,11 @@ detect_installed_components() {
     apk_installed luci-app-telego && INST_LUCI=1 || INST_LUCI=0
     apk_installed nginx-telego && INST_NGINX=1 || INST_NGINX=0
     apk_installed luci-i18n-telego-ru && INST_RU=1 || INST_RU=0
+    if apk_installed acme-acmesh && apk_installed acme-acmesh-dnsapi && apk_installed luci-app-acme; then
+        INST_ACME=1
+    else
+        INST_ACME=0
+    fi
 }
 
 have_any_installed() { [ $((INST_CORE + INST_LUCI + INST_NGINX + INST_RU)) -gt 0 ]; }
@@ -282,6 +294,7 @@ print_installed_components() {
     if [ "$INST_LUCI" -eq 1 ]; then status_ok 'luci-app-telego — LuCI' 'luci-app-telego — LuCI'; else status_info 'luci-app-telego — не установлен' 'luci-app-telego — not installed'; fi
     if [ "$INST_NGINX" -eq 1 ]; then status_ok 'nginx-telego — WEB/Nginx' 'nginx-telego — WEB/Nginx'; else status_info 'nginx-telego — не установлен' 'nginx-telego — not installed'; fi
     if [ "$INST_RU" -eq 1 ]; then status_ok 'luci-i18n-telego-ru — русский перевод' 'luci-i18n-telego-ru — Russian translation'; else status_info 'luci-i18n-telego-ru — не установлен' 'luci-i18n-telego-ru — not installed'; fi
+    if [ "$INST_ACME" -eq 1 ]; then status_ok 'OpenWrt ACME DNS-01 — системный add-on установлен' 'OpenWrt ACME DNS-01 — system add-on installed'; else status_info 'OpenWrt ACME DNS-01 — optional, не установлен' 'OpenWrt ACME DNS-01 — optional, not installed'; fi
 }
 
 selection_all() {
@@ -289,10 +302,12 @@ selection_all() {
     SEL_LUCI=1
     SEL_NGINX=1
     if [ "$WITH_RU" = 1 ]; then SEL_RU=1; else SEL_RU=0; fi
+    case "$WITH_ACME" in 1) SEL_ACME=1 ;; *) SEL_ACME=0 ;; esac
 }
 
 ensure_install_dependencies() {
     [ "$SEL_RU" -eq 0 ] || SEL_LUCI=1
+    [ "$SEL_ACME" -eq 0 ] || SEL_NGINX=1
     [ "$SEL_LUCI" -eq 0 ] || SEL_CORE=1
     [ "$SEL_NGINX" -eq 0 ] || SEL_CORE=1
 }
@@ -302,7 +317,9 @@ selection_from_installed() {
     SEL_LUCI=$INST_LUCI
     SEL_NGINX=$INST_NGINX
     SEL_RU=$INST_RU
+    SEL_ACME=$INST_ACME
     case "$WITH_RU" in 1) SEL_RU=1 ;; 0) SEL_RU=0 ;; esac
+    case "$WITH_ACME" in 1) SEL_ACME=1 ;; 0) SEL_ACME=0 ;; esac
     ensure_install_dependencies
 }
 
@@ -321,6 +338,8 @@ print_dependency_graph() {
     printf '\n%s\n' "$(text 'Зависимости проекта:' 'Project dependency graph:')"
     printf '  luci-i18n-telego-ru -> luci-app-telego -> telego-pkg\n'
     printf '  nginx-telego         -> telego-pkg + nginx-ssl\n'
+    printf '\n%s\n' "$(text 'Опциональный системный add-on (не включается по умолчанию):' 'Optional system add-on (disabled by default):')"
+    printf '  OpenWrt ACME DNS-01  -> acme-acmesh + acme-acmesh-dnsapi + luci-app-acme\n'
 }
 
 print_install_selection() {
@@ -329,8 +348,9 @@ print_install_selection() {
     printf '  2) %s %-24s %s\n' "$(checkbox "$SEL_LUCI")" 'luci-app-telego' 'LuCI'
     printf '  3) %s %-24s %s\n' "$(checkbox "$SEL_NGINX")" 'nginx-telego' "$(text 'WEB/Nginx-слой' 'WEB/Nginx layer')"
     printf '  4) %s %-24s %s\n' "$(checkbox "$SEL_RU")" 'luci-i18n-telego-ru' "$(text 'русский перевод' 'Russian translation')"
+    printf '  5) %s %-24s %s\n' "$(checkbox "$SEL_ACME")" 'OpenWrt ACME DNS-01' "$(text 'optional system add-on' 'optional system add-on')"
     print_dependency_graph
-    printf '\n  a) %s\n' "$(text 'выбрать всё' 'select all')"
+    printf '\n  a) %s\n' "$(text 'выбрать все компоненты telEgo' 'select all telEgo components')"
     printf '  n) %s\n' "$(text 'только ядро' 'core only')"
     printf '  c) %s\n' "$(text 'продолжить' 'continue')"
     printf '  q) %s\n' "$(text 'выход' 'quit')"
@@ -345,10 +365,10 @@ menu_install() {
         case "$REPLY" in
             1)
                 if [ "$SEL_CORE" -eq 1 ]; then
-                    if [ "$SEL_LUCI" -eq 1 ] || [ "$SEL_NGINX" -eq 1 ] || [ "$SEL_RU" -eq 1 ]; then
-                        status_warn 'Отключение ядра также снимет LuCI, Nginx-слой и перевод.' 'Disabling the core also deselects LuCI, the Nginx layer, and translation.'
+                    if [ "$SEL_LUCI" -eq 1 ] || [ "$SEL_NGINX" -eq 1 ] || [ "$SEL_RU" -eq 1 ] || [ "$SEL_ACME" -eq 1 ]; then
+                        status_warn 'Отключение ядра также снимет LuCI, Nginx-слой, перевод и запрос на ACME add-on.' 'Disabling the core also deselects LuCI, the Nginx layer, translation, and the ACME add-on request.'
                     fi
-                    SEL_CORE=0; SEL_LUCI=0; SEL_NGINX=0; SEL_RU=0
+                    SEL_CORE=0; SEL_LUCI=0; SEL_NGINX=0; SEL_RU=0; SEL_ACME=0
                 else SEL_CORE=1
                 fi
                 ;;
@@ -358,7 +378,12 @@ menu_install() {
                 fi
                 ;;
             3)
-                if [ "$SEL_NGINX" -eq 1 ]; then SEL_NGINX=0
+                if [ "$SEL_NGINX" -eq 1 ]; then
+                    SEL_NGINX=0
+                    if [ "$SEL_ACME" -eq 1 ]; then
+                        SEL_ACME=0
+                        status_warn 'ACME add-on также снят: в installer он привязан к managed Nginx ingress.' 'The ACME add-on was also deselected because this installer associates it with managed Nginx ingress.'
+                    fi
                 else SEL_NGINX=1; SEL_CORE=1; status_info 'Автоматически добавлены telego-pkg; nginx-ssl будет разрешён через apk.' 'telego-pkg was added automatically; nginx-ssl will be resolved by apk.'
                 fi
                 ;;
@@ -367,8 +392,17 @@ menu_install() {
                 else SEL_RU=1; SEL_LUCI=1; SEL_CORE=1; status_info 'Для перевода автоматически добавлены LuCI и ядро.' 'LuCI and the core were added automatically for the translation.'
                 fi
                 ;;
+            5)
+                if [ "$SEL_ACME" -eq 1 ]; then
+                    SEL_ACME=0
+                    status_info 'ACME add-on не будет изменён; уже установленные системные пакеты не удаляются.' 'The ACME add-on will not be changed; already installed system packages are never removed.'
+                else
+                    SEL_ACME=1; SEL_NGINX=1; SEL_CORE=1
+                    status_info 'Добавлен OpenWrt ACME DNS-01; nginx-telego выбран автоматически. Профиль ingress и сертификат останутся выключенными до вашей настройки.' 'OpenWrt ACME DNS-01 was added and nginx-telego selected automatically. The ingress profile and certificate remain disabled until you configure them.'
+                fi
+                ;;
             a|A) SEL_CORE=1; SEL_LUCI=1; SEL_NGINX=1; SEL_RU=1 ;;
-            n|N) SEL_CORE=1; SEL_LUCI=0; SEL_NGINX=0; SEL_RU=0 ;;
+            n|N) SEL_CORE=1; SEL_LUCI=0; SEL_NGINX=0; SEL_RU=0; SEL_ACME=0 ;;
             c|C|''|y|Y|yes|YES|д|Д|да|Да)
                 ensure_install_dependencies
                 [ $((SEL_CORE + SEL_LUCI + SEL_NGINX + SEL_RU)) -gt 0 ] || { status_warn 'Не выбран ни один компонент.' 'No component is selected.'; continue; }
@@ -630,7 +664,11 @@ apply_install() {
     apk update
     cd "$WORK_DIR"
     set -- $APK_FILES
-    if [ "$SEL_NGINX" -eq 1 ]; then DEPENDENCIES='nginx-ssl'; else DEPENDENCIES=''; fi
+    DEPENDENCIES=''
+    if [ "$SEL_NGINX" -eq 1 ]; then DEPENDENCIES="$DEPENDENCIES nginx-ssl"; fi
+    if [ "$SEL_ACME" -eq 1 ]; then
+        DEPENDENCIES="$DEPENDENCIES acme-acmesh acme-acmesh-dnsapi luci-app-acme"
+    fi
     remove_packages=$(deselected_installed_packages)
     progress_bar 65 "$(text 'Проверка зависимостей и транзакции' 'Simulating dependency transaction')"
     if [ "$ALLOW_UNTRUSTED" -eq 1 ]; then apk add --simulate --allow-untrusted $DEPENDENCIES "$@"; else apk add --simulate $DEPENDENCIES "$@"; fi
@@ -660,7 +698,10 @@ apply_install() {
     prune_configuration_backups
     progress_bar 100 "$(text 'Готово' 'Complete')"
     status_ok 'Установка завершена.' 'Installation complete.'
-    status_info 'Параметры WAN/firewall автоматически не изменялись; новый proxy не включается без настройки пользователя.' 'WAN/firewall settings were not changed automatically; a new proxy is not enabled without user configuration.'
+    status_info 'Ни один managed ingress-профиль не включается установщиком; WAN/443 не меняется без явной настройки пользователя.' 'The installer never enables a managed ingress profile; WAN/443 is unchanged until the user explicitly configures it.'
+    if [ "$SEL_ACME" -eq 1 ]; then
+        status_info 'ACME DNS-01 установлен, но сертификат и DNS credentials не создавались. Сначала настройте Services -> ACME, затем Services -> telEgo -> WEB Ingress.' 'ACME DNS-01 is installed, but no certificate or DNS credentials were created. Configure Services -> ACME first, then Services -> telEgo -> WEB Ingress.'
+    fi
     printf '%s\n' "$(text 'LuCI: Службы -> telEgo' 'LuCI: Services -> telEgo')"
     if [ "$UI_LANG" = ru ]; then guide='INSTALL.md'; else guide='INSTALL_EN.md'; fi
     printf 'Guide: https://github.com/%s/blob/develop/docs/%s\n' "$REPOSITORY" "$guide"
@@ -684,6 +725,7 @@ apply_uninstall() {
     status_ok 'Выбранные компоненты удалены.' 'Selected components removed.'
     status_info 'Пользовательские файлы конфигурации и резервные копии не удалялись.' 'User configuration files and backups were preserved.'
     [ "$REM_NGINX" -eq 0 ] || status_info 'nginx-ssl не удалялся автоматически: он может использоваться другими службами.' 'nginx-ssl was not removed automatically because other services may use it.'
+    [ "$INST_ACME" -eq 0 ] || status_info 'OpenWrt ACME packages не удалялись автоматически: это общесистемный add-on и он может обслуживать другие сертификаты.' 'OpenWrt ACME packages were not removed automatically because this is a shared system add-on that may manage other certificates.'
 }
 
 apply_changes() {
