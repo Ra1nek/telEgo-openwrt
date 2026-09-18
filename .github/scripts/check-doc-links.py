@@ -6,6 +6,11 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 FILES = [ROOT / "README.md", ROOT / "README_EN.md", *sorted((ROOT / "docs").glob("*.md"))]
+USER_TEXT_FILES = [
+    *FILES,
+    *sorted((ROOT / "package/luci-app-telego/htdocs").rglob("*.js")),
+    *sorted((ROOT / "package/luci-i18n-telego-ru/po").rglob("*.po")),
+]
 LINK_RE = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
 errors = []
 DEPRECATED_NAMES = (
@@ -15,7 +20,7 @@ DEPRECATED_NAMES = (
     "P12_ACME_DNS01_EN.md",
 )
 
-for src in FILES:
+for src in USER_TEXT_FILES:
     if not src.exists():
         continue
     text = src.read_text(encoding="utf-8")
@@ -23,6 +28,10 @@ for src in FILES:
         if deprecated in text:
             errors.append(f"{src.relative_to(ROOT)}: deprecated documentation name: {deprecated}")
 
+for src in FILES:
+    if not src.exists():
+        continue
+    text = src.read_text(encoding="utf-8")
     for raw in LINK_RE.findall(text):
         target = raw.strip().split()[0].strip("<>")
         if not target or target.startswith(("#", "http://", "https://", "mailto:")):
@@ -45,4 +54,4 @@ if errors:
         print(f"  - {error}", file=sys.stderr)
     raise SystemExit(1)
 
-print(f"documentation links OK: checked {len(FILES)} Markdown files")
+print(f"documentation links OK: checked {len(FILES)} Markdown files; deprecated names scanned in {len(USER_TEXT_FILES)} user-facing files")

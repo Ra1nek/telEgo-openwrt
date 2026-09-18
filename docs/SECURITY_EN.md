@@ -242,7 +242,7 @@ The `419` path removes request body/content metadata and carrier-sensitive heade
 
 ## Direct HTTPS firewall boundary
 
-Direct HTTPS intentionally uses an Nginx listener on `0.0.0.0:18443` so a firewall4 redirect can deliver locally addressed WAN traffic without depending on a static WAN IP. Port `:18443` itself is **not a public ingress port**.
+Direct HTTPS intentionally uses Nginx listeners on `0.0.0.0:18443` and `[::]:18443` so a firewall4 redirect can deliver locally addressed WAN traffic without depending on a static WAN IP. Port `:18443` itself is **not a public ingress port**.
 
 `nginx-telego-firewall` owns only the named section:
 
@@ -250,7 +250,9 @@ Direct HTTPS intentionally uses an Nginx listener on `0.0.0.0:18443` so a firewa
 firewall.telego_direct_https
 ```
 
-It redirects WAN TCP/443 to local `:18443`. The manager refuses Direct HTTPS when a foreign WAN/443 redirect exists, the reserved section is foreign, uncommitted firewall UCI changes exist, or the WAN input policy is `ACCEPT`. LAN TCP/443 is outside this redirect and remains available to uhttpd/LuCI.
+It redirects WAN TCP/443 to local `:18443`. The manager refuses Direct HTTPS when a foreign WAN/443 redirect exists, a WAN rule/redirect directly publishes TCP/18443, the reserved section is foreign, uncommitted firewall UCI changes exist, or the WAN input policy is `ACCEPT`. LAN TCP/443 is outside this redirect and remains available to uhttpd/LuCI.
+
+Direct HTTPS also requires the telEgo MTProxy listener to use a port **other than TCP/443** because WAN/443 is dedicated to WEB/Nginx. Use Native Shared-Port when WEB and MTProxy must share public `:443`.
 
 > [!IMPORTANT]
 > After changing unrelated firewall rules, verify separately that WAN TCP/18443 did not become directly reachable. See the [Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md).
@@ -294,7 +296,7 @@ Stable release tags must match `PKG_VERSION`. The release workflow supplies the 
 
 Before exposing telEgo to the Internet:
 
-- [ ] Confirm the intended MTProxy bind address/port.
+- [ ] Confirm the intended MTProxy bind address/port; Direct HTTPS must not use TCP/443 for MTProxy.
 - [ ] Confirm firewall/NAT rules expose only required ports; Direct HTTPS must not expose WAN TCP/18443 directly.
 - [ ] Keep WEB Proxy and metrics private listeners on loopback unless you have a reviewed reason to change them.
 - [ ] Use a valid administrator/ACME-managed TLS certificate and run the certificate preflight.

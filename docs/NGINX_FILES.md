@@ -59,7 +59,7 @@ path    role    ownership    presence    source
 
 | Профиль | Основной Nginx listener | Назначение |
 |---|---|---|
-| Direct HTTPS | `0.0.0.0:18443` | backend для package-owned WAN TCP/443 firewall redirect |
+| Direct HTTPS | `0.0.0.0:18443` + `[::]:18443` | dual-stack backend для package-owned WAN TCP/443 firewall redirect |
 | Cloudflare Tunnel | `127.0.0.1:18080` | loopback origin для `cloudflared` |
 | Native Shared-Port | `127.0.0.1:8443` + certificate source `:8444` | TLS splice после public telEgo `:443` |
 

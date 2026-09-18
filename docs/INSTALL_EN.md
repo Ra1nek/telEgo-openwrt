@@ -10,9 +10,9 @@ This guide covers the supported OpenWrt installation paths for `telEgo-openwrt`.
 - At least 32 MiB free on `/tmp` and `/` for the interactive installer preflight.
 - `uclient-fetch`, `wget` or `curl` for downloads.
 - A free TCP port for MTProxy; the default project configuration is `0.0.0.0:443`.
-- WAN firewall/NAT configuration when Internet clients must reach the router.
+- For ordinary MTProxy, a suitable WAN firewall rule for the selected MTProxy port. Direct HTTPS manages only its own WAN TCP/443 redirect automatically.
 
-WEB Proxy additionally needs administrator-managed DNS, a public TLS certificate and Nginx server configuration. The project package does not provision those automatically.
+WEB Proxy needs a public hostname. Managed Direct HTTPS and Native Shared-Port generate their Nginx TLS configuration, but the certificate remains a separate deployment asset: provide it yourself or use the optional OpenWrt ACME DNS-01 add-on.
 
 ## Choose an installation path
 
@@ -41,16 +41,19 @@ sh /tmp/telego-install.sh
 
 The installer is POSIX/OpenWrt `sh`; Bash and `jq` are not required on the router.
 
-It always installs:
+For a new installation, the wizard initially selects the complete telEgo component set but lets the operator change it before the APK transaction:
 
-```text
-telego-pkg
-luci-app-telego
-nginx-telego
-nginx-ssl
-```
+| Component | Purpose | Default |
+|---|---|---|
+| `telego-pkg` | daemon, UCI, procd/ujail | selected |
+| `luci-app-telego` | LuCI and local rpcd | selected |
+| `nginx-telego` | managed WEB ingress plus firewall/certificate helpers | selected, but **all ingress profiles remain disabled** |
+| `luci-i18n-telego-ru` | Russian translation | follows language/operator choice |
+| OpenWrt ACME DNS-01 | `acme-acmesh + acme-acmesh-dnsapi + luci-app-acme` | **not selected** |
 
-The Russian LuCI translation `luci-i18n-telego-ru` is optional.
+`nginx-ssl` is resolved as a system dependency when `nginx-telego` is selected. Installing `nginx-telego` alone does not publish anything: Direct HTTPS, Cloudflare, and Native Shared-Port all start with `enabled=0`.
+
+The ACME packages are not project APKs and are not owned by telEgo. The installer may add them from the configured OpenWrt repositories, but never removes them automatically when telEgo is removed.
 
 ### Installer options
 
@@ -58,6 +61,8 @@ The Russian LuCI translation `luci-i18n-telego-ru` is optional.
 --lang ru|en         UI language
 --ru                 install Russian LuCI translation
 --no-ru              skip Russian LuCI translation
+--acme               add OpenWrt ACME DNS-01 support (off by default)
+--no-acme            do not add the optional ACME packages
 --release TAG        release tag; default develop-latest
                      use latest for the latest stable release
 --allow-untrusted    explicitly bypass APK signing-key trust checks
@@ -75,6 +80,10 @@ sh /tmp/telego-install.sh \
 # English UI, no Russian translation
 sh /tmp/telego-install.sh \
   --lang en --no-ru --yes --allow-untrusted
+
+# Develop preview + optional ACME DNS-01 support
+sh /tmp/telego-install.sh \
+  --lang en --no-ru --acme --yes --allow-untrusted
 
 # Latest stable release, once published with a trusted signing path
 sh /tmp/telego-install.sh \
@@ -94,9 +103,10 @@ For the selected release channel it:
 4. selects exactly one matching APK for every requested project package;
 5. verifies SHA-256 integrity;
 6. performs an APK simulation/preflight;
-7. installs the package set together;
-8. preserves existing `/etc/config/telego` through the upgrade flow;
-9. restarts required integration services where appropriate.
+7. adds system dependencies for the selected components; optional ACME is added only when explicitly selected;
+8. installs the selected set in one APK transaction;
+9. preserves existing `/etc/config/telego` through the upgrade flow;
+10. restarts required integration services without enabling a managed ingress profile automatically.
 
 The `develop-latest` manifest is published only after the matching develop build succeeds. The preview publisher uploads the manifest after package assets so a racing installer fails integrity validation instead of silently mixing revisions.
 
@@ -137,6 +147,12 @@ The helper:
 - restarts rpcd;
 - removes the temporary files.
 
+This CI helper installs only the four project APKs. Add the optional ACME system add-on through the main `install.sh --acme` path or directly from the OpenWrt repositories:
+
+```sh
+apk add acme-acmesh acme-acmesh-dnsapi luci-app-acme
+```
+
 ## Manual installation
 
 Copy only the four project APKs into a private directory such as `/tmp/telego-install`:
@@ -168,13 +184,41 @@ System dependencies should be resolved from the router's configured OpenWrt repo
 
 1. Open **Services → telEgo** in LuCI.
 2. Add at least one user with a 32-hex-character secret.
-3. Confirm the public MTProxy bind address/port does not conflict with another listener.
-4. Configure TLS fronting as required.
+3. Choose the MTProxy port. With **Direct HTTPS**, do not use `:443` (for example use `0.0.0.0:9443`); WAN TCP/443 belongs to WEB/Nginx in that mode. Use **Native Shared-Port** when WEB and MTProxy must share public `:443`.
+4. Configure TLS fronting for the selected topology.
 5. Leave WEB Proxy disabled until Nginx/TLS is prepared.
 6. Enable MTProxy.
 7. Click **Save & Apply**.
 
 The service then generates `/var/etc/telego.toml` and starts under procd/ujail as the unprivileged `telego` user.
+
+## Recommended path: Direct HTTPS + ACME DNS-01
+
+This order keeps WAN TCP/443 unpublished until the backend and certificate have passed their checks.
+
+1. Install telEgo. If OpenWrt should manage the certificate, select **OpenWrt ACME DNS-01** in the installer or pass `--acme`.
+2. In **Services → telEgo → Configuration**:
+   - enable telEgo;
+   - put MTProxy on a separate port such as `0.0.0.0:9443`;
+   - if MTProxy itself must be Internet-reachable, create the ordinary WAN TCP/9443 allow rule yourself; `nginx-telego-firewall` deliberately owns only the Direct WEB WAN TCP/443 → :18443 redirect;
+   - add a user/secret;
+   - enable WEB Proxy;
+   - keep WEB bind on `127.0.0.1:8080`;
+   - set the public hostname;
+   - keep `127.0.0.1/32` in Trusted Proxy CIDRs;
+   - **Save & Apply**.
+3. If the ACME add-on is installed, open **Services → ACME** and configure DNS-01 for the WEB hostname. Start with the staging CA. DNS API credentials belong to ACME, never to `telego` or `nginx_telego`.
+4. After a production certificate is issued, use the stable paths:
+   ```text
+   /etc/ssl/acme/<hostname>.fullchain.crt
+   /etc/ssl/acme/<hostname>.key
+   ```
+5. Open **Services → telEgo → WEB Ingress**, choose **Direct HTTPS**, enter hostname/certificate/key, then run **Certificate Preflight** and **Firewall Preflight** before applying.
+6. Only after both checks pass, **Save & Apply**. The safe apply order is firewall check → Nginx reconcile/`nginx -t` → package-owned WAN TCP/443 redirect.
+7. Complete the [Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md): LAN :443 → LuCI, WAN :443 → Nginx, WAN :18443 not directly reachable, HTTP/2, Telegram Desktop, reboot, and rollback.
+
+> [!IMPORTANT]
+> Direct HTTPS is not the mode for sharing public TCP/443 between MTProxy and WEB. Use **Native Shared-Port (Advanced)** for that topology.
 
 ## Verify the service
 

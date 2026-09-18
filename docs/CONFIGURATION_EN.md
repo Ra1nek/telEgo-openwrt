@@ -279,11 +279,21 @@ WAN :443 → firewall.telego_direct_https
              telEgo WEB :8080
 ```
 
-The profile requires an enabled WEB Proxy on `127.0.0.1:8080`, matching WEB/ingress hostname, trusted loopback proxy, a real certificate/key, exactly one enabled firewall zone named `wan`, WAN input other than `ACCEPT`, and no foreign WAN TCP/443 redirect.
+The profile requires `telego.general.enabled=1`; an MTProxy listener **other than TCP/443** (for example `0.0.0.0:9443`); WEB Proxy on `127.0.0.1:8080`; matching WEB/ingress hostname; trusted loopback proxy; a real certificate/key; exactly one enabled firewall zone named `wan`; WAN input other than `ACCEPT`; no foreign WAN TCP/443 redirect; and no foreign WAN redirect or input `ACCEPT` rule that publishes the reserved TCP/18443 backend.
 
-Minimal configuration:
+Nginx generates both `0.0.0.0:18443` and `[::]:18443` listeners while the firewall redirect uses `family=any`. A published AAAA record therefore uses the same topology, but IPv6 still needs its own real-WAN acceptance test.
+
+The Direct HTTPS manager **does not open the MTProxy port**. If MTProxy was moved to `:9443` and must be public, create the ordinary WAN TCP/9443 allow rule yourself through firewall4/LuCI. `nginx-telego-firewall` owns only the WEB redirect WAN TCP/443 → :18443.
+
+Minimal configuration assumes the telEgo/WEB contract is already saved:
 
 ```sh
+uci set telego.general.enabled='1'
+uci set telego.general.bind_to='0.0.0.0:9443'
+uci set telego.web_proxy.enabled='1'
+uci set telego.web_proxy.bind_to='127.0.0.1:8080'
+uci set telego.web_proxy.hostname='web.example.com'
+
 uci set nginx_telego.direct_https.enabled='1'
 uci set nginx_telego.direct_https.hostname='web.example.com'
 uci set nginx_telego.direct_https.certificate='/etc/ssl/acme/web.example.com.fullchain.crt'
@@ -318,6 +328,7 @@ In short:
 ```sh
 uci set nginx_telego.cloudflare.enabled='1'
 uci set nginx_telego.cloudflare.hostname='web.example.com'
+uci set nginx_telego.direct_https.enabled='0'
 uci set nginx_telego.shared.enabled='0'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload

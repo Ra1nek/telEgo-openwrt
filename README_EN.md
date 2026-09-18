@@ -87,6 +87,8 @@ Detailed build/runtime/network diagrams, Middle-End pools, Link Repair/Refresh, 
 | `luci-i18n-telego-ru` | all | Russian LuCI translation |
 | `nginx-telego` | all | managed Nginx ownership/reconciliation, WEB ingress/fallback, and reusable location snippet |
 
+The optional **OpenWrt ACME DNS-01** add-on (`acme-acmesh`, `acme-acmesh-dnsapi`, `luci-app-acme`) consists of OpenWrt system packages, not a fifth project APK. The installer offers it separately and keeps it disabled by default.
+
 # Quick install
 
 Run as `root` on OpenWrt 25.12.x x86_64:
@@ -97,7 +99,7 @@ wget -O /tmp/telego-install.sh \
 sh /tmp/telego-install.sh
 ```
 
-The installer guides you through language selection, optional Russian LuCI translation, and uses the `develop-latest` preview channel by default.
+The installer lets you choose the telEgo component set and uses the `develop-latest` preview channel by default. Managed ingress is installed **disabled**. OpenWrt ACME DNS-01 is available as a separate opt-in system add-on and is not selected by default.
 
 > [!TIP]
 > For a normal install, the command above is enough. APK trust, preview/stable channels, and unattended mode are hidden below so the first-run path stays simple.
@@ -159,8 +161,8 @@ Full guide: **[Installation](docs/INSTALL_EN.md)**.
 
 1. Open **Services → telEgo** in LuCI.
 2. Add a user/secret.
-3. Configure the MTProxy listener and TLS Fronting.
-4. Enable WEB Proxy only after public TLS/Nginx is configured.
+3. Configure the MTProxy listener and TLS Fronting. Direct HTTPS requires MTProxy on a port other than `:443`; use Native Shared-Port when both services must share public `:443`.
+4. Enable WEB Proxy after choosing the ingress topology. Direct HTTPS manages Nginx/firewall while the certificate can be administrator-managed or supplied by the optional OpenWrt ACME DNS-01 add-on.
 5. Click **Save & Apply** — OpenWrt rebuilds `/var/etc/telego.toml` and restarts the daemon when required.
 
 Verify:
@@ -227,9 +229,7 @@ Detailed topology and lifecycle: **[Architecture → Telegram Middle-End](docs/A
 
 Normal changes are applied through `/etc/init.d/nginx-telego reload`. The reconciler validates ownership/drift, performs safe migration/repair, uses the renderer as an internal generator, runs the final `nginx -t`, and rolls the managed filesystem back on failure.
 
-The package intentionally does **not** create the public TLS `server {}` or obtain a certificate; those are deployment-specific responsibilities.
-
-Include this in the administrator-managed TLS server:
+`nginx-telego` generates the TLS `server {}` for managed Direct HTTPS and Native Shared-Port, but it **does not issue a certificate by itself**. A reusable snippet remains available for hand-written Nginx deployments:
 
 ```nginx
 include /etc/nginx/snippets/telego.locations;
@@ -237,11 +237,11 @@ include /etc/nginx/snippets/telego.locations;
 
 Managed Nginx ingress has three mutually exclusive modes:
 
-- **Direct HTTPS** — LAN `:443` remains with LuCI/uhttpd while WAN `:443` is transactionally redirected by firewall4 to Nginx `:18443`;
+- **Direct HTTPS** — LAN `:443` remains with LuCI/uhttpd while WAN `:443` is transactionally redirected by firewall4 to dual-stack Nginx `:18443`; MTProxy uses another public port;
 - **Cloudflare Tunnel** — public TLS belongs to Cloudflare and local ingress listens on `127.0.0.1:18080`;
 - **Native Shared-Port (Advanced)** — telEgo owns public `:443` and ordinary TLS is spliced to Nginx `:8443`.
 
-For Direct HTTPS see **[TLS certificate / ACME DNS-01](docs/TLS_CERTIFICATE_EN.md)** and the **[LAN/WAN hardware test](docs/DIRECT_HTTPS_TEST_EN.md)**.
+For Direct HTTPS see the **[step-by-step installation path](docs/INSTALL_EN.md#recommended-path-direct-https--acme-dns-01)**, **[TLS certificate / ACME DNS-01](docs/TLS_CERTIFICATE_EN.md)**, and **[LAN/WAN hardware test](docs/DIRECT_HTTPS_TEST_EN.md)**.
 
 WEB Proxy supports:
 

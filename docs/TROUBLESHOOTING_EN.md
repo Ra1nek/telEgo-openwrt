@@ -137,7 +137,15 @@ For ordinary MTProxy listeners, the installer does not create WAN firewall rules
 
 ## Direct HTTPS does not work
 
-Separate the local Nginx backend from the WAN redirect first:
+Check the common configuration failures first:
+
+- `telego.general.enabled` must be `1`;
+- MTProxy must not listen on TCP/443; use another port such as `:9443` or Native Shared-Port;
+- `foreign_wan443` and `foreign_wan18443` in firewall status must be empty/`-`;
+- the WEB listener must remain `127.0.0.1:8080`;
+- when AAAA is published, test IPv6 separately.
+
+Then separate the local Nginx backend from the WAN redirect:
 
 ```sh
 /usr/libexec/nginx-telego-firewall status

@@ -59,7 +59,7 @@ One conditional path is shared by three **mutually exclusive** managed ingress p
 
 | Profile | Primary Nginx listener | Purpose |
 |---|---|---|
-| Direct HTTPS | `0.0.0.0:18443` | backend for the package-owned WAN TCP/443 firewall redirect |
+| Direct HTTPS | `0.0.0.0:18443` + `[::]:18443` | dual-stack backend for the package-owned WAN TCP/443 firewall redirect |
 | Cloudflare Tunnel | `127.0.0.1:18080` | loopback origin for `cloudflared` |
 | Native Shared-Port | `127.0.0.1:8443` plus certificate source `:8444` | TLS splice behind public telEgo `:443` |
 

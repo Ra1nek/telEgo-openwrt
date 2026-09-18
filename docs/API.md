@@ -110,9 +110,9 @@ Browser/rpcd передаёт helper только ограниченные metho
 ubus call telego.nginx firewall_status
 ```
 
-Ключевые поля: `profile_enabled`, `section_state` (`absent|owned|foreign`), `managed_match`, `wan_zone_count`, `wan_input`, `foreign_wan443`, `pending_changes`, `error`.
+Ключевые поля: `profile_enabled`, `section_state` (`absent|owned|foreign`), `managed_match`, `wan_zone_count`, `wan_input`, `foreign_wan443`, `foreign_wan18443`, `pending_changes`, `error`. `foreign_wan18443` показывает чужой redirect или WAN input `ACCEPT` rule, который публикует зарезервированный Direct HTTPS backend.
 
-`firewall_preflight` проверяет WAN zone, foreign WAN TCP/443 ownership, pending UCI changes и `fw4 check`, но не применяет firewall:
+`firewall_preflight` проверяет WAN zone, foreign WAN TCP/443 ownership, отсутствие прямой публикации backend TCP/18443, pending UCI changes и `fw4 check`, но не применяет firewall:
 
 ```sh
 ubus call telego.nginx firewall_preflight

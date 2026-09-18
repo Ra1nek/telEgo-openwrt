@@ -23,6 +23,8 @@ Internet client ── HTTPS :443 ──> firewall4 DNAT
 
 - OpenWrt 25.12.x x86_64;
 - `telego-pkg`, `nginx-telego`, `luci-app-telego`;
+- `telego.general.enabled=1`;
+- MTProxy listener на отдельном порту, **не TCP/443** (например `0.0.0.0:9443`);
 - работающий WEB Proxy `127.0.0.1:8080`;
 - настоящий TLS-сертификат для WEB hostname;
 - Direct HTTPS profile;
@@ -31,7 +33,7 @@ Internet client ── HTTPS :443 ──> firewall4 DNAT
 
 Если DNS обслуживает Cloudflare, запись Direct HTTPS должна быть **DNS only**. Оранжевое proxy-cloud означает, что внешний тест проверяет Cloudflare Edge, а не Direct HTTPS OpenWrt.
 
-Если опубликован `AAAA`, IPv6 проверяется отдельно. Не считайте deployment dual-stack проверенным только по успешному IPv4.
+Если опубликован `AAAA`, IPv6 проверяется отдельно. Managed Nginx создаёт `0.0.0.0:18443` и `[::]:18443`, а firewall redirect использует `family=any`; не считайте deployment dual-stack проверенным только по успешному IPv4.
 
 ## 2. Router-side preflight
 
@@ -57,6 +59,8 @@ nginx -t -c /etc/nginx/uci.conf
 uci show firewall.telego_direct_https
 netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
 ```
+
+В выводе firewall status поля `foreign_wan443` и `foreign_wan18443` должны быть пустыми/`-`. Второе поле означает, что никакое чужое UCI firewall rule/redirect не публикует приватный backend напрямую.
 
 Ожидаемый firewall section:
 
@@ -227,7 +231,7 @@ nginx -t -c /etc/nginx/uci.conf
 
 | Проверка | PASS |
 |---|---|
-| Router preflight | firewall + certificate + `nginx -t` успешны |
+| Router preflight | telEgo включён, MTProxy не на :443, firewall + certificate + `nginx -t` успешны |
 | LAN TCP/443 | LuCI/uhttpd, не Direct HTTPS |
 | WAN TCP/443 | достигает Direct HTTPS Nginx через redirect |
 | WAN TCP/18443 | не опубликован напрямую |

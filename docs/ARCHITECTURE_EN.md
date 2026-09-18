@@ -308,12 +308,14 @@ Direct HTTPS separates LAN management from public WEB ingress at the firewall4 b
 flowchart LR
     LAN["LAN client"] --> U["uhttpd / LuCI<br/>LAN :443"]
     WAN["Internet client<br/>WAN :443"] --> FW["firewall.telego_direct_https<br/>DNAT 443 → 18443"]
-    FW --> TLS["Nginx TLS<br/>0.0.0.0:18443"]
+    FW --> TLS["Nginx TLS<br/>0.0.0.0:18443 + [::]:18443"]
     TLS --> LOC["telego.locations"]
     LOC --> WEB["127.0.0.1:8080<br/>telEgo WEB"]
 ```
 
-The apply order deliberately avoids a dead public path: firewall ownership is preflighted first, Nginx is reconciled and validated with `nginx -t`, and only then is WAN/443 redirected to `:18443`. When leaving Direct HTTPS, the managed redirect is removed before the backend listener.
+Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx, so the telEgo MTProxy listener must use another public port. Operators who need both protocols on public `:443` use Native Shared-Port instead.
+
+The apply order deliberately avoids a dead public path: firewall ownership and reserved-backend exposure are preflighted first, Nginx is reconciled and validated with `nginx -t`, and only then is WAN/443 redirected to `:18443`. When leaving Direct HTTPS, the managed redirect is removed before the backend listener.
 
 Certificate status/renewal is documented in [TLS_CERTIFICATE_EN.md](TLS_CERTIFICATE_EN.md); real LAN/WAN acceptance is in [DIRECT_HTTPS_TEST_EN.md](DIRECT_HTTPS_TEST_EN.md).
 

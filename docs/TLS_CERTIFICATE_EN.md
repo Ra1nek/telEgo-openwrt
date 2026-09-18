@@ -2,7 +2,7 @@
 
 [Русский](TLS_CERTIFICATE.md) · **English** · [Direct HTTPS test](DIRECT_HTTPS_TEST_EN.md)
 
-this integration makes Direct HTTPS and Native Shared-Port ready for OpenWrt ACME certificates without handing public ports 80/443 to the ACME client.
+This integration makes Direct HTTPS and Native Shared-Port ready for OpenWrt ACME certificates without handing public ports 80/443 to the ACME client.
 
 ## Target topology
 
@@ -25,16 +25,22 @@ DNS-01 proves domain control through a TXT record, so ACME does not need to bind
 
 ## Packages
 
-On OpenWrt 25.12.x:
+ACME deliberately remains optional: `nginx-telego` also accepts an administrator-managed certificate.
 
-```sh
-apk add acme-acmesh acme-acmesh-dnsapi
+For a new installation, select **OpenWrt ACME DNS-01** in interactive `install.sh` or pass `--acme`. This opt-in add-on installs from the configured OpenWrt repositories:
+
+```text
+acme-acmesh
+acme-acmesh-dnsapi
+luci-app-acme
 ```
 
-The LuCI ACME application is optional:
+It is **off by default**, does not create a certificate section, and never asks telEgo to store DNS API credentials. Existing ACME packages are also never removed automatically when telEgo is removed.
+
+Manual equivalent:
 
 ```sh
-apk add luci-app-acme
+apk add acme-acmesh acme-acmesh-dnsapi luci-app-acme
 ```
 
 `acme-acmesh-dnsapi` provides the DNS API hooks supported by acme.sh.

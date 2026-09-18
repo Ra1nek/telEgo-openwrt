@@ -139,7 +139,15 @@ flowchart LR
 
 ## Direct HTTPS не работает
 
-Сначала отделите Nginx backend от WAN redirect:
+Сначала проверьте самые частые ошибки конфигурации:
+
+- `telego.general.enabled` должен быть `1`;
+- MTProxy не должен слушать TCP/443; используйте отдельный порт (например `:9443`) или Native Shared-Port;
+- `foreign_wan443` и `foreign_wan18443` в firewall status должны быть пустыми/`-`;
+- WEB listener должен оставаться `127.0.0.1:8080`;
+- при опубликованном AAAA проверяйте IPv6 отдельно.
+
+Затем отделите Nginx backend от WAN redirect:
 
 ```sh
 /usr/libexec/nginx-telego-firewall status

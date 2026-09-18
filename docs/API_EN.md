@@ -108,9 +108,9 @@ Browser/rpcd input supplies only constrained method arguments to the helper, nev
 ubus call telego.nginx firewall_status
 ```
 
-Key fields are `profile_enabled`, `section_state` (`absent|owned|foreign`), `managed_match`, `wan_zone_count`, `wan_input`, `foreign_wan443`, `pending_changes`, and `error`.
+Key fields are `profile_enabled`, `section_state` (`absent|owned|foreign`), `managed_match`, `wan_zone_count`, `wan_input`, `foreign_wan443`, `foreign_wan18443`, `pending_changes`, and `error`. `foreign_wan18443` reports a foreign redirect or WAN input `ACCEPT` rule that publishes the reserved Direct HTTPS backend.
 
-`firewall_preflight` checks WAN-zone safety, foreign WAN TCP/443 ownership, pending UCI changes, and `fw4 check` without applying firewall changes:
+`firewall_preflight` checks WAN-zone safety, foreign WAN TCP/443 ownership, direct TCP/18443 backend exposure, pending UCI changes, and `fw4 check` without applying firewall changes:
 
 ```sh
 ubus call telego.nginx firewall_preflight

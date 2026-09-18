@@ -87,6 +87,8 @@ flowchart LR
 | `luci-i18n-telego-ru` | all | русский перевод LuCI |
 | `nginx-telego` | all | managed Nginx ownership/reconciliation,<br>WEB ingress/fallback и reusable location-snippet |
 
+Опциональный **OpenWrt ACME DNS-01** add-on (`acme-acmesh`, `acme-acmesh-dnsapi`, `luci-app-acme`) — это системные пакеты OpenWrt, а не пятый APK проекта. Installer предлагает их отдельно и оставляет выключенными по умолчанию.
+
 # Быстрая установка
 
 На OpenWrt 25.12.x x86_64 под `root`:
@@ -97,7 +99,7 @@ wget -O /tmp/telego-install.sh \
 sh /tmp/telego-install.sh
 ```
 
-Установщик пошагово проведёт через настройку, предложит русский или английский язык интерфейса, при необходимости установит русский перевод LuCI и по умолчанию использует канал предварительных сборок `develop-latest`.
+Установщик предложит состав компонентов telEgo и по умолчанию использует канал предварительных сборок `develop-latest`. Managed ingress устанавливается **выключенным**. OpenWrt ACME DNS-01 можно добавить отдельной опцией; этот system add-on по умолчанию не выбран.
 
 > [!TIP]
 > Для обычной установки достаточно команды выше. Подробности о доверии к APK, различиях между предварительным и стабильным каналами и неинтерактивном режиме скрыты ниже, чтобы не перегружать первый запуск.
@@ -159,8 +161,8 @@ apk add ./telego-pkg-*.apk \
 
 1. Откройте **Services → telEgo** в LuCI.
 2. Добавьте пользователя и сгенерируйте секрет.
-3. Настройте адрес и порт MTProxy, а также TLS Fronting.
-4. Включайте WEB Proxy только после настройки публичного TLS и Nginx.
+3. Настройте адрес и порт MTProxy, а также TLS Fronting. Для Direct HTTPS MTProxy должен использовать порт, отличный от `:443`; общий public `:443` поддерживает Native Shared-Port.
+4. Включайте WEB Proxy после выбора ingress-схемы. Для Direct HTTPS Nginx/firewall управляются пакетом, а сертификат можно предоставить вручную или через optional OpenWrt ACME DNS-01.
 5. Нажмите **Save & Apply** — OpenWrt заново сформирует `/var/etc/telego.toml` и при необходимости перезапустит службу.
 
 Проверка:
@@ -227,9 +229,7 @@ flowchart LR
 
 Обычные изменения применяются через `/etc/init.d/nginx-telego reload`. Reconciler проверяет ownership/drift, выполняет безопасную migration/repair, использует renderer как внутренний генератор, запускает финальный `nginx -t` и откатывает managed filesystem при ошибке.
 
-Пакет намеренно **не создаёт** публичный TLS `server {}` и не получает сертификат: эта часть настройки зависит от конкретного развёртывания.
-
-В TLS-сервер Nginx, которым управляет администратор, добавьте:
+`nginx-telego` умеет генерировать TLS `server {}` для managed Direct HTTPS и Native Shared-Port, но **не выпускает сертификат самостоятельно**. Для hand-written Nginx deployment остаётся доступен reusable snippet:
 
 ```nginx
 include /etc/nginx/snippets/telego.locations;
@@ -237,11 +237,11 @@ include /etc/nginx/snippets/telego.locations;
 
 Managed Nginx ingress имеет три взаимоисключающих режима:
 
-- **Direct HTTPS** — LAN `:443` остаётся за LuCI/uhttpd, WAN `:443` транзакционно перенаправляется firewall4 в Nginx `:18443`;
+- **Direct HTTPS** — LAN `:443` остаётся за LuCI/uhttpd, WAN `:443` транзакционно перенаправляется firewall4 в dual-stack Nginx `:18443`; MTProxy использует другой публичный порт;
 - **Cloudflare Tunnel** — public TLS принадлежит Cloudflare, локальный ingress слушает `127.0.0.1:18080`;
 - **Native Shared-Port (Advanced)** — telEgo владеет public `:443`, а обычный TLS splices в Nginx `:8443`.
 
-Для Direct HTTPS: **[TLS-сертификат / ACME DNS-01](docs/TLS_CERTIFICATE.md)** и **[аппаратная проверка LAN/WAN](docs/DIRECT_HTTPS_TEST.md)**.
+Для Direct HTTPS: **[пошаговая установка](docs/INSTALL.md#рекомендуемый-путь-direct-https--acme-dns-01)**, **[TLS-сертификат / ACME DNS-01](docs/TLS_CERTIFICATE.md)** и **[аппаратная проверка LAN/WAN](docs/DIRECT_HTTPS_TEST.md)**.
 
 WEB Proxy поддерживает:
 

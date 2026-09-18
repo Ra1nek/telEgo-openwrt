@@ -28,16 +28,22 @@ DNS-01 подтверждает владение доменом через TXT-�
 
 ## Пакеты
 
-На OpenWrt 25.12.x:
+ACME намеренно не является обязательной зависимостью `nginx-telego`: Direct HTTPS также принимает сертификат, которым управляет администратор.
 
-```sh
-apk add acme-acmesh acme-acmesh-dnsapi
+Для новой установки самый простой вариант — выбрать **OpenWrt ACME DNS-01** в интерактивном `install.sh` или запустить installer с `--acme`. Этот opt-in add-on устанавливает из официальных OpenWrt repositories:
+
+```text
+acme-acmesh
+acme-acmesh-dnsapi
+luci-app-acme
 ```
 
-Опционально можно установить LuCI-приложение ACME:
+Он **не включён по умолчанию**, не создаёт certificate section и не запрашивает DNS API credentials от имени telEgo. Уже установленные ACME-пакеты также не удаляются при удалении telEgo.
+
+Ручной эквивалент:
 
 ```sh
-apk add luci-app-acme
+apk add acme-acmesh acme-acmesh-dnsapi luci-app-acme
 ```
 
 `acme-acmesh-dnsapi` содержит DNS API hooks для провайдеров, поддерживаемых acme.sh.

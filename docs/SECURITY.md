@@ -244,7 +244,7 @@ Path `419` удаляет request body/content metadata и carrier-sensitive hea
 
 ## Direct HTTPS firewall boundary
 
-Direct HTTPS намеренно использует Nginx listener `0.0.0.0:18443`, потому что firewall4 redirect должен доставлять локально адресованный WAN-трафик независимо от динамического WAN IP. Сам `:18443` **не является публичным ingress-портом**.
+Direct HTTPS намеренно использует Nginx listeners `0.0.0.0:18443` и `[::]:18443`, потому что firewall4 redirect должен доставлять локально адресованный WAN-трафик независимо от динамического WAN IP. Сам `:18443` **не является публичным ingress-портом**.
 
 `nginx-telego-firewall` владеет только именованной секцией:
 
@@ -252,7 +252,9 @@ Direct HTTPS намеренно использует Nginx listener `0.0.0.0:184
 firewall.telego_direct_https
 ```
 
-Она перенаправляет только WAN TCP/443 в local `:18443`. Manager отказывается включать Direct HTTPS при чужом WAN/443 redirect, зарезервированной foreign-секции, незакоммиченных firewall UCI changes или WAN input policy `ACCEPT`. LAN TCP/443 остаётся вне этого redirect и должен продолжать обслуживаться uhttpd/LuCI.
+Она перенаправляет только WAN TCP/443 в local `:18443`. Manager отказывается включать Direct HTTPS при чужом WAN/443 redirect, прямом WAN rule/redirect на TCP/18443, зарезервированной foreign-секции, незакоммиченных firewall UCI changes или WAN input policy `ACCEPT`. LAN TCP/443 остаётся вне этого redirect и должен продолжать обслуживаться uhttpd/LuCI.
+
+Direct HTTPS также требует, чтобы MTProxy telEgo **не слушал TCP/443**: этот WAN-порт целиком зарезервирован для WEB/Nginx. Для совместного WEB+MTProxy public `:443` используйте Native Shared-Port.
 
 > [!IMPORTANT]
 > После изменения сторонних firewall rules отдельно проверяйте, что WAN TCP/18443 не стал доступен напрямую. Полная процедура: [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md).
@@ -294,7 +296,7 @@ Stable release tag должен совпадать с `PKG_VERSION`. Release wor
 
 ## Checklist перед публикацией в Internet
 
-- [ ] Проверить нужный MTProxy bind address/port.
+- [ ] Проверить нужный MTProxy bind address/port; для Direct HTTPS MTProxy не должен использовать TCP/443.
 - [ ] Проверить, что firewall/NAT публикуют только необходимые ports; для Direct HTTPS WAN TCP/18443 не должен быть доступен напрямую.
 - [ ] Оставить private listeners WEB Proxy и metrics на loopback, если нет отдельно reviewed причины менять это.
 - [ ] Использовать валидный administrator/ACME-managed TLS certificate и выполнить certificate preflight.

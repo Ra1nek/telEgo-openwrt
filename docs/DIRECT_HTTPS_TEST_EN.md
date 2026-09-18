@@ -19,11 +19,11 @@ Internet client ── HTTPS :443 ──> firewall4 DNAT
 
 ## 1. Prerequisites
 
-You need OpenWrt 25.12.x x86_64, the telEgo/Nginx/LuCI packages, a working WEB listener on `127.0.0.1:8080`, a valid certificate, Direct HTTPS enabled, and a WAN zone whose input policy is `REJECT` or `DROP`.
+You need OpenWrt 25.12.x x86_64, the telEgo/Nginx/LuCI packages, `telego.general.enabled=1`, an MTProxy listener on a port **other than TCP/443** (for example `0.0.0.0:9443`), a working WEB listener on `127.0.0.1:8080`, a valid certificate, Direct HTTPS enabled, and a WAN zone whose input policy is `REJECT` or `DROP`.
 
 The Direct HTTPS hostname must resolve to the OpenWrt WAN address, not a Cloudflare Tunnel or proxied Cloudflare record. If Cloudflare hosts the DNS zone, use **DNS only** while testing Direct HTTPS.
 
-If an `AAAA` record is published, test IPv6 separately. A successful IPv4 test alone does not prove dual-stack operation.
+If an `AAAA` record is published, test IPv6 separately. Managed Nginx creates both `0.0.0.0:18443` and `[::]:18443` while the redirect uses `family=any`; a successful IPv4 test alone still does not prove the real IPv6 WAN path.
 
 ## 2. Router-side preflight
 
@@ -49,7 +49,7 @@ uci show firewall.telego_direct_https
 netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
 ```
 
-Expected managed redirect: source zone `wan`, TCP source port `443`, destination port `18443`, `family=any`, `target=DNAT`, `reflection=0`.
+Expected managed redirect: source zone `wan`, TCP source port `443`, destination port `18443`, `family=any`, `target=DNAT`, `reflection=0`. Firewall status must also report no `foreign_wan443` and no `foreign_wan18443` entry; the latter protects the private backend from a separate WAN ACCEPT/redirect rule.
 
 ## 3. LAN :443 must remain uhttpd/LuCI
 
@@ -143,7 +143,7 @@ See [Cloudflare Tunnel](CLOUDFLARE_EN.md) for the complete rollback target.
 
 | Check | PASS |
 |---|---|
-| Router preflight | firewall + certificate + `nginx -t` succeed |
+| Router preflight | telEgo enabled, MTProxy not on :443, firewall + certificate + `nginx -t` succeed |
 | LAN TCP/443 | LuCI/uhttpd |
 | WAN TCP/443 | Direct HTTPS through the managed redirect |
 | WAN TCP/18443 | not directly exposed |

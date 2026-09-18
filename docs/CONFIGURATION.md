@@ -281,6 +281,8 @@ WAN :443 → firewall.telego_direct_https
 
 Профиль требует:
 
+- `telego.general.enabled=1`;
+- MTProxy listener **не на TCP/443** (например, `0.0.0.0:9443`), потому что WAN/443 целиком принадлежит WEB/Nginx;
 - `telego.web_proxy.enabled=1`;
 - WEB bind `127.0.0.1:8080`;
 - совпадающий WEB/ingress hostname;
@@ -288,11 +290,22 @@ WAN :443 → firewall.telego_direct_https
 - настоящий certificate/key;
 - ровно одну активную firewall zone с именем `wan`;
 - WAN input policy не `ACCEPT`;
-- отсутствие чужого redirect, который уже владеет WAN TCP/443.
+- отсутствие чужого redirect, который уже владеет WAN TCP/443;
+- отсутствие чужого WAN redirect или input `ACCEPT` rule, публикующего зарезервированный backend TCP/18443.
 
-Минимальная настройка:
+Nginx генерирует listeners `0.0.0.0:18443` и `[::]:18443`; firewall rule имеет `family=any`. Поэтому опубликованный AAAA поддерживается той же схемой, но IPv6 необходимо проверять отдельно на реальном WAN.
+
+Менеджер Direct HTTPS **не открывает MTProxy-порт**. Если вы перенесли MTProxy, например, на `:9443` и он должен быть публичным, создайте обычное WAN TCP/9443 allow-rule средствами firewall4/LuCI самостоятельно. Ownership `nginx-telego-firewall` ограничен WEB redirect WAN TCP/443 → :18443.
+
+Минимальная настройка предполагает, что telEgo/WEB contract уже сохранён:
 
 ```sh
+uci set telego.general.enabled='1'
+uci set telego.general.bind_to='0.0.0.0:9443'
+uci set telego.web_proxy.enabled='1'
+uci set telego.web_proxy.bind_to='127.0.0.1:8080'
+uci set telego.web_proxy.hostname='web.example.com'
+
 uci set nginx_telego.direct_https.enabled='1'
 uci set nginx_telego.direct_https.hostname='web.example.com'
 uci set nginx_telego.direct_https.certificate='/etc/ssl/acme/web.example.com.fullchain.crt'
@@ -327,6 +340,7 @@ Read-only проверки:
 ```sh
 uci set nginx_telego.cloudflare.enabled='1'
 uci set nginx_telego.cloudflare.hostname='web.example.com'
+uci set nginx_telego.direct_https.enabled='0'
 uci set nginx_telego.shared.enabled='0'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload
