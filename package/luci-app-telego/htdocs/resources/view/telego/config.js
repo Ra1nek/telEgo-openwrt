@@ -566,7 +566,7 @@ function makeConfigMap() {
 	o.depends('enabled', '1');
 	o.datatype = 'uinteger';
 	o.default = '0';
-	o.description = _('0 uses the upstream 32 MiB default; an override may be from 2 to 32 MiB.');
+	o.description = _('0 keeps upstream defaults: about 32 MiB request/input and 66 MiB shared response/output on 64-bit; 2 to 32 sets N MiB request/input and 2xN MiB shared response/output.');
 	o.validate = function (section_id, value) {
 		const number = Number(value);
 		return value === '0' || (Number.isInteger(number) && number >= 2 && number <= 32)

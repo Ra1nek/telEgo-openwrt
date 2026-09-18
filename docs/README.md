@@ -197,7 +197,7 @@
 | Архитектура | `x86_64` |
 | Пакетный менеджер | `apk` |
 | Go в production workflow | `1.27` |
-| Upstream telEgo | pinned `v0.6.2` |
+| Upstream telEgo | pinned `v0.6.5` |
 | Лицензия | Apache-2.0 |
 
 Проект собирает четыре собственных APK-пакета:

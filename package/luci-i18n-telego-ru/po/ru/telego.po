@@ -426,8 +426,8 @@ msgstr "Укажите 0 или значение от 1 до 10000."
 msgid "Middle-End Queue Budget (MB)"
 msgstr "Лимит очереди Middle-End (МБ)"
 
-msgid "0 uses the upstream 32 MiB default; an override may be from 2 to 32 MiB."
-msgstr "0 использует upstream-значение 32 МиБ; явное значение может быть от 2 до 32 МиБ."
+msgid "0 keeps upstream defaults: about 32 MiB request/input and 66 MiB shared response/output on 64-bit; 2 to 32 sets N MiB request/input and 2xN MiB shared response/output."
+msgstr "0 сохраняет upstream-значения: около 32 МиБ для запросов/входа и 66 МиБ общего пула ответов/вывода на 64-битной системе; 2–32 задаёт N МиБ для запросов/входа и 2xN МиБ общего пула ответов/вывода."
 
 msgid "Use 0 or a value from 2 to 32."
 msgstr "Укажите 0 или значение от 2 до 32."

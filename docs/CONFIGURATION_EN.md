@@ -458,7 +458,7 @@ Before enabling it, make sure the router:
 | Max Connections | `0` | `0` or `1..10000` |
 | Queue Budget (MB) | `0` | `0` or `2..32` |
 
-`0` for max connections selects the upstream default of `10000`. `0` for queue budget selects the upstream default of `32 MiB` plus its permit.
+`0` for max connections selects the upstream default of `10000`. For queue budget, `0` keeps upstream defaults: request/frontend-input budgets remain about `32 MiB` each, while the shared response/frontend-output pool is about `66 MiB` on the 64-bit build. Explicit `N` (`2..32`) sets `N MiB` request/frontend-input budgets and a `2×N MiB` shared response/output pool, including the processing reserve.
 
 A proxy tag is **not required** to enable Middle-End. Leave it empty if Telegram did not issue one.
 

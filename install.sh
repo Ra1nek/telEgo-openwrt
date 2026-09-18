@@ -4,7 +4,7 @@
 set -eu
 
 REPOSITORY='Ra1nek/telEgo-openwrt'
-PRODUCT_VERSION='0.6.2'
+PRODUCT_VERSION='0.6.5'
 RELEASE='develop-latest'
 UI_LANG=''
 WITH_RU='auto'

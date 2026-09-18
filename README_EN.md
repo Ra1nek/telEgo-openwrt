@@ -32,7 +32,7 @@
 | OpenWrt | `25.12.x`; CI target `25.12.5` |
 | Architecture | `x86_64` |
 | Package manager | `apk` |
-| Upstream telEgo | pinned submodule, `v0.6.1` |
+| Upstream telEgo | pinned submodule, `v0.6.5` |
 | Go in CI | `1.27` |
 | LuCI | JavaScript + UCI + ucode/rpcd |
 | Service manager | procd + required ujail |
@@ -192,7 +192,7 @@ flowchart LR
 
 ## FakeTLS: DRS, Split-TLS, and PQ parity
 
-Pinned upstream `v0.6.1` includes:
+Pinned upstream `v0.6.5` includes:
 
 - **DRS** — early outbound TLS records at `1369` bytes with a ramp to `16384` after 8 records or 128 KiB;
 - **Split-TLS** — the first outbound `ApplicationData` record is 1 byte;

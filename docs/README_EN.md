@@ -197,7 +197,7 @@ When you need to verify how a feature is implemented, start with the correspondi
 | Architecture | `x86_64` |
 | Package manager | `apk` |
 | Go in the production workflow | `1.27` |
-| Upstream telEgo | pinned `v0.6.2` |
+| Upstream telEgo | pinned `v0.6.5` |
 | License | Apache-2.0 |
 
 The project builds four APK packages:

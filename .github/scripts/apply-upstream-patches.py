@@ -24,7 +24,7 @@ replacements = [
 
 for old, new in replacements:
     if old not in text:
-        raise SystemExit(f"expected upstream v0.6.1 block not found: {old[:60]!r}")
+        raise SystemExit(f"expected pinned upstream block not found: {old[:60]!r}")
     text = text.replace(old, new, 1)
 
 MAIN.write_text(text, encoding="utf-8")

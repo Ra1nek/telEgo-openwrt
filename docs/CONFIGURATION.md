@@ -470,7 +470,7 @@ ME поддерживает persistent gnet links к Telegram Middle-End endpoin
 | Max Connections | `0` | `0` или `1..10000` |
 | Queue Budget (MB) | `0` | `0` или `2..32` |
 
-`0` для max connections означает upstream default `10000`. `0` для queue budget означает upstream default `32 MiB` плюс permit.
+`0` для max connections означает upstream default `10000`. Для queue budget `0` сохраняет upstream defaults: бюджеты request/frontend-input остаются примерно `32 MiB` каждый, а общий response/frontend-output pool — около `66 MiB` на 64-битной сборке. Явное `N` (`2..32`) задаёт `N MiB` для request/frontend-input и общий response/output pool `2×N MiB`, включая processing reserve.
 
 Proxy tag **не обязателен** для включения Middle-End; если Telegram его не выдавал, оставьте поле пустым.
 
