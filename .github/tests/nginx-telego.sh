@@ -104,6 +104,12 @@ reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 "$RENDER" apply
 [[ $(wc -l <"$NGINX_RELOAD_LOG") == "$reloads" ]]
 
+# Empty managed hostname inherits telego.web_proxy.hostname.
+export FIX_CF_HOSTNAME='' FIX_WEB_HOSTNAME=inherit-cf.example.com
+"$RENDER" apply
+grep -q 'server_name inherit-cf.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+export FIX_CF_HOSTNAME=web.example.com FIX_WEB_HOSTNAME=web.example.com
+
 # Pre-baseline alpha marker format is foreign and cannot be adopted.
 printf '%s\n%s\nserver { listen 127.0.0.1:18080; }\n' \
   "$MARKER" "$OLD_INGRESS_ROLE" >"$NGINX_TELEGO_INGRESS_OUTPUT"
@@ -141,6 +147,11 @@ grep -q 'listen 127.0.0.1:8443 ssl proxy_protocol;' "$NGINX_TELEGO_INGRESS_OUTPU
 grep -q 'listen 127.0.0.1:8444 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
+# Native Shared-Port also inherits the WEB hostname when its override is empty.
+export FIX_SHARED_HOSTNAME='' FIX_WEB_HOSTNAME=proxy.example.com
+"$RENDER" apply
+grep -q 'server_name proxy.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+
 # Direct HTTPS owns real WEB TLS on the private firewall redirect backend.
 export FIX_SHARED_ENABLED=0 FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=1
 export FIX_DIRECT_HOSTNAME=direct.example.com FIX_WEB_HOSTNAME=direct.example.com
@@ -155,6 +166,11 @@ grep -q 'http2 on;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate $FIX_DIRECT_CERT;" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate_key $FIX_DIRECT_KEY;" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+
+# Direct HTTPS inherits telego.web_proxy.hostname when no profile override is set.
+export FIX_DIRECT_HOSTNAME='' FIX_WEB_HOSTNAME=direct.example.com
+"$RENDER" apply
+grep -q 'server_name direct.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
 # Direct HTTPS owns WAN/443 for WEB. MTProxy on the same port is rejected
 # before generated state changes; Native Shared-Port is the supported shared-443 mode.

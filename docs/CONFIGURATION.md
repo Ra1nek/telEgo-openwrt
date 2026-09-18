@@ -259,6 +259,8 @@ Opt-in managed profiles используют:
 
 Все три managed profiles выключены default и **взаимоисключающие**.
 
+Для всех managed profiles поле hostname имеет один контракт: пустое значение наследует `telego.web_proxy.hostname`; если override задан явно, он должен в точности совпадать с WEB hostname. Это позволяет хранить hostname в одном месте и при этом оставляет явный override для проверяемых миграций.
+
 Старые alpha-пути `/etc/nginx/conf.d/telego.conf` и `/etc/nginx/conf.d/zz-telego-managed.conf` не входят в ownership registry, не мигрируются и не удаляются автоматически. Если они остались на тестовой системе, сначала проверьте их происхождение/содержимое и удалите вручную перед переходом на baseline P7.
 
 Точная state machine и правила rollback описаны в **[Nginx file ownership и reconciliation](NGINX_FILES.md)**.

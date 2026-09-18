@@ -4,6 +4,8 @@
 #
 # All managed profiles are disabled by default so package upgrades never take
 # over existing listeners or hand-written /etc/nginx/conf.d/*.conf files.
+# A blank per-profile hostname inherits telego.web_proxy.hostname. A non-empty
+# override must match telego.web_proxy.hostname exactly.
 
 config shared 'shared'
 	option enabled '0'

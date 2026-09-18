@@ -128,12 +128,14 @@ grep -q 'managed ingress profiles are mutually exclusive' "$work/conflict.out"
 export DIRECT_ENABLED=0
 export SHARED_ENABLED=1
 export CLOUDFLARE_ENABLED=0
-export SHARED_HOSTNAME='web.example.com'
+unset SHARED_HOSTNAME
+export WEB_HOSTNAME='web.example.com'
 export SHARED_CERT_FILE="$work/cert.pem"
 export SHARED_CERT_KEY="$work/key.pem"
 status=$("$HELPER" status)
 grep -Eq '^profile[[:space:]]+shared$' <<<"$status"
 grep -Eq '^managed_tls[[:space:]]+1$' <<<"$status"
+grep -Eq '^hostname[[:space:]]+web\.example\.com$' <<<"$status"
 grep -Eq '^certificate_state[[:space:]]+valid$' <<<"$status"
 "$HELPER" preflight >/dev/null
 

@@ -259,6 +259,8 @@ The opt-in managed profiles use:
 
 All three managed profiles are disabled by default and are **mutually exclusive**.
 
+All managed profiles use the same hostname contract: an empty profile hostname inherits `telego.web_proxy.hostname`; a non-empty override must match the WEB hostname exactly. This keeps the normal configuration single-source while preserving an explicit override for controlled migrations.
+
 The historical `/etc/nginx/conf.d/telego.conf` and `/etc/nginx/conf.d/zz-telego-managed.conf` are migration-only paths. Reconciliation removes them automatically only when package ownership can be proven; changed/foreign regular files are preserved rather than silently discarded.
 
 See **[Nginx file ownership and reconciliation](NGINX_FILES_EN.md)** for the exact state machine and rollback rules.
