@@ -534,9 +534,6 @@ return view.extend({
 			return _('Conflict detection · nginx -t · fw4 check · transactional rollback · administrator-owned files and firewall rules are never overwritten');
 		};
 
-		s = m.section(form.TypedSection, 'shared', _('Advanced — Native Shared-Port'));
-		s.anonymous = true;
-		s.addremove = false;
 
 		o = s.option(
 			form.DummyValue,
