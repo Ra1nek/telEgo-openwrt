@@ -55,6 +55,8 @@ For a new installation, the wizard initially selects the complete telEgo compone
 
 The ACME packages are not project APKs and are not owned by telEgo. The installer may add them from the configured OpenWrt repositories, but never removes them automatically when telEgo is removed.
 
+If those ACME packages are already present for another service, a normal telEgo upgrade **does not adopt them as a selected telEgo component** and does not install `nginx-telego` merely because ACME exists. The telEgo ACME integration is requested only through the explicit ACME menu choice or `--acme`.
+
 ### Installer options
 
 ```text

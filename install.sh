@@ -317,9 +317,13 @@ selection_from_installed() {
     SEL_LUCI=$INST_LUCI
     SEL_NGINX=$INST_NGINX
     SEL_RU=$INST_RU
-    SEL_ACME=$INST_ACME
+    # ACME is a shared OpenWrt system add-on, not a telEgo-owned component.
+    # Its mere presence must never opt an existing/core-only telEgo install
+    # into nginx-telego. Only an explicit --acme/menu selection requests the
+    # telEgo ACME integration path.
+    SEL_ACME=0
     case "$WITH_RU" in 1) SEL_RU=1 ;; 0) SEL_RU=0 ;; esac
-    case "$WITH_ACME" in 1) SEL_ACME=1 ;; 0) SEL_ACME=0 ;; esac
+    case "$WITH_ACME" in 1) SEL_ACME=1 ;; 0|auto) SEL_ACME=0 ;; esac
     ensure_install_dependencies
 }
 
@@ -339,7 +343,7 @@ print_dependency_graph() {
     printf '  luci-i18n-telego-ru -> luci-app-telego -> telego-pkg\n'
     printf '  nginx-telego         -> telego-pkg + nginx-ssl\n'
     printf '\n%s\n' "$(text 'Опциональный системный add-on (не включается по умолчанию):' 'Optional system add-on (disabled by default):')"
-    printf '  OpenWrt ACME DNS-01  -> acme-acmesh + acme-acmesh-dnsapi + luci-app-acme\n'
+    printf '  OpenWrt ACME DNS-01  -> nginx-telego + acme-acmesh + acme-acmesh-dnsapi + luci-app-acme\n'
 }
 
 print_install_selection() {
@@ -348,7 +352,7 @@ print_install_selection() {
     printf '  2) %s %-24s %s\n' "$(checkbox "$SEL_LUCI")" 'luci-app-telego' 'LuCI'
     printf '  3) %s %-24s %s\n' "$(checkbox "$SEL_NGINX")" 'nginx-telego' "$(text 'WEB/Nginx-слой' 'WEB/Nginx layer')"
     printf '  4) %s %-24s %s\n' "$(checkbox "$SEL_RU")" 'luci-i18n-telego-ru' "$(text 'русский перевод' 'Russian translation')"
-    printf '  5) %s %-24s %s\n' "$(checkbox "$SEL_ACME")" 'OpenWrt ACME DNS-01' "$(text 'optional system add-on' 'optional system add-on')"
+    printf '  5) %s %-24s %s\n' "$(checkbox "$SEL_ACME")" 'OpenWrt ACME DNS-01' "$(text 'явно добавить/проверить system add-on' 'explicitly add/ensure system add-on')"
     print_dependency_graph
     printf '\n  a) %s\n' "$(text 'выбрать все компоненты telEgo' 'select all telEgo components')"
     printf '  n) %s\n' "$(text 'только ядро' 'core only')"
