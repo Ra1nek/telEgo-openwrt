@@ -270,10 +270,29 @@ jobs:
               --title 'telEgo develop preview' --notes-file preview-notes.md
           fi
 
+          retry_publish() {
+            local attempt=1
+            local max_attempts=5
+            local delay=5
+
+            until "$@"; do
+              if (( attempt >= max_attempts )); then
+                echo "::error::Publication command failed after ${attempt} attempts: $*"
+                return 1
+              fi
+              echo "::warning::Publication command failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s: $*"
+              sleep "$delay"
+              attempt=$((attempt + 1))
+              delay=$((delay * 2))
+            done
+          }
+
           # New APKs can coexist with the previous generation while its manifest
           # is still live. Switching the manifest is the atomic channel cutover.
-          gh release upload develop-latest preview-assets/*.apk --clobber
-          gh release upload develop-latest preview-assets/telego-install.sha256 --clobber
+          # GitHub's release-asset endpoint can return transient 5xx responses;
+          # --clobber makes these retries idempotent even after a partial upload.
+          retry_publish gh release upload develop-latest preview-assets/*.apk --clobber
+          retry_publish gh release upload develop-latest preview-assets/telego-install.sha256 --clobber
 
           # Keep source provenance aligned with the generation selected by the
           # manifest. develop-latest is intentionally a movable preview tag.
