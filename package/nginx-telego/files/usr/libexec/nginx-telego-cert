@@ -113,6 +113,24 @@ openssl_ready() {
     [ -x "$OPENSSL_BIN" ]
 }
 
+certificate_covers_hostname() {
+    certificate=$1
+    hostname=$2
+    output=$("$OPENSSL_BIN" x509 -in "$certificate" -noout -checkhost "$hostname" 2>&1) || rc=$?
+    rc=${rc:-0}
+
+    case "$output" in
+        *"Hostname $hostname does match certificate"*) return 0 ;;
+        *"Hostname $hostname does NOT match certificate"*) return 1 ;;
+    esac
+
+    # Newer OpenSSL releases return a reliable non-zero status on mismatch,
+    # while older 3.x builds may only report the result in stdout. If neither
+    # form is recognizable, fail closed.
+    [ "$rc" -eq 0 ] && return 1
+    return 1
+}
+
 certificate_status_report() {
     select_profile
 
@@ -161,7 +179,7 @@ certificate_status_report() {
                 fi
 
                 if [ -n "$HOSTNAME" ]; then
-                    if "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkhost "$HOSTNAME" >/dev/null 2>&1; then
+                    if certificate_covers_hostname "$CERTIFICATE" "$HOSTNAME"; then
                         hostname_match=1
                     else
                         hostname_match=0
@@ -259,7 +277,7 @@ certificate_preflight() {
     cmp -s "$work/cert.pub" "$work/key.pub" ||
         fail "$PROFILE TLS certificate and private key do not match"
 
-    "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkhost "$HOSTNAME" >/dev/null 2>&1 ||
+    certificate_covers_hostname "$CERTIFICATE" "$HOSTNAME" ||
         fail "$PROFILE TLS certificate does not cover hostname: $HOSTNAME"
     "$OPENSSL_BIN" x509 -in "$CERTIFICATE" -noout -checkend 0 >/dev/null 2>&1 ||
         fail "$PROFILE TLS certificate is expired"
