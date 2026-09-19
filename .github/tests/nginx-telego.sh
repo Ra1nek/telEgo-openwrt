@@ -177,7 +177,7 @@ grep -q "ssl_certificate_key $FIX_DIRECT_KEY;" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -Fq 'ssl_protocols TLSv1.2 TLSv1.3;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -Fq 'server_tokens off;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -Fq 'add_header Strict-Transport-Security "max-age=604800" always;' "$NGINX_TELEGO_INGRESS_OUTPUT"
-! grep -Eq 'includeSubDomains|preload' "$NGINX_TELEGO_INGRESS_OUTPUT"
+! grep -Eq 'Strict-Transport-Security.*(includeSubDomains|preload)' "$NGINX_TELEGO_INGRESS_OUTPUT"
 ! grep -Eq 'ssl_stapling|ssl_ciphers|ssl_conf_command[[:space:]]+Ciphersuites' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
