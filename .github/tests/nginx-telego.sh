@@ -22,6 +22,7 @@ case "$2" in
   nginx_telego.direct_https.hostname) printf '%s\n' "${FIX_DIRECT_HOSTNAME:-}" ;;
   nginx_telego.direct_https.certificate) printf '%s\n' "${FIX_DIRECT_CERT:-}" ;;
   nginx_telego.direct_https.certificate_key) printf '%s\n' "${FIX_DIRECT_KEY:-}" ;;
+  nginx_telego.direct_https.hsts_max_age) printf '%s\n' "${FIX_HSTS_MAX_AGE:-604800}" ;;
   nginx_telego.fallback.manage) printf '%s\n' "${FIX_FALLBACK_MANAGE:-1}" ;;
   telego.general.enabled) printf '%s\n' "${FIX_GENERAL_ENABLED:-1}" ;;
   telego.general.bind_to) printf '%s\n' "${FIX_PUBLIC_BIND:-0.0.0.0:443}" ;;
@@ -100,6 +101,14 @@ grep -Fqx "$INGRESS_ROLE" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -Fqx "$FALLBACK_ROLE" "$NGINX_TELEGO_FALLBACK_OUTPUT"
 grep -q 'listen 127.0.0.1:18080;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'listen 127.0.0.1:8090;' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+grep -Fq 'server_tokens off;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'server_tokens off;' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+grep -Fq 'add_header X-Content-Type-Options "nosniff" always;' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+grep -Fq 'add_header Referrer-Policy "no-referrer" always;' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+grep -Fq 'add_header Cache-Control "no-store" always;' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+grep -Fq 'return 200 "OK\n";' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+! grep -Fq 'Content-Security-Policy' "$NGINX_TELEGO_INGRESS_OUTPUT"
+! grep -Fq 'Permissions-Policy' "$NGINX_TELEGO_INGRESS_OUTPUT"
 reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 "$RENDER" apply
 [[ $(wc -l <"$NGINX_RELOAD_LOG") == "$reloads" ]]
@@ -165,7 +174,24 @@ grep -q 'server_name direct.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'http2 on;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate $FIX_DIRECT_CERT;" "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate_key $FIX_DIRECT_KEY;" "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'ssl_protocols TLSv1.2 TLSv1.3;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'server_tokens off;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'add_header Strict-Transport-Security "max-age=604800" always;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+! grep -Eq 'includeSubDomains|preload' "$NGINX_TELEGO_INGRESS_OUTPUT"
+! grep -Eq 'ssl_stapling|ssl_ciphers|ssl_conf_command[[:space:]]+Ciphersuites' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'include /etc/nginx/snippets/telego.locations;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+
+# HSTS max-age is staged/configurable without enabling includeSubDomains/preload.
+export FIX_HSTS_MAX_AGE=31536000
+"$RENDER" apply
+grep -Fq 'add_header Strict-Transport-Security "max-age=31536000" always;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+cp "$NGINX_TELEGO_INGRESS_OUTPUT" "$work/before-bad-hsts"
+export FIX_HSTS_MAX_AGE=invalid
+if "$RENDER" apply >"$work/bad-hsts.out" 2>&1; then exit 1; fi
+cmp "$work/before-bad-hsts" "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'HSTS max-age must be an integer' "$work/bad-hsts.out"
+export FIX_HSTS_MAX_AGE=604800
+"$RENDER" apply
 
 # Direct HTTPS inherits telego.web_proxy.hostname when no profile override is set.
 export FIX_DIRECT_HOSTNAME='' FIX_WEB_HOSTNAME=direct.example.com
