@@ -96,13 +96,13 @@ define Package/nginx-telego/prerm
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
 	[ "$${PKG_UPGRADE}" = "1" ] && exit 0
 	if [ -x /usr/libexec/nginx-telego-firewall ]; then
-		/usr/libexec/nginx-telego-firewall remove || exit $?
+		/usr/libexec/nginx-telego-firewall remove || exit $$?
 	fi
 	if [ -x /usr/libexec/nginx-telego-reconcile ]; then
-		/usr/libexec/nginx-telego-reconcile remove-generated || exit $?
+		/usr/libexec/nginx-telego-reconcile remove-generated || exit $$?
 	fi
 	if [ -x /usr/libexec/nginx-telego-platform ]; then
-		/usr/libexec/nginx-telego-platform remove || exit $?
+		/usr/libexec/nginx-telego-platform remove || exit $$?
 	fi
 	exit 0
 endef
