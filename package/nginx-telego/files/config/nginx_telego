@@ -17,11 +17,13 @@ config cloudflare 'cloudflare'
 	option enabled '0'
 	option hostname ''
 
-# Direct HTTPS terminates public WEB TLS in dual-stack Nginx on private backend
-# port 18443. nginx-telego-firewall owns the WAN TCP/443 -> :18443 redirect.
-# WAN TCP/443 is therefore dedicated to WEB/Nginx in this mode; configure the
-# telEgo MTProxy listener on another port. Use Native Shared-Port when WEB and
-# MTProxy intentionally need to share public TCP/443.
+# Direct HTTPS dedicates TCP/443 to dual-stack Nginx for both LAN and WAN WEB
+# ingress. LuCI/uhttpd is moved to a separate HTTPS management port (10443 by
+# default). nginx-telego-firewall owns only the WAN TCP/443 ACCEPT rule.
+# An optional split-DNS address lets LAN clients resolve the WEB hostname to a
+# router LAN address and avoid public-IP hairpin NAT entirely.
+# Configure telEgo MTProxy on another public port. Use Native Shared-Port when
+# WEB and MTProxy intentionally need to share public TCP/443.
 # OpenWrt ACME DNS-01 users should prefer the stable symlink paths
 # /etc/ssl/acme/HOST.fullchain.crt and /etc/ssl/acme/HOST.key.
 config direct_https 'direct_https'
@@ -29,6 +31,8 @@ config direct_https 'direct_https'
 	option hostname ''
 	option certificate ''
 	option certificate_key ''
+	option luci_https_port '10443'
+	option split_dns_address ''
 
 # When managed, nginx-telego can provide a minimal loopback-only ordinary-site
 # fallback on 127.0.0.1:8090. Set manage=0 when another local site already owns
