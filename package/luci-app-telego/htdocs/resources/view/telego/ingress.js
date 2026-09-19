@@ -158,15 +158,10 @@ function firewallStatusText() {
 	const conflict = firewallState.foreign_wan443 && firewallState.foreign_wan443 !== '-'
 		? firewallState.foreign_wan443
 		: _('none');
-	const backendConflict = firewallState.foreign_wan18443 && firewallState.foreign_wan18443 !== '-'
-		? firewallState.foreign_wan18443
-		: _('none');
-
 	return [
 		_('Managed rule') + ': ' + state,
 		_('WAN input') + ': ' + (firewallState.wan_input || _('unknown')),
 		_('Foreign WAN TCP/443') + ': ' + conflict,
-		_('Foreign WAN TCP/18443') + ': ' + backendConflict,
 		_('Pending firewall changes') + ': ' + (firewallState.pending_changes ? _('Yes') : _('No'))
 	].join(' · ');
 }
@@ -394,7 +389,7 @@ return view.extend({
 			form.Value,
 			'direct_https_certificate',
 			_('TLS Certificate'),
-			_('Absolute path to the certificate chain used by the Direct HTTPS Nginx listener on local port 18443.')
+			_('Absolute path to the certificate chain used by the dedicated Direct HTTPS Nginx listener on TCP/443.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.rmempty = false;
@@ -428,17 +423,58 @@ return view.extend({
 		};
 		o.validate = validateAbsolutePath;
 
-		o = s.option(form.DummyValue, '_direct_https_flow', _('Direct HTTPS Flow'));
+		o = s.option(
+		form.Value,
+		'direct_https_luci_port',
+		_('LuCI HTTPS Management Port'),
+		_('When uhttpd still owns HTTPS TCP/443, nginx-telego moves only those LuCI listeners to this management port before Nginx claims TCP/443. Existing administrator-managed non-443 LuCI listeners are preserved.')
+	);
+	o.depends('_mode', 'direct_https');
+	o.datatype = 'port';
+	o.rmempty = false;
+	o.default = '10443';
+	o.cfgvalue = function () {
+		return uci.get('nginx_telego', 'direct_https', 'luci_https_port') || '10443';
+	};
+	o.write = function (sectionId, value) {
+		uci.set('nginx_telego', 'direct_https', 'luci_https_port', value || '10443');
+	};
+	o.validate = function (sectionId, value) {
+		return value === '443'
+			? _('LuCI management port must differ from Direct HTTPS TCP/443.')
+			: true;
+	};
+
+	o = s.option(
+		form.Value,
+		'direct_https_split_dns_address',
+		_('LAN Split-DNS Address'),
+		_('Optional router LAN IPv4 address returned for the WEB hostname to LAN clients. This avoids public-IP hairpin NAT. Leave empty to keep administrator-managed DNS unchanged.')
+	);
+	o.depends('_mode', 'direct_https');
+	o.datatype = 'ip4addr';
+	o.rmempty = true;
+	o.cfgvalue = function () {
+		return uci.get('nginx_telego', 'direct_https', 'split_dns_address') || '';
+	};
+	o.write = function (sectionId, value) {
+		setOrUnset('nginx_telego', 'direct_https', 'split_dns_address', value);
+	};
+	o.remove = function () {
+		uci.unset('nginx_telego', 'direct_https', 'split_dns_address');
+	};
+
+	o = s.option(form.DummyValue, '_direct_https_flow', _('Direct HTTPS Flow'));
 		o.depends('_mode', 'direct_https');
 		o.cfgvalue = function () {
-			return 'WAN TCP/443 → firewall4 REDIRECT → Nginx :18443 → telEgo WEB 127.0.0.1:8080';
+			return 'LAN/WAN TCP/443 → Nginx :443 → telEgo WEB 127.0.0.1:8080';
 		};
 
 		o = s.option(
 			form.DummyValue,
 			'_direct_https_ports',
 			_('Port Ownership'),
-			_('Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx. The telEgo MTProxy listener must use another port; LAN TCP/443 remains with uhttpd/LuCI.')
+			_('Direct HTTPS dedicates TCP/443 to WEB/Nginx on both LAN and WAN. LuCI/uhttpd uses the configured management port; MTProxy must use another public port.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.cfgvalue = function () {
@@ -472,7 +508,7 @@ return view.extend({
 			form.Button,
 			'_firewall_preflight',
 			_('Firewall Preflight'),
-			_('Checks WAN zone safety, foreign TCP/443 ownership, pending UCI changes and fw4 syntax without changing firewall rules.')
+			_('Checks dedicated WAN TCP/443 ownership, WAN zone safety, pending UCI changes and fw4 syntax without changing firewall rules.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.inputtitle = _('Run Preflight');
