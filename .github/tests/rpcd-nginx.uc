@@ -2,6 +2,18 @@ global.fixture = { mode: 'ok', content: 'canonical\n', editor_content: '# custom
 const plugin = loadfile('package/luci-app-telego/root/usr/share/rpcd/ucode/telego-nginx', { raw_mode: true, module_search_path: [getenv('PWD') + '/.github/tests/ucode-nginx/*.uc'] })();
 const nginx = plugin['telego.nginx'];
 
+const platformStatus = nginx.platform_status.call();
+assert(platformStatus.ok && platformStatus.profile_enabled, 'platform status profile enabled');
+assert(platformStatus.state_file && platformStatus.luci_https_port == '10443', 'platform owned state and LuCI port');
+assert(!platformStatus.uhttpd_has_443 && platformStatus.uhttpd_has_luci_port, 'platform LuCI listener split');
+assert(platformStatus.split_dns_address == '192.168.88.1' && platformStatus.split_dns_state == 'owned', 'platform split DNS state');
+assert(!platformStatus.pending_uhttpd && !platformStatus.pending_dhcp, 'platform pending state');
+assert(global.platform_command == "/usr/libexec/nginx-telego-platform 'status' 2>&1", 'platform status uses dedicated helper');
+
+const platformPreflight = nginx.platform_preflight.call();
+assert(platformPreflight.ok && index(platformPreflight.message, 'preflight passed') >= 0, 'platform preflight RPC');
+assert(global.platform_command == "/usr/libexec/nginx-telego-platform 'preflight' 2>&1", 'platform preflight uses dedicated helper');
+
 const firewallStatus = nginx.firewall_status.call();
 assert(firewallStatus.ok && firewallStatus.profile_enabled, 'firewall status profile enabled');
 assert(firewallStatus.section_state == 'owned' && firewallStatus.managed_match, 'firewall managed state');
@@ -96,6 +108,10 @@ assert(nginx.delete_active.call({ args: { name: '50-custom.conf' } }).ok, 'activ
 assert(nginx.delete_quarantined.call({ args: { name: '50-custom.conf' } }).ok, 'quarantine delete RPC');
 assert(nginx.repair.call().ok, 'repair RPC');
 
+global.fixture.mode = 'platform-failed';
+const platformFailed = nginx.platform_preflight.call();
+assert(!platformFailed.ok && index(platformFailed.error, 'preflight rejected') >= 0, 'platform preflight failure explicit');
+
 global.fixture.mode = 'firewall-failed';
 const firewallFailed = nginx.firewall_preflight.call();
 assert(!firewallFailed.ok && index(firewallFailed.error, 'preflight rejected') >= 0, 'firewall preflight failure explicit');
@@ -108,6 +124,8 @@ global.fixture.mode = 'failed';
 const failed = nginx.quarantine.call({ args: { name: '50-custom.conf' } });
 assert(!failed.ok && index(failed.error, 'rejected') >= 0, 'admin helper failures explicit');
 global.fixture.mode = 'popen-failed';
+const platformUnavailable = nginx.platform_status.call();
+assert(!platformUnavailable.ok && platformUnavailable.error == 'platform-helper-unavailable', 'missing platform helper explicit');
 const firewallUnavailable = nginx.firewall_status.call();
 assert(!firewallUnavailable.ok && firewallUnavailable.error == 'firewall-helper-unavailable', 'missing firewall helper explicit');
 const certificateUnavailable = nginx.certificate_status.call();
