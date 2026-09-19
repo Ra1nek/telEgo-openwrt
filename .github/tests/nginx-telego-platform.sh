@@ -85,6 +85,7 @@ nginx_telego.direct_https.split_dns_address|192.168.88.1
 nginx_telego.direct_https.hostname|web.example.com
 telego.web_proxy.hostname|web.example.com
 uhttpd.main.listen_https|0.0.0.0:443 [::]:443
+uhttpd.main.listen_http|0.0.0.0:80 [::]:80
 dhcp.@dnsmasq[0].address|
 STATE
   : >"$UHTTPD_CONFIG"
@@ -99,6 +100,7 @@ STATE
 baseline
 sh "$PLATFORM" apply >"$work/apply.out"
 [[ $(awk -F '|' '$1=="uhttpd.main.listen_https" {print $2}' "$STATE") == '0.0.0.0:10443 [::]:10443' ]]
+[[ $(awk -F '|' '$1=="uhttpd.main.listen_http" {print $2}' "$STATE") == '0.0.0.0:80 [::]:80' ]]
 [[ $(awk -F '|' '$1=="dhcp.@dnsmasq[0].address" {print $2}' "$STATE") == '/web.example.com/192.168.88.1' ]]
 [[ -f "$NGINX_TELEGO_PLATFORM_STATE" ]]
 grep -q '^uhttpd_owned=1$' "$NGINX_TELEGO_PLATFORM_STATE"
@@ -116,6 +118,7 @@ awk -F '|' 'BEGIN{OFS="|"} $1=="nginx_telego.direct_https.enabled" {$2="0"} {pri
 mv "$work/state.next" "$STATE"
 sh "$PLATFORM" apply >/dev/null
 [[ $(awk -F '|' '$1=="uhttpd.main.listen_https" {print $2}' "$STATE") == '0.0.0.0:443 [::]:443' ]]
+[[ $(awk -F '|' '$1=="uhttpd.main.listen_http" {print $2}' "$STATE") == '0.0.0.0:80 [::]:80' ]]
 [[ -z $(awk -F '|' '$1=="dhcp.@dnsmasq[0].address" {print $2}' "$STATE") ]]
 [[ ! -e "$NGINX_TELEGO_PLATFORM_STATE" ]]
 
@@ -127,6 +130,7 @@ sh "$PLATFORM" apply >/dev/null
 [[ ! -e "$NGINX_TELEGO_PLATFORM_STATE" ]]
 sh "$PLATFORM" remove >/dev/null
 [[ $(awk -F '|' '$1=="uhttpd.main.listen_https" {print $2}' "$STATE") == '0.0.0.0:10443 [::]:10443' ]]
+[[ $(awk -F '|' '$1=="uhttpd.main.listen_http" {print $2}' "$STATE") == '0.0.0.0:80 [::]:80' ]]
 [[ $(awk -F '|' '$1=="dhcp.@dnsmasq[0].address" {print $2}' "$STATE") == '/web.example.com/192.168.88.1' ]]
 
 # Drift after a package-owned migration is refused rather than overwritten.
@@ -140,4 +144,4 @@ if sh "$PLATFORM" remove >"$work/drift.out" 2>&1; then
 fi
 grep -q 'drifted' "$work/drift.out"
 
-echo 'nginx-telego P12.6 platform reconciliation tests passed'
+echo 'nginx-telego P12.7 platform reconciliation tests passed'
