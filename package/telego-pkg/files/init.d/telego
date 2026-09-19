@@ -242,6 +242,12 @@ generate_config() {
 service_triggers() {
 	procd_add_reload_trigger "$UCI_CONFIG"
 	[ ! -e /etc/config/nginx_telego ] || procd_add_reload_trigger nginx_telego
+
+	# PPPoE and other asynchronous WAN protocols can become usable only after
+	# the rc boot sequence has already started telEgo. Restart on logical WAN-up
+	# so startup-time upstream/DC state is rebuilt against the live route/DNS.
+	# The same trigger also repairs telEgo after later WAN reconnects/IP changes.
+	procd_add_interface_trigger "interface.*.up" wan /etc/init.d/telego restart
 }
 
 start_service() {
