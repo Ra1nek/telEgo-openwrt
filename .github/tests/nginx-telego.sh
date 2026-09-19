@@ -211,7 +211,7 @@ printf 'server { listen 18080; }\n' >"$work/conf.d/manual.conf"
 if "$RENDER" apply >"$work/conflict.out" 2>&1; then exit 1; fi
 cmp "$work/before-conflict" "$NGINX_TELEGO_INGRESS_OUTPUT"
 rm -f "$work/conf.d/manual.conf"
-printf "config disable '_lan'\n\tlist listen '443 ssl default_server'\n\tlist listen '[::]:443 ssl default_server'\n" >"$NGINX_UCI_CONFIG"
+printf "config disable '_lan'\n\tlist listen '18080'\n\tlist listen '[::]:18080'\n" >"$NGINX_UCI_CONFIG"
 "$RENDER" apply
 printf "config server 'existing'\n\tlist listen '127.0.0.1:18080'\n" >"$NGINX_UCI_CONFIG"
 if "$RENDER" apply >"$work/uci-conflict.out" 2>&1; then exit 1; fi
