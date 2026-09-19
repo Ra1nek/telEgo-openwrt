@@ -237,7 +237,7 @@ include /etc/nginx/snippets/telego.locations;
 
 Managed Nginx ingress has three mutually exclusive modes:
 
-- **Direct HTTPS** — dual-stack Nginx owns `:443` directly on both LAN and WAN; LuCI/uhttpd moves to a separate HTTPS management port (default `:10443`), firewall4 adds only a WAN INPUT allow for TCP/443, and optional split DNS sends LAN clients straight to a router LAN address without hairpin NAT; MTProxy uses another public port;
+- **Direct HTTPS** — dual-stack Nginx owns `:443` directly on both LAN and WAN; LuCI/uhttpd HTTPS on `:443` moves to a separate management port (default `:10443`) while plain HTTP LuCI `:80` remains administrator-managed; firewall4 adds only a WAN INPUT allow for TCP/443, optional split DNS avoids hairpin NAT, P12.7 adds the TLS 1.2/1.3 baseline, staged HSTS, and version-disclosure hardening; MTProxy uses another public port;
 - **Cloudflare Tunnel** — public TLS belongs to Cloudflare and local ingress listens on `127.0.0.1:18080`;
 - **Native Shared-Port (Advanced)** — telEgo owns public `:443` and ordinary TLS is spliced to Nginx `:8443`.
 
