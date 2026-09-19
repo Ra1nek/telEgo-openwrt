@@ -267,59 +267,45 @@ See **[Nginx file ownership and reconciliation](NGINX_FILES_EN.md)** for the exa
 
 ## 5.1 Direct HTTPS profile
 
-Direct HTTPS keeps LAN TCP/443 owned by uhttpd/LuCI and redirects only inbound WAN TCP/443 to a dedicated Nginx TLS backend:
+Direct HTTPS uses a dedicated topology: Nginx owns TCP/443 directly on both LAN and WAN. `nginx-telego-firewall` does not DNAT/REDIRECT; it owns only the package-managed WAN `INPUT ACCEPT` rule for TCP/443. If uhttpd/LuCI occupied HTTPS `:443`, `nginx-telego-platform` transactionally moves only those HTTPS listeners to `luci_https_port` (default `:10443`). **Plain HTTP LuCI (`listen_http`, commonly `:80`) is neither changed nor disabled by the package.**
 
 ```text
-LAN :443 ───────────────────────────────> uhttpd / LuCI
+LAN WEB ────────────────> Nginx :443 ──> telego.locations ──> telEgo WEB :8080
+LAN administrator ──────> uhttpd / LuCI :10443
+LAN administrator ──────> uhttpd / LuCI :80      # when retained by the administrator
 
-WAN :443 → firewall.telego_direct_https
-                     ↓ DNAT
-               Nginx :18443
-                     ↓
-             telego.locations
-                     ↓
-             telEgo WEB :8080
+WAN :443 → firewall.telego_direct_https (INPUT ACCEPT)
+         └──────────────────────────────> Nginx :443
 ```
 
-The profile requires `telego.general.enabled=1`; an MTProxy listener **other than TCP/443** (for example `0.0.0.0:9443`); WEB Proxy on `127.0.0.1:8080`; matching WEB/ingress hostname; trusted loopback proxy; a real certificate/key; exactly one enabled firewall zone named `wan`; WAN input other than `ACCEPT`; no foreign WAN TCP/443 redirect; and no foreign WAN redirect or input `ACCEPT` rule that publishes the reserved TCP/18443 backend.
+The profile requires `telego.general.enabled=1`; an MTProxy listener other than TCP/443 such as `0.0.0.0:9443`; WEB Proxy on `127.0.0.1:8080`; matching hostname; trusted loopback proxy; a real certificate/key; one active `wan` zone with input other than `ACCEPT`; no foreign WAN TCP/443 owner; and free local TCP/443 for Nginx.
 
-Nginx generates both `0.0.0.0:18443` and `[::]:18443` listeners while the firewall redirect uses `family=any`. A published AAAA record therefore uses the same topology, but IPv6 still needs its own real-WAN acceptance test.
+Managed Nginx creates `0.0.0.0:443` and `[::]:443`. The legacy `:18443` listener and `443 → 18443` redirect do not exist in the current topology. Test AAAA separately on a real WAN path.
 
-The Direct HTTPS manager **does not open the MTProxy port**. If MTProxy was moved to `:9443` and must be public, create the ordinary WAN TCP/9443 allow rule yourself through firewall4/LuCI. `nginx-telego-firewall` owns only the WEB redirect WAN TCP/443 → :18443.
+P12.7 adds TLS/HTTPS hardening: explicit `TLSv1.2 TLSv1.3`, unknown-SNI rejection, `server_tokens off`, staged HSTS with `hsts_max_age=604800` and no `includeSubDomains`/`preload`, no OCSP stapling, and no global hand-written cipher list. CSP/Permissions-Policy are not imposed on the WEB carrier. The managed fallback remains `200 OK` and receives only `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
 
-Minimal configuration assumes the telEgo/WEB contract is already saved:
+After hardware/reboot/ACME-renewal acceptance, HSTS may be raised to `31536000`. A value of `0` sends `max-age=0` for controlled rollback.
 
 ```sh
-uci set telego.general.enabled='1'
-uci set telego.general.bind_to='0.0.0.0:9443'
-uci set telego.web_proxy.enabled='1'
-uci set telego.web_proxy.bind_to='127.0.0.1:8080'
-uci set telego.web_proxy.hostname='web.example.com'
-
-uci set nginx_telego.direct_https.enabled='1'
-uci set nginx_telego.direct_https.hostname='web.example.com'
-uci set nginx_telego.direct_https.certificate='/etc/ssl/acme/web.example.com.fullchain.crt'
-uci set nginx_telego.direct_https.certificate_key='/etc/ssl/acme/web.example.com.key'
-uci set nginx_telego.cloudflare.enabled='0'
-uci set nginx_telego.shared.enabled='0'
+uci set nginx_telego.direct_https.hsts_max_age='31536000'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-The apply path checks firewall ownership first, reconciles Nginx next, and installs the package-owned WAN/443 redirect only after the Nginx configuration is known-good. When leaving Direct HTTPS, the redirect is removed **before** the `:18443` listener disappears.
+The apply path preflights platform/firewall ownership, reconciles Nginx, and publishes WAN TCP/443 only after `nginx -t` succeeds. Leaving Direct HTTPS removes WAN exposure first, then releases Nginx `:443`, then restores only package-owned HTTPS/split-DNS state. `listen_http` is outside this state machine.
 
 Read-only checks:
 
 ```sh
+/usr/libexec/nginx-telego-platform status
+/usr/libexec/nginx-telego-platform preflight
 /usr/libexec/nginx-telego-firewall status
 /usr/libexec/nginx-telego-firewall preflight
 /usr/libexec/nginx-telego-cert status
 /usr/libexec/nginx-telego-cert preflight
 ```
 
-Certificate guide: **[TLS certificate / ACME DNS-01](TLS_CERTIFICATE_EN.md)**.
-
-Final LAN/WAN/HTTP2/Telegram/reboot/rollback acceptance: **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)**.
+Certificate guide: **[TLS certificate / ACME DNS-01](TLS_CERTIFICATE_EN.md)**. Full acceptance: **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)**.
 
 ## 5.2 Cloudflare profile
 
