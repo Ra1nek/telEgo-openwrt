@@ -214,7 +214,24 @@ PASS для активного клиента:
 - `Backpressure Events` не показывает постоянный runaway;
 - в `logread -e telego` и `logread -e nginx` нет повторяющихся TLS/upstream ошибок.
 
-## 8. Проверка после reboot
+## 8. ACME renewal/reload acceptance
+
+Если сертификатом управляет OpenWrt ACME, отдельно проверьте preflight-hook и штатный Nginx reload без принудительного выпуска нового сертификата:
+
+```sh
+/usr/libexec/nginx-telego-cert preflight
+ACTION=renewed sh /etc/hotplug.d/acme/90-nginx-telego
+logread -e nginx-telego-acme
+/etc/init.d/nginx reload
+/usr/libexec/nginx-telego-cert status
+nginx -t -c /etc/nginx/uci.conf
+```
+
+PASS: hook выполняет certificate/config preflight, `nginx reload` проходит `nginx -t`, Direct HTTPS остаётся на `:443`, а certificate/key/hostname продолжают совпадать. После следующего реального ACME renewal повторите `certificate status`, внешний TLS curl и HSTS-проверку; новый сертификат должен обслуживаться без ручной правки paths.
+
+Если сертификат administrator-managed и OpenWrt ACME не используется, этот пункт неприменим.
+
+## 9. Проверка после reboot
 
 После успешной проверки:
 
@@ -234,7 +251,7 @@ netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 
 Повторите LAN WEB, LAN LuCI и внешний WAN curl. Это проверяет persistence UCI, uhttpd, dnsmasq, Nginx и firewall4, а не только состояние после ручного reload.
 
-## 9. Rollback на Cloudflare
+## 10. Rollback на Cloudflare
 
 При уходе с Direct HTTPS service ordering должен быть таким:
 
@@ -279,7 +296,7 @@ nginx -t -c /etc/nginx/uci.conf
 - LuCI `listen_http`/`:80` не изменяется ни при apply, ни при rollback;
 - если LuCI `:10443` и split DNS существовали до P12.6, они считаются administrator-owned и не удаляются автоматически.
 
-## 10. Критерии PASS
+## 11. Критерии PASS
 
 | Проверка | PASS |
 |---|---|
@@ -297,6 +314,7 @@ nginx -t -c /etc/nginx/uci.conf
 | LuCI HTTP :80 | не изменяется пакетом; если был включён администратором, сохраняется |
 | HTTP/2 | public endpoint согласует HTTP/2 |
 | Telegram | реальная WEB session работает |
+| ACME renewal | preflight hook + safe Nginx reload проходят; после реального renewal новый сертификат обслуживается по тем же paths |
 | Reboot | topology сохраняется |
 | Rollback | WAN allow и Nginx :443 сняты; восстанавливается только package-owned platform state |
 
