@@ -25,6 +25,20 @@ const store = {
 	}
 };
 
+const platformStatus = {
+	ok: true,
+	profile_enabled: true,
+	state_file: true,
+	luci_https_port: '10443',
+	uhttpd_has_443: false,
+	uhttpd_has_luci_port: true,
+	split_dns_address: '192.168.88.1',
+	split_dns_state: 'owned',
+	pending_uhttpd: false,
+	pending_dhcp: false,
+	error: ''
+};
+
 const firewallStatus = {
 	ok: true,
 	profile_enabled: false,
@@ -72,6 +86,16 @@ const uci = {
 
 const rpc = {
 	declare: spec => {
+		if (spec.method === 'platform_status')
+			return async () => {
+				rpcCalls.push('platform_status');
+				return platformStatus;
+			};
+		if (spec.method === 'platform_preflight')
+			return async () => {
+				rpcCalls.push('platform_preflight');
+				return { ok: true, message: 'platform preflight passed', error: '' };
+			};
 		if (spec.method === 'firewall_status')
 			return async () => {
 				rpcCalls.push('firewall_status');
@@ -144,10 +168,12 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 
 (async () => {
 	const loaded = await ingress.load();
-	assert.equal(loaded[2], firewallStatus);
-	assert.equal(loaded[3], certificateStatus);
+	assert.equal(loaded[2], platformStatus);
+	assert.equal(loaded[3], firewallStatus);
+	assert.equal(loaded[4], certificateStatus);
 	const rendered = await ingress.render(loaded);
 	assert.equal(rendered.config, 'nginx_telego');
+	assert.ok(rpcCalls.includes('platform_status'));
 	assert.ok(rpcCalls.includes('firewall_status'));
 	assert.ok(rpcCalls.includes('certificate_status'));
 	assert.deepEqual(sections, [{ section: 'shared', title: 'Ingress Profile' }],
@@ -240,6 +266,20 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	assert.ok(portOwnership.cfgvalue().includes('WEB/Nginx: :443'));
 	assert.ok(portOwnership.cfgvalue().includes('LuCI/uhttpd: :10443'));
 	assert.ok(portOwnership.cfgvalue().includes('MTProxy: 0.0.0.0:9443'));
+
+	const platform = options.find(o => o.name === '_platform_status');
+	assert.deepEqual(platform.dependencies, [['_mode', 'direct_https']]);
+	assert.ok(platform.cfgvalue().includes('LuCI HTTPS: :10443'));
+	assert.ok(platform.cfgvalue().includes('uhttpd owns TCP/443: No'));
+	assert.ok(platform.cfgvalue().includes('Split DNS: Owned and in sync'));
+	assert.ok(platform.cfgvalue().includes('LAN address: 192.168.88.1'));
+
+	const platformPreflight = options.find(o => o.name === '_platform_preflight');
+	assert.deepEqual(platformPreflight.dependencies, [['_mode', 'direct_https']]);
+	const platformPreflightResult = await platformPreflight.onclick();
+	assert.equal(platformPreflightResult.ok, true);
+	assert.ok(rpcCalls.includes('platform_preflight'));
+	assert.equal(notifications.at(-1).style, 'info');
 
 	const firewall = options.find(o => o.name === '_firewall_status');
 	assert.deepEqual(firewall.dependencies, [['_mode', 'direct_https']]);
