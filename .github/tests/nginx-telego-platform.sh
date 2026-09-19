@@ -97,7 +97,7 @@ STATE
 
 # Fresh default: migrate LuCI off :443 and install split DNS.
 baseline
-"$PLATFORM" apply >"$work/apply.out"
+sh "$PLATFORM" apply >"$work/apply.out"
 [[ $(awk -F '|' '$1=="uhttpd.main.listen_https" {print $2}' "$STATE") == '0.0.0.0:10443 [::]:10443' ]]
 [[ $(awk -F '|' '$1=="dhcp.@dnsmasq[0].address" {print $2}' "$STATE") == '/web.example.com/192.168.88.1' ]]
 [[ -f "$NGINX_TELEGO_PLATFORM_STATE" ]]
@@ -106,7 +106,7 @@ grep -q '^split_dns_owned=1$' "$NGINX_TELEGO_PLATFORM_STATE"
 [[ $(wc -l <"$UHTTPD_LOG") == 1 ]]
 [[ $(wc -l <"$DNSMASQ_LOG") == 1 ]]
 
-status=$("$PLATFORM" status)
+status=$(sh "$PLATFORM" status)
 grep -Eq '^uhttpd_has_443[[:space:]]+0$' <<<"$status"
 grep -Eq '^uhttpd_has_luci_port[[:space:]]+1$' <<<"$status"
 grep -Eq '^split_dns_state[[:space:]]+owned$' <<<"$status"
@@ -114,7 +114,7 @@ grep -Eq '^split_dns_state[[:space:]]+owned$' <<<"$status"
 # Disabling restores only package-owned state.
 awk -F '|' 'BEGIN{OFS="|"} $1=="nginx_telego.direct_https.enabled" {$2="0"} {print}' "$STATE" >"$work/state.next"
 mv "$work/state.next" "$STATE"
-"$PLATFORM" apply >/dev/null
+sh "$PLATFORM" apply >/dev/null
 [[ $(awk -F '|' '$1=="uhttpd.main.listen_https" {print $2}' "$STATE") == '0.0.0.0:443 [::]:443' ]]
 [[ -z $(awk -F '|' '$1=="dhcp.@dnsmasq[0].address" {print $2}' "$STATE") ]]
 [[ ! -e "$NGINX_TELEGO_PLATFORM_STATE" ]]
@@ -123,18 +123,18 @@ mv "$work/state.next" "$STATE"
 baseline
 awk -F '|' 'BEGIN{OFS="|"} $1=="uhttpd.main.listen_https" {$2="0.0.0.0:10443 [::]:10443"} $1=="dhcp.@dnsmasq[0].address" {$2="/web.example.com/192.168.88.1"} {print}' "$STATE" >"$work/state.next"
 mv "$work/state.next" "$STATE"
-"$PLATFORM" apply >/dev/null
+sh "$PLATFORM" apply >/dev/null
 [[ ! -e "$NGINX_TELEGO_PLATFORM_STATE" ]]
-"$PLATFORM" remove >/dev/null
+sh "$PLATFORM" remove >/dev/null
 [[ $(awk -F '|' '$1=="uhttpd.main.listen_https" {print $2}' "$STATE") == '0.0.0.0:10443 [::]:10443' ]]
 [[ $(awk -F '|' '$1=="dhcp.@dnsmasq[0].address" {print $2}' "$STATE") == '/web.example.com/192.168.88.1' ]]
 
 # Drift after a package-owned migration is refused rather than overwritten.
 baseline
-"$PLATFORM" apply >/dev/null
+sh "$PLATFORM" apply >/dev/null
 awk -F '|' 'BEGIN{OFS="|"} $1=="uhttpd.main.listen_https" {$2="0.0.0.0:10443 127.0.0.1:11443"} {print}' "$STATE" >"$work/state.next"
 mv "$work/state.next" "$STATE"
-if "$PLATFORM" remove >"$work/drift.out" 2>&1; then
+if sh "$PLATFORM" remove >"$work/drift.out" 2>&1; then
   echo 'uhttpd drift was unexpectedly overwritten' >&2
   exit 1
 fi
