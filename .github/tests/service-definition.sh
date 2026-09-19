@@ -2,6 +2,16 @@
 # Exercise the real start_service definition with a mock procd/UCI boundary.
 set -euo pipefail
 source package/telego-pkg/files/init.d/telego
+
+reload_triggers=()
+interface_triggers=()
+procd_add_reload_trigger() { reload_triggers+=("$*"); }
+procd_add_interface_trigger() { interface_triggers+=("$*"); }
+
+service_triggers
+[[ "${reload_triggers[*]}" == 'telego' ]]
+[[ "${interface_triggers[*]}" == 'interface.*.up wan /etc/init.d/telego restart' ]]
+
 test_dir=$(mktemp -d)
 trap 'rm -rf -- "$test_dir"' EXIT
 RUNTIME_CONFIG="$test_dir/telego.toml"
