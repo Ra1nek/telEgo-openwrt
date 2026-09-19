@@ -267,71 +267,45 @@ Opt-in managed profiles используют:
 
 ## 5.1 Direct HTTPS profile
 
-Direct HTTPS оставляет LAN TCP/443 за uhttpd/LuCI, а только входящий WAN TCP/443 перенаправляет firewall4 в отдельный Nginx TLS backend:
+Direct HTTPS использует dedicated topology: Nginx напрямую владеет TCP/443 и в LAN, и в WAN. `nginx-telego-firewall` не делает DNAT/REDIRECT; он владеет только package-owned WAN `INPUT ACCEPT` rule для TCP/443. Если uhttpd/LuCI до включения профиля занимал HTTPS `:443`, `nginx-telego-platform` транзакционно переносит только эти HTTPS-listeners на `luci_https_port` (по умолчанию `:10443`). **Plain HTTP LuCI (`listen_http`, обычно `:80`) пакет не изменяет и не отключает.**
 
 ```text
-LAN :443 ───────────────────────────────> uhttpd / LuCI
+LAN WEB ────────────────> Nginx :443 ──> telego.locations ──> telEgo WEB :8080
+LAN administrator ──────> uhttpd / LuCI :10443
+LAN administrator ──────> uhttpd / LuCI :80      # если :80 оставлен администратором
 
-WAN :443 → firewall.telego_direct_https
-                     ↓ DNAT
-               Nginx :18443
-                     ↓
-             telego.locations
-                     ↓
-             telEgo WEB :8080
+WAN :443 → firewall.telego_direct_https (INPUT ACCEPT)
+         └──────────────────────────────> Nginx :443
 ```
 
-Профиль требует:
+Профиль требует `telego.general.enabled=1`; MTProxy listener не на TCP/443 (например, `0.0.0.0:9443`); WEB Proxy на `127.0.0.1:8080`; совпадающий hostname; trusted loopback proxy; настоящий certificate/key; одну активную `wan` zone с input не `ACCEPT`; отсутствие чужого WAN TCP/443 owner; свободный local TCP/443 для Nginx.
 
-- `telego.general.enabled=1`;
-- MTProxy listener **не на TCP/443** (например, `0.0.0.0:9443`), потому что WAN/443 целиком принадлежит WEB/Nginx;
-- `telego.web_proxy.enabled=1`;
-- WEB bind `127.0.0.1:8080`;
-- совпадающий WEB/ingress hostname;
-- `127.0.0.1/32` в trusted proxy CIDRs;
-- настоящий certificate/key;
-- ровно одну активную firewall zone с именем `wan`;
-- WAN input policy не `ACCEPT`;
-- отсутствие чужого redirect, который уже владеет WAN TCP/443;
-- отсутствие чужого WAN redirect или input `ACCEPT` rule, публикующего зарезервированный backend TCP/18443.
+Managed Nginx создаёт `0.0.0.0:443` и `[::]:443`. Legacy listener `:18443` и redirect `443 → 18443` в текущей topology отсутствуют. AAAA необходимо проверять отдельно на реальном WAN.
 
-Nginx генерирует listeners `0.0.0.0:18443` и `[::]:18443`; firewall rule имеет `family=any`. Поэтому опубликованный AAAA поддерживается той же схемой, но IPv6 необходимо проверять отдельно на реальном WAN.
+P12.7 добавляет TLS/HTTPS hardening: explicit `TLSv1.2 TLSv1.3`, reject unknown SNI, `server_tokens off`, staged HSTS `hsts_max_age=604800` без `includeSubDomains`/`preload`, без OCSP stapling и без глобального ручного cipher-list. CSP/Permissions-Policy не навязываются WEB carrier. Managed fallback остаётся `200 OK` и получает только `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`.
 
-Менеджер Direct HTTPS **не открывает MTProxy-порт**. Если вы перенесли MTProxy, например, на `:9443` и он должен быть публичным, создайте обычное WAN TCP/9443 allow-rule средствами firewall4/LuCI самостоятельно. Ownership `nginx-telego-firewall` ограничен WEB redirect WAN TCP/443 → :18443.
-
-Минимальная настройка предполагает, что telEgo/WEB contract уже сохранён:
+После hardware/reboot/ACME-renewal acceptance HSTS можно поднять до `31536000`. Значение `0` отправляет `max-age=0` для контролируемого rollback.
 
 ```sh
-uci set telego.general.enabled='1'
-uci set telego.general.bind_to='0.0.0.0:9443'
-uci set telego.web_proxy.enabled='1'
-uci set telego.web_proxy.bind_to='127.0.0.1:8080'
-uci set telego.web_proxy.hostname='web.example.com'
-
-uci set nginx_telego.direct_https.enabled='1'
-uci set nginx_telego.direct_https.hostname='web.example.com'
-uci set nginx_telego.direct_https.certificate='/etc/ssl/acme/web.example.com.fullchain.crt'
-uci set nginx_telego.direct_https.certificate_key='/etc/ssl/acme/web.example.com.key'
-uci set nginx_telego.cloudflare.enabled='0'
-uci set nginx_telego.shared.enabled='0'
+uci set nginx_telego.direct_https.hsts_max_age='31536000'
 uci commit nginx_telego
 /etc/init.d/nginx-telego reload
 ```
 
-Apply-path сначала выполняет firewall safety check, затем Nginx reconciliation, и только после успешного `nginx -t` устанавливает package-owned WAN/443 redirect. При переключении с Direct HTTPS порядок обратный: redirect удаляется **до** удаления listener `:18443`.
+Apply-path preflight'ит platform/firewall ownership, затем Nginx и только после успешного `nginx -t` публикует WAN TCP/443. При выключении сначала снимается WAN exposure, Nginx освобождает `:443`, затем восстанавливается только package-owned HTTPS/split-DNS state. `listen_http` не входит в эту state machine.
 
 Read-only проверки:
 
 ```sh
+/usr/libexec/nginx-telego-platform status
+/usr/libexec/nginx-telego-platform preflight
 /usr/libexec/nginx-telego-firewall status
 /usr/libexec/nginx-telego-firewall preflight
 /usr/libexec/nginx-telego-cert status
 /usr/libexec/nginx-telego-cert preflight
 ```
 
-Сертификат через OpenWrt ACME/DNS-01: **[TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)**.
-
-Финальная LAN/WAN/HTTP2/Telegram/reboot/rollback проверка: **[Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)**.
+Сертификат: **[TLS-сертификат / ACME DNS-01](TLS_CERTIFICATE.md)**. Полная приёмка: **[Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)**.
 
 ## 5.2 Cloudflare profile
 
