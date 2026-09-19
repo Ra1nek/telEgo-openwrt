@@ -194,7 +194,24 @@ For Telegram Android, use the same canonical hostname and the same 16-byte/`dd` 
 
 PASS for an active client requires a stable connection, non-zero Active WEB Sessions, stream activity, no endless Carrier Retry growth, no runaway Backpressure Events, and no repeating TLS/upstream errors in telEgo/Nginx logs.
 
-## 8. Reboot persistence
+## 8. ACME renewal/reload acceptance
+
+When OpenWrt ACME manages the certificate, separately exercise the preflight hook and the stock Nginx reload without forcing issuance of a new certificate:
+
+```sh
+/usr/libexec/nginx-telego-cert preflight
+ACTION=renewed sh /etc/hotplug.d/acme/90-nginx-telego
+logread -e nginx-telego-acme
+/etc/init.d/nginx reload
+/usr/libexec/nginx-telego-cert status
+nginx -t -c /etc/nginx/uci.conf
+```
+
+PASS means the hook runs certificate/config preflight, `nginx reload` passes `nginx -t`, Direct HTTPS remains on `:443`, and certificate/key/hostname still match. After the next real ACME renewal, repeat certificate status, the external TLS curl, and the HSTS check; the renewed certificate must be served without manually changing the configured paths.
+
+If the certificate is administrator-managed and OpenWrt ACME is not used, this check is not applicable.
+
+## 9. Reboot persistence
 
 Perform a controlled reboot and then re-run:
 
@@ -208,7 +225,7 @@ netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 
 Repeat the LAN WEB, LAN LuCI, and external WAN checks. This proves persistence across UCI, uhttpd, dnsmasq, Nginx, and firewall4.
 
-## 9. Roll back to Cloudflare
+## 10. Roll back to Cloudflare
 
 When leaving Direct HTTPS, ordering is:
 
@@ -253,7 +270,7 @@ Expected:
 - LuCI `listen_http`/`:80` is unchanged during both apply and rollback;
 - pre-existing LuCI `:10443` or split-DNS state remains administrator-owned and is not removed automatically.
 
-## 10. PASS criteria
+## 11. PASS criteria
 
 | Check | PASS |
 |---|---|
@@ -271,6 +288,7 @@ Expected:
 | LuCI HTTP :80 | package does not change it; if administrator-enabled, it persists |
 | HTTP/2 | public endpoint negotiates HTTP/2 |
 | Telegram | a real WEB session works |
+| ACME renewal | preflight hook + safe Nginx reload pass; after a real renewal the renewed certificate is served from the same paths |
 | Reboot | topology persists |
 | Rollback | WAN allow and Nginx :443 are removed; only package-owned platform state is restored |
 
