@@ -180,15 +180,14 @@ validate_direct_https_contract() {
     hostname=$1
     validate_web_contract "$hostname" 'Direct HTTPS ingress'
 
-    # Direct HTTPS dedicates WAN TCP/443 to the Nginx WEB edge. Keeping the
-    # telEgo MTProxy listener on port 443 would make the topology ambiguous:
-    # WAN/443 is redirected before it can reach telEgo, while LAN/443 remains
-    # reserved for uhttpd/LuCI. Operators who need MTProxy and WEB on the same
-    # public 443 must use Native Shared-Port instead.
+    # Direct HTTPS dedicates TCP/443 to the Nginx WEB edge on both LAN and WAN.
+    # LuCI/uhttpd is moved to a separate management port by the platform
+    # reconciler. Operators who need MTProxy and WEB on the same public 443
+    # must use Native Shared-Port instead.
     public_bind=$(uci_get telego general bind_to '0.0.0.0:443')
     case "$public_bind" in
         *:443)
-            fail 'Direct HTTPS reserves WAN TCP/443 for WEB/Nginx; move telego.general.bind_to to another port (for example 0.0.0.0:9443), or use Native Shared-Port to share public TCP/443'
+            fail 'Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN; move telego.general.bind_to to another port (for example 0.0.0.0:9443), or use Native Shared-Port to share public TCP/443'
             ;;
     esac
 }
