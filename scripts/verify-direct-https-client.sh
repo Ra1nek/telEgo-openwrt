@@ -65,7 +65,7 @@ if $CURL_BIN $FAMILY_FLAG --noproxy '*' --silent --show-error --http2 \
 		warn "expected WAN IP not supplied; verify $remote_ip is your router WAN address and not a CDN/Tunnel endpoint"
 	fi
 
-	if grep -Eiq "^Strict-Transport-Security:[[:space:]]*max-age=${HSTS_MAX_AGE}([[:space:]]|\r)*$" "$tmp.headers"; then
+	if grep -Eiq "^Strict-Transport-Security:[[:space:]]*max-age=${HSTS_MAX_AGE}[[:space:]]*$" "$tmp.headers"; then
 		pass "HSTS max-age=$HSTS_MAX_AGE is present on the public Direct HTTPS response"
 	else
 		fail "HSTS header is missing or does not match expected max-age=$HSTS_MAX_AGE"
