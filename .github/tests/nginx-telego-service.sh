@@ -17,6 +17,13 @@ printf 'firewall %s\n' "$*" >>"$NGINX_TELEGO_TEST_LOG"
 SH
 chmod +x "$work/firewall"
 
+cat >"$work/platform" <<'SH'
+#!/bin/sh
+printf 'platform %s\n' "$*" >>"$NGINX_TELEGO_TEST_LOG"
+[ "${PLATFORM_FAIL_ACTION:-}" != "$1" ]
+SH
+chmod +x "$work/platform"
+
 cat >"$work/uci" <<'SH'
 #!/bin/sh
 [ "$1" = '-q' ] && shift
@@ -28,6 +35,7 @@ chmod +x "$work/uci"
 
 export NGINX_TELEGO_RECONCILE="$work/reconcile"
 export NGINX_TELEGO_FIREWALL="$work/firewall"
+export NGINX_TELEGO_PLATFORM="$work/platform"
 export UCI_BIN="$work/uci"
 export NGINX_TELEGO_TEST_LOG="$work/reconcile.log"
 : >"$NGINX_TELEGO_TEST_LOG"
@@ -48,14 +56,15 @@ service_triggers
 export FIX_DIRECT_ENABLED=0
 start_service
 mapfile -t calls <"$NGINX_TELEGO_TEST_LOG"
-[[ "${calls[*]}" == 'firewall apply nginx apply' ]]
+[[ "${calls[*]}" == 'firewall apply nginx apply platform apply' ]]
 
-# Direct HTTPS preflights WAN/443, renders Nginx, then exposes public 443.
+# Direct HTTPS preflights platform and WAN/443, moves LuCI, renders Nginx,
+# then exposes public 443.
 : >"$NGINX_TELEGO_TEST_LOG"
 export FIX_DIRECT_ENABLED=1
 reload_service
 mapfile -t calls <"$NGINX_TELEGO_TEST_LOG"
-[[ "${calls[*]}" == 'firewall check nginx apply firewall apply' ]]
+[[ "${calls[*]}" == 'platform check firewall check platform apply nginx apply firewall apply' ]]
 
 # A failed firewall preflight must prevent any Nginx mutation.
 : >"$NGINX_TELEGO_TEST_LOG"
@@ -65,8 +74,19 @@ if start_service; then
 	exit 1
 fi
 mapfile -t calls <"$NGINX_TELEGO_TEST_LOG"
-[[ "${calls[*]}" == 'firewall check' ]]
+[[ "${calls[*]}" == 'platform check firewall check' ]]
 unset FIREWALL_FAIL_ACTION
+
+# Platform preflight failure must stop before firewall/Nginx changes.
+: >"$NGINX_TELEGO_TEST_LOG"
+export PLATFORM_FAIL_ACTION=check
+if start_service; then
+	echo 'Direct HTTPS unexpectedly continued after platform preflight failure' >&2
+	exit 1
+fi
+mapfile -t calls <"$NGINX_TELEGO_TEST_LOG"
+[[ "${calls[*]}" == 'platform check' ]]
+unset PLATFORM_FAIL_ACTION
 
 stop_service
 echo 'nginx-telego service trigger and firewall ordering tests passed'
