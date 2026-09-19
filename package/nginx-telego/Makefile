@@ -20,7 +20,7 @@ Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
 copies, guarded administrator operations for foreign/custom conf.d files, a
 restricted transactional editor and lifecycle helper for foreign files, a
-transactional firewall4 manager for Direct HTTPS WAN/443 ownership, X.509/ACME
+transactional firewall4 manager plus LuCI/split-DNS platform reconciliation for Direct HTTPS dedicated TCP/443 ownership, X.509/ACME
 readiness checks with a renewal hotplug preflight, and opt-in native shared-port,
 Cloudflare Tunnel, or Direct HTTPS ingress profiles. Managed listeners are disabled
 by default.
@@ -93,7 +93,10 @@ define Package/nginx-telego/prerm
 	[ -n "$${IPKG_INSTROOT}" ] && exit 0
 	[ "$${PKG_UPGRADE}" = "1" ] && exit 0
 	if [ -x /usr/libexec/nginx-telego-firewall ]; then
-		/usr/libexec/nginx-telego-firewall remove || exit $$?
+		/usr/libexec/nginx-telego-firewall remove || exit $?
+	fi
+	if [ -x /usr/libexec/nginx-telego-platform ]; then
+		/usr/libexec/nginx-telego-platform remove || exit $?
 	fi
 	[ -x /usr/libexec/nginx-telego-reconcile ] || exit 0
 	/usr/libexec/nginx-telego-reconcile remove-generated
