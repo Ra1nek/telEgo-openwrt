@@ -133,7 +133,7 @@ Verify:
 - upstream NAT/port forwarding if the router is behind another router;
 - service logs after an external connection attempt.
 
-For ordinary MTProxy listeners, the installer does not create WAN firewall rules. **Managed Direct HTTPS is the exception:** `nginx-telego-firewall` transactionally owns only `firewall.telego_direct_https` and creates WAN TCP/443 → local `:18443`. Do not duplicate that redirect manually.
+For ordinary MTProxy listeners, the installer does not create WAN firewall rules. **Managed Direct HTTPS is the exception:** `nginx-telego-firewall` transactionally owns only `firewall.telego_direct_https` and creates a WAN TCP/443 `INPUT ACCEPT` rule. Nginx listens on `:443` directly; current topology has no DNAT/REDIRECT or `:18443` backend.
 
 ## Direct HTTPS does not work
 
@@ -141,11 +141,13 @@ Check the common configuration failures first:
 
 - `telego.general.enabled` must be `1`;
 - MTProxy must not listen on TCP/443; use another port such as `:9443` or Native Shared-Port;
-- `foreign_wan443` and `foreign_wan18443` in firewall status must be empty/`-`;
+- `foreign_wan443` in firewall status must be empty/`-`;
 - the WEB listener must remain `127.0.0.1:8080`;
 - when AAAA is published, test IPv6 separately.
+- `nginx_telego.direct_https.hsts_max_age` defaults to `604800`; use `31536000` only after full acceptance;
+- if uhttpd occupied HTTPS `:443`, it moves to the management port, while P12.7 deliberately leaves LuCI plain HTTP `:80` unchanged.
 
-Then separate the local Nginx backend from the WAN redirect:
+Then separate the local Nginx listener from WAN firewall ownership:
 
 ```sh
 /usr/libexec/nginx-telego-firewall status
@@ -153,7 +155,7 @@ Then separate the local Nginx backend from the WAN redirect:
 /usr/libexec/nginx-telego-cert status
 /usr/libexec/nginx-telego-cert preflight
 nginx -t -c /etc/nginx/uci.conf
-netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 ```
 
 If router-side checks pass, test from a genuinely external network. Full acceptance procedure: **[Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md)**.
