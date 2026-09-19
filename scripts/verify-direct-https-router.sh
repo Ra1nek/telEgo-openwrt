@@ -180,6 +180,15 @@ printf '%s\n' "$listeners" | grep -Eq '[:.]8080[[:space:]].*(telego|/telego)' 	&
 luci_port=$(uci -q get nginx_telego.direct_https.luci_https_port 2>/dev/null || echo 10443)
 printf '%s\n' "$listeners" | grep -Eq "[:.]${luci_port}[[:space:]].*(uhttpd|/uhttpd)" 	&& pass "uhttpd/LuCI is listening on management :$luci_port" 	|| warn "could not prove uhttpd ownership of :$luci_port from netstat; verify from a LAN client"
 
+# P12.7 deliberately does not own or disable uhttpd plain HTTP. If :80 is
+# present, record that it survived; if an administrator disabled it separately,
+# that is also valid and must not fail Direct HTTPS acceptance.
+if printf '%s\n' "$listeners" | grep -Eq '[:.]80[[:space:]].*(uhttpd|/uhttpd)'; then
+	pass "uhttpd/LuCI HTTP :80 is present and remains administrator-managed"
+else
+	warn "uhttpd/LuCI HTTP :80 is not listening; P12.7 does not manage this listener"
+fi
+
 if [ -r /etc/nginx/conf.d/80-telego-ingress.conf ]; then
 	grep -q '0.0.0.0:443' /etc/nginx/conf.d/80-telego-ingress.conf \
 		&& pass "generated IPv4 Direct HTTPS :443 listener is present" \
@@ -187,8 +196,93 @@ if [ -r /etc/nginx/conf.d/80-telego-ingress.conf ]; then
 	grep -Fq '[::]:443' /etc/nginx/conf.d/80-telego-ingress.conf \
 		&& pass "generated IPv6 Direct HTTPS :443 listener is present" \
 		|| fail "80-telego-ingress.conf does not contain IPv6 :443"
+	grep -Fq 'ssl_protocols TLSv1.2 TLSv1.3;' /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "generated TLS policy is TLS 1.2 + TLS 1.3 only" \
+		|| fail "generated TLS policy is not the P12.7 baseline"
+	grep -Fq 'server_tokens off;' /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "Nginx version disclosure is disabled in managed ingress" \
+		|| fail "server_tokens off is missing from managed ingress"
+
+	hsts_age=$(uci -q get nginx_telego.direct_https.hsts_max_age 2>/dev/null || echo 604800)
+	grep -Fq "add_header Strict-Transport-Security \"max-age=$hsts_age\" always;" /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "staged HSTS max-age=$hsts_age is generated" \
+		|| fail "generated HSTS does not match nginx_telego.direct_https.hsts_max_age=$hsts_age"
+	if grep -Eq 'includeSubDomains|preload' /etc/nginx/conf.d/80-telego-ingress.conf; then
+		fail "managed HSTS unexpectedly enables includeSubDomains or preload"
+	else
+		pass "HSTS excludes includeSubDomains and preload"
+	fi
+	if grep -Eq 'ssl_stapling|ssl_ciphers|ssl_conf_command[[:space:]]+Ciphersuites|Content-Security-Policy|Permissions-Policy' /etc/nginx/conf.d/80-telego-ingress.conf; then
+		fail "managed ingress contains a P12.7-forbidden global TLS/header override"
+	else
+		pass "no OCSP/manual cipher/CSP/Permissions-Policy override in managed ingress"
+	fi
 else
 	fail "/etc/nginx/conf.d/80-telego-ingress.conf is missing"
+fi
+
+fallback_manage=$(uci -q get nginx_telego.fallback.manage 2>/dev/null || echo 1)
+if [ "$fallback_manage" = 1 ]; then
+	fallback=/etc/nginx/conf.d/85-telego-fallback.conf
+	if [ -r "$fallback" ]; then
+		grep -Fq 'return 200 "OK\n";' "$fallback" \
+			&& pass "managed fallback remains 200 OK" \
+			|| fail "managed fallback response changed from 200 OK"
+		grep -Fq 'add_header X-Content-Type-Options "nosniff" always;' "$fallback" \
+			&& pass "fallback X-Content-Type-Options header is present" \
+			|| fail "fallback X-Content-Type-Options header is missing"
+		grep -Fq 'add_header Referrer-Policy "no-referrer" always;' "$fallback" \
+			&& pass "fallback Referrer-Policy header is present" \
+			|| fail "fallback Referrer-Policy header is missing"
+		grep -Fq 'add_header Cache-Control "no-store" always;' "$fallback" \
+			&& pass "fallback Cache-Control header is present" \
+			|| fail "fallback Cache-Control header is missing"
+		if grep -Eq 'Content-Security-Policy|Permissions-Policy' "$fallback"; then
+			fail "managed fallback unexpectedly contains global CSP/Permissions-Policy"
+		else
+			pass "fallback does not add CSP/Permissions-Policy"
+		fi
+	else
+		fail "$fallback is missing while nginx_telego.fallback.manage=1"
+	fi
+else
+	warn "managed fallback is disabled; fallback headers are administrator-owned"
+fi
+
+tls_hostname=$(uci -q get nginx_telego.direct_https.hostname 2>/dev/null || true)
+[ -n "$tls_hostname" ] || tls_hostname=$(uci -q get telego.web_proxy.hostname 2>/dev/null || true)
+if command -v openssl >/dev/null 2>&1 && [ -n "$tls_hostname" ]; then
+	tls_probe() {
+		flag=$1
+		label=$2
+		expect=$3
+		out=/tmp/nginx-telego-tls-probe.$.out
+		if openssl s_client -connect 127.0.0.1:443 -servername "$tls_hostname" "$flag" </dev/null >"$out" 2>&1; then
+			rc=0
+		else
+			rc=$?
+		fi
+		if [ "$expect" = pass ]; then
+			[ "$rc" -eq 0 ] && pass "$label handshake accepted" || fail "$label handshake failed"
+		else
+			[ "$rc" -ne 0 ] && pass "$label handshake rejected" || fail "$label handshake unexpectedly accepted"
+		fi
+		rm -f "$out"
+	}
+	tls_probe -tls1 'TLS 1.0' fail
+	tls_probe -tls1_1 'TLS 1.1' fail
+	tls_probe -tls1_2 'TLS 1.2' pass
+	tls_probe -tls1_3 'TLS 1.3' pass
+
+	unknown_out=/tmp/nginx-telego-unknown-sni.$.out
+	if openssl s_client -connect 127.0.0.1:443 -servername invalid-sni.nginx-telego.invalid -tls1_2 </dev/null >"$unknown_out" 2>&1; then
+		fail "unknown SNI TLS handshake unexpectedly accepted"
+	else
+		pass "unknown SNI TLS handshake rejected"
+	fi
+	rm -f "$unknown_out"
+else
+	warn "openssl or Direct HTTPS hostname unavailable; runtime TLS-version/SNI probes skipped"
 fi
 
 split_address=$(uci -q get nginx_telego.direct_https.split_dns_address 2>/dev/null || true)
@@ -199,5 +293,5 @@ else
 fi
 
 printf '\nRouter-side result: %d failure(s), %d warning(s).\n' "$FAIL" "$WARN"
-printf '%s\n' 'External LAN/WAN, LuCI management-port isolation, HTTP/2, Telegram Desktop, reboot and Cloudflare rollback tests are still required.'
+printf '%s\n' 'External LAN/WAN, HTTP response headers, LuCI WAN isolation, Telegram Desktop, reboot, ACME renewal and Cloudflare rollback tests are still required.'
 [ "$FAIL" -eq 0 ]
