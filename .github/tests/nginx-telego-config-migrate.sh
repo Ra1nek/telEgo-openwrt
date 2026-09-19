@@ -118,44 +118,7 @@ grep -Fqx 'direct_https|direct_https|certificate|' "$STATE"
 grep -Fqx 'direct_https|direct_https|certificate_key|' "$STATE"
 grep -Fqx 'direct_https|direct_https|luci_https_port|10443' "$STATE"
 grep -Fqx 'direct_https|direct_https|split_dns_address|' "$STATE"
-[[ $(grep -c '^commit
-
-# Re-running is a no-op and does not commit again.
-cp "$STATE" "$work/after-first"
-sh "$MIGRATOR" >"$work/second.out"
-cmp "$work/after-first" "$STATE"
 [[ $(grep -c '^commit$' "$UCI_LOG") == 1 ]]
-grep -q 'already contains all managed defaults' "$work/second.out"
-
-# A foreign section type is rejected before any staged mutation.
-baseline
-cat >>"$STATE" <<'STATE'
-direct_https|cloudflare||
-direct_https|cloudflare|enabled|1
-STATE
-cp "$STATE" "$work/before-foreign"
-if sh "$MIGRATOR" >"$work/foreign.out" 2>&1; then
-	echo 'foreign direct_https section type was unexpectedly accepted' >&2
-	exit 1
-fi
-cmp "$work/before-foreign" "$STATE"
-[[ ! -e "$PENDING" ]]
-grep -q "expected 'direct_https'" "$work/foreign.out"
-
-# Never trample administrator changes already pending in UCI.
-baseline
-cp "$STATE" "$PENDING"
-printf '%s\n' 'cloudflare|cloudflare|hostname|pending.example.com' >>"$PENDING"
-cp "$STATE" "$work/before-pending"
-if sh "$MIGRATOR" >"$work/pending.out" 2>&1; then
-	echo 'pre-existing pending UCI changes were unexpectedly accepted' >&2
-	exit 1
-fi
-cmp "$work/before-pending" "$STATE"
-grep -q 'uncommitted nginx_telego UCI changes' "$work/pending.out"
-
-echo 'nginx-telego UCI migration tests passed'
- "$UCI_LOG") == 1 ]]
 
 # Re-running is a no-op and does not commit again.
 cp "$STATE" "$work/after-first"
