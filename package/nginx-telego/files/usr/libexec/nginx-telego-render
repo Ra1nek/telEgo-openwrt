@@ -255,7 +255,6 @@ port_conflict() {
             active && /^[[:space:]]*(option|list)[[:space:]]+listen[[:space:]]+/ {
                 line = $0
                 sub(/^[[:space:]]*(option|list)[[:space:]]+listen[[:space:]]+/, "", line)
-                gsub(/["']/,"",line)
                 if (line ~ "(^|[^0-9])" port "([^0-9]|$)") {
                     found = 1
                     exit
