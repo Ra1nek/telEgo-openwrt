@@ -6,6 +6,18 @@
 'require uci';
 'require view';
 
+const callPlatformStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'platform_status',
+	expect: { '': {} }
+});
+
+const callPlatformPreflight = rpc.declare({
+	object: 'telego.nginx',
+	method: 'platform_preflight',
+	expect: { '': {} }
+});
+
 const callFirewallStatus = rpc.declare({
 	object: 'telego.nginx',
 	method: 'firewall_status',
@@ -30,6 +42,7 @@ const callCertificatePreflight = rpc.declare({
 	expect: { '': {} }
 });
 
+let platformState = null;
 let firewallState = null;
 let certificateState = null;
 
@@ -143,6 +156,49 @@ function sharedContractText() {
 	].join(' · ');
 }
 
+function platformStatusText() {
+	if (!platformState || !platformState.ok)
+		return _('Unavailable');
+
+	let splitDns;
+	if (platformState.split_dns_state === 'owned')
+		splitDns = _('Owned and in sync');
+	else if (platformState.split_dns_state === 'external')
+		splitDns = _('Administrator-owned');
+	else if (platformState.split_dns_state === 'absent')
+		splitDns = _('Configured but absent');
+	else
+		splitDns = _('Disabled');
+
+	return [
+		_('LuCI HTTPS') + ': :' + (platformState.luci_https_port || '10443'),
+		_('uhttpd owns TCP/443') + ': ' + (platformState.uhttpd_has_443 ? _('Yes') : _('No')),
+		_('uhttpd management listener') + ': ' + (platformState.uhttpd_has_luci_port ? _('present') : _('not detected')),
+		_('Split DNS') + ': ' + splitDns,
+		platformState.split_dns_address ? _('LAN address') + ': ' + platformState.split_dns_address : null,
+		_('Pending platform changes') + ': ' +
+			((platformState.pending_uhttpd || platformState.pending_dhcp) ? _('Yes') : _('No'))
+	].filter(Boolean).join(' · ');
+}
+
+function notifyPlatformPreflight(result) {
+	if (result && result.ok) {
+		ui.addNotification(
+			null,
+			E('p', {}, result.message || _('Platform preflight passed.')),
+			'info'
+		);
+		return;
+	}
+
+	const error = result && result.error ? String(result.error) : _('unknown error');
+	ui.addNotification(
+		null,
+		E('p', {}, _('Platform preflight failed:') + ' ' + error),
+		'danger'
+	);
+}
+
 function firewallStatusText() {
 	if (!firewallState || !firewallState.ok)
 		return _('Unavailable');
@@ -253,14 +309,16 @@ return view.extend({
 		return Promise.all([
 			uci.load('nginx_telego'),
 			uci.load('telego'),
+			L.resolveDefault(callPlatformStatus(), null),
 			L.resolveDefault(callFirewallStatus(), null),
 			L.resolveDefault(callCertificateStatus(), null)
 		]);
 	},
 
 	render: function (data) {
-		firewallState = data && data[2] ? data[2] : null;
-		certificateState = data && data[3] ? data[3] : null;
+		platformState = data && data[2] ? data[2] : null;
+		firewallState = data && data[3] ? data[3] : null;
+		certificateState = data && data[4] ? data[4] : null;
 
 		const m = new form.Map(
 			'nginx_telego',
@@ -479,7 +537,8 @@ return view.extend({
 		o.depends('_mode', 'direct_https');
 		o.cfgvalue = function () {
 			const bind = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
-			return 'WEB: WAN :443 · Nginx backend: :18443 · MTProxy: ' + bind;
+			const luciPort = uci.get('nginx_telego', 'direct_https', 'luci_https_port') || '10443';
+			return 'WEB/Nginx: :443 · LuCI/uhttpd: :' + luciPort + ' · MTProxy: ' + bind;
 		};
 
 		o = s.option(
