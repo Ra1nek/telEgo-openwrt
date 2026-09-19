@@ -75,12 +75,12 @@ if [ -x "$PLATFORM" ]; then
 			*) warn "split-DNS state is $split_state" ;;
 		esac
 	fi
-	if "$PLATFORM" preflight >/tmp/nginx-telego-platform-preflight.$ 2>&1; then
+	if "$PLATFORM" preflight >/tmp/nginx-telego-platform-preflight.$$ 2>&1; then
 		pass "platform preflight"
 	else
-		fail "platform preflight: $(cat /tmp/nginx-telego-platform-preflight.$ 2>/dev/null)"
+		fail "platform preflight: $(cat /tmp/nginx-telego-platform-preflight.$$ 2>/dev/null)"
 	fi
-	rm -f /tmp/nginx-telego-platform-preflight.$
+	rm -f /tmp/nginx-telego-platform-preflight.$$
 else
 	fail "$PLATFORM is missing or not executable"
 fi
