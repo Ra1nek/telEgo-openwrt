@@ -59,7 +59,7 @@ if [ -x "$FW" ]; then
 		[ "$(field "$fw_status" managed_match)" = 1 ] && pass "managed WAN/443 INPUT rule matches desired state" || fail "managed WAN/443 rule drift detected"
 		wan_input=$(field "$fw_status" wan_input)
 		case "$wan_input" in
-			accept|ACCEPT) fail "WAN input policy is ACCEPT; backend :18443 may be directly exposed" ;;
+			accept|ACCEPT) fail "WAN input policy is ACCEPT; dedicated TCP/443 ownership is ambiguous" ;;
 			'') warn "WAN input policy was not reported" ;;
 			*) pass "WAN input policy is $wan_input" ;;
 		esac
@@ -67,7 +67,7 @@ if [ -x "$FW" ]; then
 		if [ -z "$foreign" ]; then
 			fail "firewall status did not report foreign_wan443"
 		elif [ "$foreign" = "-" ]; then
-			pass "no foreign WAN TCP/443 redirect detected"
+			pass "no foreign WAN TCP/443 owner detected"
 		else
 			fail "foreign WAN TCP/443 owner detected: $foreign"
 		fi
