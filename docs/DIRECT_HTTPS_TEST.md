@@ -2,20 +2,30 @@
 
 [**Русский**](DIRECT_HTTPS_TEST.md) · [English](DIRECT_HTTPS_TEST_EN.md) · [TLS-сертификат](TLS_CERTIFICATE.md) · [Cloudflare Tunnel](CLOUDFLARE.md)
 
-Эта инструкция — финальная аппаратная проверка Direct HTTPS. Она доказывает не только корректность конфигурации, но и разделение портов на реальном роутере:
+Эта инструкция — аппаратная приёмка P12.6 Direct HTTPS. В новой topology Nginx напрямую владеет TCP/443, LuCI/uhttpd использует отдельный HTTPS-порт управления, а firewall4 больше не делает DNAT/REDIRECT на приватный backend.
 
 ```text
-LAN client ── HTTPS :443 ──> uhttpd / LuCI
+LAN WEB client
+    │ split DNS: web.example.com → router LAN IPv4
+    ▼
+Nginx :443 ───────────────► telEgo WEB 127.0.0.1:8080
 
-Internet client ── HTTPS :443 ──> firewall4 DNAT
-                                   ↓
-                             Nginx :18443
-                                   ↓
-                           telEgo WEB :8080
+LAN administrator
+    ▼
+uhttpd / LuCI :10443
+
+Internet client
+    │ WAN TCP/443
+    ▼
+firewall4 INPUT ACCEPT
+    ▼
+Nginx :443 ───────────────► telEgo WEB 127.0.0.1:8080
 ```
 
+В итоговой схеме нет Direct HTTPS listener `:18443`, LAN hairpin NAT и firewall redirect `443 → 18443`.
+
 > [!IMPORTANT]
-> Проверка WAN должна выполняться **из другой сети**: мобильный Интернет, VPS или другой внешний канал. Проверка с LAN через NAT loopback/hairpin не доказывает реальный WAN path.
+> WAN-проверка должна идти из другой сети: мобильный Интернет, VPS или другой внешний uplink. Успешный LAN-доступ к split-DNS адресу доказывает LAN path, но не доказывает, что SYN на WAN TCP/443 реально приходит к роутеру.
 
 ## 1. Условия перед тестом
 
@@ -24,16 +34,18 @@ Internet client ── HTTPS :443 ──> firewall4 DNAT
 - OpenWrt 25.12.x x86_64;
 - `telego-pkg`, `nginx-telego`, `luci-app-telego`;
 - `telego.general.enabled=1`;
-- MTProxy listener на отдельном порту, **не TCP/443** (например `0.0.0.0:9443`);
-- работающий WEB Proxy `127.0.0.1:8080`;
-- настоящий TLS-сертификат для WEB hostname;
+- MTProxy listener на порту, отличном от TCP/443, например `0.0.0.0:9443`;
+- WEB Proxy `127.0.0.1:8080`;
+- валидный TLS-сертификат для WEB hostname;
 - Direct HTTPS profile;
-- WAN zone с input `REJECT` или `DROP`, но не `ACCEPT`;
-- внешний hostname, который при Direct HTTPS указывает **на WAN OpenWrt**, а не на Cloudflare Tunnel/Proxy.
+- WAN zone с input `REJECT` или `DROP`;
+- свободный TCP/443 для Nginx;
+- LuCI/uhttpd на management port, по умолчанию `:10443`, если LuCI установлен;
+- для managed split DNS — LAN IPv4 роутера в `nginx_telego.direct_https.split_dns_address`.
 
-Если DNS обслуживает Cloudflare, запись Direct HTTPS должна быть **DNS only**. Оранжевое proxy-cloud означает, что внешний тест проверяет Cloudflare Edge, а не Direct HTTPS OpenWrt.
+Публичная A/AAAA-запись Direct HTTPS должна указывать на OpenWrt WAN, а не на Cloudflare Tunnel/Proxy. Если DNS обслуживает Cloudflare, используйте **DNS only** для direct endpoint.
 
-Если опубликован `AAAA`, IPv6 проверяется отдельно. Managed Nginx создаёт `0.0.0.0:18443` и `[::]:18443`, а firewall redirect использует `family=any`; не считайте deployment dual-stack проверенным только по успешному IPv4.
+Если опубликован `AAAA`, IPv6 проверяется отдельно. Managed Nginx создаёт `0.0.0.0:443` и `[::]:443`, а firewall rule имеет `family=any`.
 
 ## 2. Router-side preflight
 
@@ -45,11 +57,13 @@ wget -O /tmp/verify-direct-https-router.sh \
 sh /tmp/verify-direct-https-router.sh
 ```
 
-Скрипт read-only: он не изменяет UCI, firewall или Nginx. Он проверяет profile ownership, firewall/certificate preflight, `nginx -t`, listeners и generated config.
+Скрипт read-only: он проверяет Direct HTTPS ownership, firewall/certificate preflight, `nginx -t`, listeners, generated Nginx config и configured split-DNS target.
 
 Ручной эквивалент:
 
 ```sh
+/usr/libexec/nginx-telego-platform status
+/usr/libexec/nginx-telego-platform preflight
 /usr/libexec/nginx-telego-firewall status
 /usr/libexec/nginx-telego-firewall preflight
 /usr/libexec/nginx-telego-cert status
@@ -57,45 +71,73 @@ sh /tmp/verify-direct-https-router.sh
 nginx -t -c /etc/nginx/uci.conf
 
 uci show firewall.telego_direct_https
-netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
+uci -q show uhttpd.main
+uci -q show dhcp.@dnsmasq[0] | grep -F 'web.example.com' || true
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080'
 ```
 
-В выводе firewall status поля `foreign_wan443` и `foreign_wan18443` должны быть пустыми/`-`. Второе поле означает, что никакое чужое UCI firewall rule/redirect не публикует приватный backend напрямую.
-
-Ожидаемый firewall section:
+Ожидаемый package-owned firewall section:
 
 ```text
+firewall.telego_direct_https=rule
+name='telEgo Direct HTTPS (managed)'
 src='wan'
 proto='tcp'
-src_dport='443'
-dest_port='18443'
+dest_port='443'
 family='any'
-target='DNAT'
-reflection='0'
+target='ACCEPT'
 enabled='1'
 ```
 
-## 3. LAN :443 должен остаться за uhttpd/LuCI
+Не должно быть package-owned `src_dport=443`, `dest_port=18443`, `target=DNAT` или `reflection=0`: это признаки прежней P12.5 topology.
 
-С компьютера **в LAN** откройте:
+## 3. LAN WEB должен идти прямо в Nginx :443
+
+Если split DNS включён, с LAN-клиента:
+
+```sh
+nslookup web.example.com
+curl -v https://web.example.com/
+```
+
+Ожидается:
+
+- hostname резолвится в настроенный LAN IPv4 роутера, а не в public WAN IPv4;
+- соединение открывается на `<router-lan-ip>:443`;
+- TLS certificate валиден для hostname;
+- HTTP response приходит от Nginx;
+- public-IP hairpin для этого hostname не используется.
+
+Для Windows `curl.exe -v` должен показывать строку вида:
 
 ```text
-https://<LAN-IP-роутера>/cgi-bin/luci/
+Trying 192.168.x.1:443...
+Server: nginx/...
 ```
+
+Если `split_dns_address` оставлен пустым, DNS остаётся в зоне ответственности администратора. В этом случае прямой LAN path можно проверить через `curl --resolve`.
+
+## 4. LuCI должен работать на management port
+
+С LAN-клиента:
+
+```text
+https://<router-lan-ip>:10443/cgi-bin/luci/
+```
+
+или используйте другой `luci_https_port`, если он настроен.
 
 Через curl:
 
 ```sh
-curl -k -I https://<LAN-IP-роутера>/cgi-bin/luci/
+curl -k -I https://<router-lan-ip>:10443/cgi-bin/luci/
 ```
 
-Ожидается ответ LuCI/uhttpd (обычно `Server: uhttpd`, либо ожидаемый redirect/login response). Direct HTTPS hostname здесь не должен перехватывать LAN :443.
+Ожидается LuCI/uhttpd. При этом `<router-lan-ip>:443` уже принадлежит Direct HTTPS Nginx и не должен открывать LuCI.
 
-Если LAN :443 внезапно ведёт в WEB hostname/Nginx, тест провален: не продолжайте WAN-проверку, сначала исправьте ownership/firewall.
+## 5. WAN :443 должен попадать прямо в Nginx
 
-## 4. WAN :443 должен попадать в Nginx :18443
-
-На Linux/macOS/WSL-клиенте **вне домашней сети** можно запустить read-only helper:
+На Linux/macOS/WSL-клиенте **вне домашней сети**:
 
 ```sh
 wget -O /tmp/verify-direct-https-client.sh \
@@ -103,15 +145,15 @@ wget -O /tmp/verify-direct-https-client.sh \
 sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IP>
 ```
 
-Для отдельной IPv6-проверки:
+Для IPv6:
 
 ```sh
 IP_FAMILY=6 sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IPV6>
 ```
 
-Helper проверяет валидный public TLS, HTTP/2, фактический remote IP и TCP-доступность WAN :18443. Он не может заменить проверку Telegram Desktop, LAN LuCI или reboot.
+Helper проверяет public TLS, HTTP/2, фактический remote IP и то, что LuCI management port не опубликован с WAN.
 
-Ручная проверка на клиенте **вне домашней сети**:
+Ручная проверка:
 
 ```sh
 nslookup web.example.com
@@ -122,13 +164,13 @@ curl -sS --http2 -o /dev/null \
 
 Критерии:
 
-- `remote` соответствует вашему direct WAN A/AAAA, а не Cloudflare anycast;
-- TLS certificate валиден для hostname;
+- `remote` соответствует direct WAN A/AAAA, а не Cloudflare anycast;
+- TLS валиден;
 - `version=2` для `https-lanes`;
-- нет connection reset/refused/timeout;
-- обычный запрос может вернуть fallback-сайт — это нормально, потому что curl не является Telegram carrier.
+- нет reset/refused/timeout на рабочем WAN path;
+- обычный curl может получить minimal fallback — это нормально, потому что curl не является Telegram carrier.
 
-Если доступен OpenSSL:
+ALPN:
 
 ```sh
 openssl s_client -connect web.example.com:443 \
@@ -138,81 +180,73 @@ openssl s_client -connect web.example.com:443 \
 
 Для HTTP/2 ожидается `ALPN protocol: h2`.
 
-## 5. Проверка, что :18443 не стал отдельным публичным сервисом
+> [!NOTE]
+> Если внешний SYN на TCP/443 фильтруется до физического WAN-интерфейса OpenWrt, этот тест будет FAIL независимо от правильности P12.6. Router-side listener/firewall и upstream reachability — разные уровни проверки.
+
+## 6. WAN management port должен быть закрыт
 
 С внешнего клиента:
 
 ```sh
-curl -k --connect-timeout 5 https://web.example.com:18443/
+curl -k --connect-timeout 5 https://web.example.com:10443/
 ```
 
-Нормальный secure baseline — прямой WAN TCP/18443 **не доступен**. Публичным входом должен быть только WAN TCP/443 через package-owned firewall redirect.
+Нормальный baseline: TCP-соединение к WAN `:10443` не устанавливается. P12.6 не создаёт WAN allow-rule для LuCI management port.
 
-Если 18443 доступен напрямую, проверьте чужие firewall rules и WAN input policy.
+Если management port доступен с WAN, это отдельное administrator-owned firewall exposure и его нужно рассматривать отдельно. Не используйте его как часть Direct HTTPS WEB ingress.
 
-## 6. Реальные Telegram WEB-клиенты: Desktop и Android
+## 7. Реальные Telegram WEB-клиенты
 
-До теста откройте LuCI:
+Перед тестом откройте **Services → telEgo → Status** и зафиксируйте WEB runtime.
 
-```text
-Services → telEgo → Status
-```
+Для Telegram Desktop создайте реальный трафик: откройте диалог, загрузите сообщения/медиа и оставьте соединение активным несколько минут.
 
-Зафиксируйте исходные значения WEB runtime.
+Для Telegram Android используйте тот же canonical hostname и тот же 16-byte/`dd` MTProxy secret, не добавляйте `https://`, port или path в поле Server. WEB всегда использует HTTPS/443.
 
-### Telegram Desktop
+PASS для активного клиента:
 
-Подключите Desktop через настроенный WEB Proxy и выполните реальный трафик: открыть диалог, загрузить сообщения/медиа, оставить соединение активным несколько минут.
-
-### Telegram Android WEB Proxy
-
-Android-клиент использует тот же server-side WEB protocol, но другой client boundary: приватный Android System WebView с origin-scoped `TelegramWebProxy`. Для текущего Android proof-of-concept нужны WebView features `WEB_MESSAGE_LISTENER`, `WEB_MESSAGE_ARRAY_BUFFER` и `DOCUMENT_START_SCRIPT`; при отсутствии любой из них client fail-closes и WEB proxy не подключается.
-
-Перед тестом:
-
-- обновите Android System WebView/его provider;
-- держите Telegram в foreground;
-- используйте тот же canonical hostname и тот же 16-byte/`dd` MTProxy secret;
-- не добавляйте `https://`, port или path в поле Server;
-- помните, что WEB всегда использует HTTPS/443.
-
-Во время подключения смотрите `Active WEB Sessions` / `Active WEB Streams`. Если Desktop работает, а Android остаётся «Недоступен», используйте отдельный сценарий в [Диагностике](TROUBLESHOOTING.md#android-web-proxy-недоступен-а-desktop-работает).
-
-Общий PASS для каждого активного клиента:
-
-- соединение не уходит в циклический reconnect;
+- нет циклического reconnect;
 - `Active WEB Sessions` становится больше нуля;
 - `Active WEB Streams` реагирует на активность;
-- `Carrier Retries` не растёт непрерывно без восстановления;
+- `Carrier Retries` не растёт бесконечно без восстановления;
 - `Backpressure Events` не показывает постоянный runaway;
 - в `logread -e telego` и `logread -e nginx` нет повторяющихся TLS/upstream ошибок.
 
-Для `https-lanes` внешний HTTP/2 test из предыдущего раздела обязателен.
+## 8. Проверка после reboot
 
-## 7. Проверка после reboot
-
-После успешного теста сделайте контролируемую перезагрузку роутера:
+После успешной проверки:
 
 ```sh
 reboot
 ```
 
-После восстановления повторите:
+После загрузки:
 
 ```sh
+/usr/libexec/nginx-telego-platform status
 /usr/libexec/nginx-telego-firewall status
 /usr/libexec/nginx-telego-cert status
 nginx -t -c /etc/nginx/uci.conf
-netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080'
 ```
 
-И повторите короткий LAN/WAN curl. Это проверяет persistence UCI/procd/firewall4, а не только состояние после ручного reload.
+Повторите LAN WEB, LAN LuCI и внешний WAN curl. Это проверяет persistence UCI, uhttpd, dnsmasq, Nginx и firewall4, а не только состояние после ручного reload.
 
-## 8. Rollback на Cloudflare
+## 9. Rollback на Cloudflare
 
-Rollback должен убирать package-owned WAN/443 redirect **до** удаления Direct HTTPS backend listener. Это делает `/etc/init.d/nginx-telego reload`.
+При уходе с Direct HTTPS service ordering должен быть таким:
 
-Настройте profile:
+```text
+remove WAN TCP/443 allow
+        ↓
+release Nginx :443
+        ↓
+restore only package-owned LuCI/split-DNS state
+        ↓
+activate the next ingress profile
+```
+
+Настройте профиль:
 
 ```sh
 uci set nginx_telego.direct_https.enabled='0'
@@ -226,38 +260,37 @@ uci commit nginx_telego
 Проверьте:
 
 ```sh
+/usr/libexec/nginx-telego-platform status
 /usr/libexec/nginx-telego-firewall status
 uci -q show firewall.telego_direct_https || true
-netstat -lntp 2>/dev/null | grep -E ':18080|:18443|:8080'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:18080|:8080'
 nginx -t -c /etc/nginx/uci.conf
 ```
 
 Ожидается:
 
-- `firewall.telego_direct_https` отсутствует;
-- Direct HTTPS listener `:18443` отсутствует;
-- Nginx Cloudflare ingress слушает `127.0.0.1:18080`;
+- package-owned `firewall.telego_direct_https` отсутствует;
+- Direct HTTPS Nginx `:443` отсутствует;
+- Cloudflare ingress слушает `127.0.0.1:18080`;
 - telEgo WEB остаётся на `127.0.0.1:8080`;
-- LAN :443 по-прежнему LuCI/uhttpd;
-- Cloudflare Tunnel Published Application использует `http://127.0.0.1:18080`.
+- если P12.6 сам переносил uhttpd с 443, package-owned original listener восстановлен;
+- если LuCI `:10443` и split DNS существовали до P12.6, они считаются administrator-owned и не удаляются автоматически.
 
-Если для Direct HTTPS вы меняли DNS с Tunnel route на direct A/AAAA, верните Cloudflare Published Application/DNS route. После этого внешний `curl --http2 https://web.example.com/` должен показывать Cloudflare endpoint, а Telegram Desktop WEB снова работать через Tunnel.
-
-Полная Cloudflare-инструкция: [Cloudflare Tunnel](CLOUDFLARE.md).
-
-## 9. Критерии PASS
+## 10. Критерии PASS
 
 | Проверка | PASS |
 |---|---|
-| Router preflight | telEgo включён, MTProxy не на :443, firewall + certificate + `nginx -t` успешны |
-| LAN TCP/443 | LuCI/uhttpd, не Direct HTTPS |
-| WAN TCP/443 | достигает Direct HTTPS Nginx через redirect |
-| WAN TCP/18443 | не опубликован напрямую |
+| Platform preflight | LuCI port/split DNS безопасно согласуются, нет pending UCI drift |
+| Firewall preflight | WAN zone безопасна, чужой TCP/443 owner отсутствует |
+| LAN WEB | WEB hostname идёт напрямую в Nginx :443 |
+| LAN LuCI | LuCI доступен на configured management port |
+| WAN TCP/443 | достигает Nginx :443 напрямую через managed INPUT allow |
+| WAN management port | не опубликован пакетом |
+| Legacy :18443 | listener/redirect отсутствуют |
 | TLS | certificate/key/hostname совпадают |
-| HTTP/2 | public endpoint сообщает HTTP/2 |
-| Telegram Desktop | WEB session реально работает |
-| Telegram Android | WEB session работает в foreground на актуальном Android System WebView |
+| HTTP/2 | public endpoint согласует HTTP/2 |
+| Telegram | реальная WEB session работает |
 | Reboot | topology сохраняется |
-| Rollback | redirect/18443 удалены, Cloudflare :18080 восстановлен |
+| Rollback | WAN allow и Nginx :443 сняты; восстанавливается только package-owned platform state |
 
-Аппаратная проверка считается закрытой только после фактического PASS этих проверок на роутере и внешнем клиенте.
+Аппаратная проверка считается закрытой только после фактического PASS применимых пунктов на роутере и внешнем клиенте.

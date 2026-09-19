@@ -116,6 +116,8 @@ grep -Fqx 'direct_https|direct_https|enabled|0' "$STATE"
 grep -Fqx 'direct_https|direct_https|hostname|' "$STATE"
 grep -Fqx 'direct_https|direct_https|certificate|' "$STATE"
 grep -Fqx 'direct_https|direct_https|certificate_key|' "$STATE"
+grep -Fqx 'direct_https|direct_https|luci_https_port|10443' "$STATE"
+grep -Fqx 'direct_https|direct_https|split_dns_address|' "$STATE"
 [[ $(grep -c '^commit$' "$UCI_LOG") == 1 ]]
 
 # Re-running is a no-op and does not commit again.

@@ -594,8 +594,8 @@ msgstr "Для режима Native Shared-Port требуется абсолют
 msgid "Use an absolute path containing only letters, digits, underscore, dot, slash, plus or hyphen."
 msgstr "Используйте абсолютный путь только из букв, цифр, подчёркивания, точки, косой черты, плюса и дефиса."
 
-msgid "Absolute path to the certificate chain used by the Direct HTTPS Nginx listener on local port 18443."
-msgstr "Абсолютный путь к цепочке сертификатов для listener Direct HTTPS Nginx на локальном порту 18443."
+msgid "Absolute path to the certificate chain used by the dedicated Direct HTTPS Nginx listener on TCP/443."
+msgstr "Абсолютный путь к цепочке сертификатов для выделенного listener Direct HTTPS Nginx на TCP/443."
 
 msgid "Advanced Compatibility Mode"
 msgstr "Расширенный режим совместимости"
@@ -606,8 +606,8 @@ msgstr "Расширенные настройки — Native Shared-Port"
 msgid "An absolute path is required."
 msgstr "Требуется абсолютный путь."
 
-msgid "Checks WAN zone safety, foreign TCP/443 ownership, pending UCI changes and fw4 syntax without changing firewall rules."
-msgstr "Проверяет безопасность зоны WAN, наличие чужого владельца TCP/443, неприменённые изменения UCI и синтаксис fw4, не изменяя правила firewall."
+msgid "Checks dedicated WAN TCP/443 ownership, WAN zone safety, pending UCI changes and fw4 syntax without changing firewall rules."
+msgstr "Проверяет выделенное владение WAN TCP/443, безопасность зоны WAN, неприменённые изменения UCI и синтаксис fw4, не изменяя правила firewall."
 
 msgid "Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated before public traffic is changed."
 msgstr "Выберите один управляемый профиль WEB-входа. Режим «Отключено» не трогает созданную вручную конфигурацию Nginx; управляемые профили взаимоисключающие и проверяются до изменения обработки публичного трафика."
@@ -757,11 +757,11 @@ msgid "Certificate SHA-256"
 msgstr "SHA-256 сертификата"
 
 
-msgid "Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves WAN TCP/443 for WEB/Nginx, so MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443."
-msgstr "Direct HTTPS и Cloudflare — обычные режимы входа. Direct HTTPS резервирует WAN TCP/443 для WEB/Nginx, поэтому MTProxy должен использовать другой публичный порт. Native Shared-Port остаётся доступен, когда WEB и MTProxy должны совместно использовать публичный TCP/443."
+msgid "Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN and moves LuCI HTTPS to a separate management port; MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443."
+msgstr "Direct HTTPS и Cloudflare — обычные режимы входа. Direct HTTPS резервирует TCP/443 для WEB/Nginx в LAN и WAN и переносит HTTPS LuCI на отдельный порт управления; MTProxy должен использовать другой публичный порт. Native Shared-Port остаётся доступен, когда WEB и MTProxy должны совместно использовать публичный TCP/443."
 
-msgid "Direct HTTPS reserves WAN TCP/443 for WEB/Nginx. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443."
-msgstr "Direct HTTPS резервирует WAN TCP/443 для WEB/Nginx. Перенесите listener MTProxy telEgo на другой порт или используйте Native Shared-Port для совместного использования публичного TCP/443."
+msgid "Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443."
+msgstr "Direct HTTPS резервирует TCP/443 для WEB/Nginx в LAN и WAN. Перенесите listener MTProxy telEgo на другой порт или используйте Native Shared-Port для совместного использования публичного TCP/443."
 
 msgid "Foreign WAN TCP/18443"
 msgstr "Чужой WAN TCP/18443"
@@ -769,9 +769,76 @@ msgstr "Чужой WAN TCP/18443"
 msgid "Port Ownership"
 msgstr "Владение портами"
 
-msgid "Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx. The telEgo MTProxy listener must use another port; LAN TCP/443 remains with uhttpd/LuCI."
-msgstr "Direct HTTPS выделяет WAN TCP/443 для WEB/Nginx. Listener MTProxy telEgo должен использовать другой порт; LAN TCP/443 остаётся за uhttpd/LuCI."
+msgid "Direct HTTPS dedicates TCP/443 to WEB/Nginx on both LAN and WAN. LuCI/uhttpd uses the configured management port; MTProxy must use another public port."
+msgstr "Direct HTTPS выделяет TCP/443 для WEB/Nginx и в LAN, и в WAN. LuCI/uhttpd использует настроенный порт управления; MTProxy должен использовать другой публичный порт."
 
 
 msgid "Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration first."
 msgstr "Managed WEB ingress требует включённые telEgo и WEB Proxy, bind 127.0.0.1:8080, WEB hostname и доверенный 127.0.0.1/32. Сначала исправьте настройки в «Службы → telEgo → Конфигурация»."
+
+
+msgid "LuCI HTTPS Management Port"
+msgstr "Порт управления HTTPS LuCI"
+
+msgid "When uhttpd still owns HTTPS TCP/443, nginx-telego moves only those LuCI listeners to this management port before Nginx claims TCP/443. Existing administrator-managed non-443 LuCI listeners are preserved."
+msgstr "Если uhttpd всё ещё владеет HTTPS TCP/443, nginx-telego переносит только эти listener LuCI на указанный порт управления до того, как Nginx займёт TCP/443. Существующие listener LuCI на других портах, которыми управляет администратор, сохраняются."
+
+msgid "LuCI management port must differ from Direct HTTPS TCP/443."
+msgstr "Порт управления LuCI должен отличаться от TCP/443 Direct HTTPS."
+
+msgid "LAN Split-DNS Address"
+msgstr "LAN-адрес Split DNS"
+
+msgid "Optional router LAN IPv4 address returned for the WEB hostname to LAN clients. This avoids public-IP hairpin NAT. Leave empty to keep administrator-managed DNS unchanged."
+msgstr "Необязательный LAN IPv4-адрес роутера, который будет возвращаться LAN-клиентам для WEB hostname. Это исключает hairpin NAT через публичный IP. Оставьте пустым, чтобы не изменять DNS, которым управляет администратор."
+
+msgid "Platform Status"
+msgstr "Состояние платформы"
+
+msgid "Read-only Direct HTTPS ownership status for LuCI/uhttpd and optional dnsmasq split DNS."
+msgstr "Состояние владения Direct HTTPS для LuCI/uhttpd и необязательного split DNS dnsmasq. Только чтение."
+
+msgid "Platform Preflight"
+msgstr "Предварительная проверка платформы"
+
+msgid "Checks LuCI TCP/443 migration safety, the configured management port, optional split DNS, pending UCI changes and ownership drift without changing services or configuration."
+msgstr "Проверяет безопасность переноса LuCI с TCP/443, настроенный порт управления, необязательный split DNS, неприменённые изменения UCI и отклонения владения без изменения служб или конфигурации."
+
+msgid "Run Platform Preflight"
+msgstr "Запустить проверку платформы"
+
+msgid "Platform preflight passed."
+msgstr "Предварительная проверка платформы пройдена."
+
+msgid "Platform preflight failed:"
+msgstr "Предварительная проверка платформы не пройдена:"
+
+msgid "LuCI HTTPS"
+msgstr "HTTPS LuCI"
+
+msgid "uhttpd owns TCP/443"
+msgstr "uhttpd владеет TCP/443"
+
+msgid "uhttpd management listener"
+msgstr "listener управления uhttpd"
+
+msgid "Split DNS"
+msgstr "Split DNS"
+
+msgid "Pending platform changes"
+msgstr "Неприменённые изменения платформы"
+
+msgid "Administrator-owned"
+msgstr "Управляется администратором"
+
+msgid "Configured but absent"
+msgstr "Настроено, но отсутствует"
+
+msgid "present"
+msgstr "есть"
+
+msgid "not detected"
+msgstr "не обнаружен"
+
+msgid "LAN address"
+msgstr "LAN-адрес"

@@ -39,15 +39,51 @@ service_enabled=$(uci -q get telego.general.enabled 2>/dev/null || true)
 
 mtproxy_bind=$(uci -q get telego.general.bind_to 2>/dev/null || true)
 case "$mtproxy_bind" in
-	*:443) fail "MTProxy listener $mtproxy_bind conflicts with Direct HTTPS WAN/443 ownership; use another MTProxy port or Native Shared-Port" ;;
+	*:443) fail "MTProxy listener $mtproxy_bind conflicts with Direct HTTPS TCP/443 ownership; use another MTProxy port or Native Shared-Port" ;;
 	'') fail "telego.general.bind_to is missing" ;;
 	*) pass "MTProxy listener uses separate port: $mtproxy_bind" ;;
 esac
 
+PLATFORM=/usr/libexec/nginx-telego-platform
 FW=/usr/libexec/nginx-telego-firewall
 CERT=/usr/libexec/nginx-telego-cert
 NGINX=/usr/sbin/nginx
 CONF=/etc/nginx/uci.conf
+
+if [ -x "$PLATFORM" ]; then
+	platform_status=$("$PLATFORM" status 2>&1) || {
+		fail "platform status failed: $platform_status"
+		platform_status=''
+	}
+	if [ -n "$platform_status" ]; then
+		[ "$(field "$platform_status" uhttpd_has_443)" = 0 ] \
+			&& pass "uhttpd does not own TCP/443" \
+			|| fail "uhttpd still owns TCP/443"
+		[ "$(field "$platform_status" pending_uhttpd)" = 0 ] \
+			&& pass "no pending uhttpd UCI changes" \
+			|| fail "pending uhttpd UCI changes detected"
+		[ "$(field "$platform_status" pending_dhcp)" = 0 ] \
+			&& pass "no pending DHCP/dnsmasq UCI changes" \
+			|| fail "pending DHCP/dnsmasq UCI changes detected"
+		split_state=$(field "$platform_status" split_dns_state)
+		case "$split_state" in
+			owned) pass "split DNS is package-owned" ;;
+			external) pass "split DNS is administrator-owned" ;;
+			disabled) warn "package-managed split DNS is disabled" ;;
+			absent) fail "configured split-DNS entry is absent" ;;
+			'') warn "split-DNS state was not reported" ;;
+			*) warn "split-DNS state is $split_state" ;;
+		esac
+	fi
+	if "$PLATFORM" preflight >/tmp/nginx-telego-platform-preflight.$ 2>&1; then
+		pass "platform preflight"
+	else
+		fail "platform preflight: $(cat /tmp/nginx-telego-platform-preflight.$ 2>/dev/null)"
+	fi
+	rm -f /tmp/nginx-telego-platform-preflight.$
+else
+	fail "$PLATFORM is missing or not executable"
+fi
 
 if [ -x "$FW" ]; then
 	fw_status=$("$FW" status 2>&1) || {
@@ -56,10 +92,10 @@ if [ -x "$FW" ]; then
 	}
 	if [ -n "$fw_status" ]; then
 		[ "$(field "$fw_status" section_state)" = owned ] && pass "firewall.telego_direct_https is package-owned" || fail "managed firewall section is not owned"
-		[ "$(field "$fw_status" managed_match)" = 1 ] && pass "managed WAN/443 redirect matches desired state" || fail "managed WAN/443 redirect drift detected"
+		[ "$(field "$fw_status" managed_match)" = 1 ] && pass "managed WAN/443 INPUT rule matches desired state" || fail "managed WAN/443 rule drift detected"
 		wan_input=$(field "$fw_status" wan_input)
 		case "$wan_input" in
-			accept|ACCEPT) fail "WAN input policy is ACCEPT; backend :18443 may be directly exposed" ;;
+			accept|ACCEPT) fail "WAN input policy is ACCEPT; dedicated TCP/443 ownership is ambiguous" ;;
 			'') warn "WAN input policy was not reported" ;;
 			*) pass "WAN input policy is $wan_input" ;;
 		esac
@@ -67,17 +103,9 @@ if [ -x "$FW" ]; then
 		if [ -z "$foreign" ]; then
 			fail "firewall status did not report foreign_wan443"
 		elif [ "$foreign" = "-" ]; then
-			pass "no foreign WAN TCP/443 redirect detected"
+			pass "no foreign WAN TCP/443 owner detected"
 		else
 			fail "foreign WAN TCP/443 owner detected: $foreign"
-		fi
-		backend_foreign=$(field "$fw_status" foreign_wan18443)
-		if [ -z "$backend_foreign" ]; then
-			fail "firewall status did not report foreign_wan18443; install the matching nginx-telego package revision"
-		elif [ "$backend_foreign" = "-" ]; then
-			pass "no foreign WAN TCP/18443 exposure detected"
-		else
-			fail "reserved backend WAN TCP/18443 is exposed by: $backend_foreign"
 		fi
 	fi
 	if "$FW" preflight >/tmp/nginx-telego-fw-preflight.$$ 2>&1; then
@@ -138,32 +166,38 @@ check_uci() {
 
 check_uci firewall.telego_direct_https.src wan
 check_uci firewall.telego_direct_https.proto tcp
-check_uci firewall.telego_direct_https.src_dport 443
-check_uci firewall.telego_direct_https.dest_port 18443
+check_uci firewall.telego_direct_https.dest_port 443
 check_uci firewall.telego_direct_https.family any
 target=$(uci -q get firewall.telego_direct_https.target 2>/dev/null || true)
-[ "$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')" = dnat ] && pass "firewall target=DNAT" || fail "firewall target is ${target:-<missing>}"
-check_uci firewall.telego_direct_https.reflection 0
+[ "$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')" = accept ] && pass "firewall target=ACCEPT" || fail "firewall target is ${target:-<missing>}"
 check_uci firewall.telego_direct_https.enabled 1
 
 listeners=$(netstat -lntp 2>/dev/null || true)
-printf '%s\n' "$listeners" | grep -Eq '[:.]18443[[:space:]].*(nginx|/nginx)' 	&& pass "Nginx is listening on :18443" 	|| fail "Nginx :18443 listener not found"
+printf '%s\n' "$listeners" | grep -Eq '[:.]443[[:space:]].*(nginx|/nginx)' 	&& pass "Nginx is listening directly on :443" 	|| fail "Nginx :443 listener not found"
 
 printf '%s\n' "$listeners" | grep -Eq '[:.]8080[[:space:]].*(telego|/telego)' 	&& pass "telEgo WEB is listening on :8080" 	|| warn "could not prove telEgo ownership of :8080 from netstat"
 
-printf '%s\n' "$listeners" | grep -Eq '[:.]443[[:space:]].*(uhttpd|/uhttpd)' 	&& pass "uhttpd is listening on local :443 for LuCI" 	|| warn "could not prove uhttpd ownership of local :443 from netstat; verify from a LAN client"
+luci_port=$(uci -q get nginx_telego.direct_https.luci_https_port 2>/dev/null || echo 10443)
+printf '%s\n' "$listeners" | grep -Eq "[:.]${luci_port}[[:space:]].*(uhttpd|/uhttpd)" 	&& pass "uhttpd/LuCI is listening on management :$luci_port" 	|| warn "could not prove uhttpd ownership of :$luci_port from netstat; verify from a LAN client"
 
 if [ -r /etc/nginx/conf.d/80-telego-ingress.conf ]; then
-	grep -q '0.0.0.0:18443' /etc/nginx/conf.d/80-telego-ingress.conf \
-		&& pass "generated IPv4 Direct HTTPS listener is present" \
-		|| fail "80-telego-ingress.conf does not contain IPv4 :18443"
-	grep -Fq '[::]:18443' /etc/nginx/conf.d/80-telego-ingress.conf \
-		&& pass "generated IPv6 Direct HTTPS listener is present" \
-		|| fail "80-telego-ingress.conf does not contain IPv6 :18443"
+	grep -q '0.0.0.0:443' /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "generated IPv4 Direct HTTPS :443 listener is present" \
+		|| fail "80-telego-ingress.conf does not contain IPv4 :443"
+	grep -Fq '[::]:443' /etc/nginx/conf.d/80-telego-ingress.conf \
+		&& pass "generated IPv6 Direct HTTPS :443 listener is present" \
+		|| fail "80-telego-ingress.conf does not contain IPv6 :443"
 else
 	fail "/etc/nginx/conf.d/80-telego-ingress.conf is missing"
 fi
 
+split_address=$(uci -q get nginx_telego.direct_https.split_dns_address 2>/dev/null || true)
+if [ -n "$split_address" ]; then
+	pass "split-DNS target configured: $split_address"
+else
+	warn "split_dns_address is empty; LAN clients may use administrator-managed DNS instead"
+fi
+
 printf '\nRouter-side result: %d failure(s), %d warning(s).\n' "$FAIL" "$WARN"
-printf '%s\n' 'External LAN/WAN, HTTP/2, Telegram Desktop, reboot and Cloudflare rollback tests are still required.'
+printf '%s\n' 'External LAN/WAN, LuCI management-port isolation, HTTP/2, Telegram Desktop, reboot and Cloudflare rollback tests are still required.'
 [ "$FAIL" -eq 0 ]

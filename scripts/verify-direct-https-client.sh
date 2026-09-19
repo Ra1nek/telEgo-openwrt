@@ -6,10 +6,11 @@ HOST=${1:-}
 EXPECTED_IP=${2:-}
 IP_FAMILY=${IP_FAMILY:-auto}
 CURL_BIN=${CURL_BIN:-curl}
+LUCI_PORT=${LUCI_PORT:-10443}
 
 usage() {
 	echo "Usage: $0 HOSTNAME [EXPECTED_WAN_IP]" >&2
-	echo "Optional: IP_FAMILY=4 or IP_FAMILY=6" >&2
+	echo "Optional: IP_FAMILY=4 or IP_FAMILY=6; LUCI_PORT defaults to 10443" >&2
 	exit 2
 }
 
@@ -33,7 +34,7 @@ fail() { printf 'FAIL  %s\n' "$*" >&2; FAIL=$((FAIL + 1)); }
 warn() { printf 'WARN  %s\n' "$*" >&2; WARN=$((WARN + 1)); }
 
 tmp=${TMPDIR:-/tmp}/nginx-telego-client.$$
-trap 'rm -f "$tmp.public" "$tmp.18443"' EXIT HUP INT TERM
+trap 'rm -f "$tmp.public" "$tmp.luci"' EXIT HUP INT TERM
 
 # A normal HTTPS request is enough to validate the certificate chain and
 # hostname. The HTTP status itself is not constrained because an ordinary curl
@@ -66,26 +67,27 @@ else
 	fail "public HTTPS/HTTP2 request failed: $(cat "$tmp.public" 2>/dev/null)"
 fi
 
-# Do not treat a TLS handshake rejection as a closed port: if TCP connect
-# completed, time_connect is non-zero even when Nginx rejects the TLS handshake.
+# The LuCI management port must remain LAN-only in the P12.6 baseline. Do not
+# treat a TLS handshake rejection as closed: any non-zero time_connect proves
+# that WAN TCP reached the management listener.
 connect_time=$($CURL_BIN $FAMILY_FLAG --noproxy '*' --insecure --silent --show-error \
 	--connect-timeout 5 --max-time 8 -o /dev/null -w '%{time_connect}' \
-	"https://$HOST:18443/" 2>"$tmp.18443")
+	"https://$HOST:$LUCI_PORT/" 2>"$tmp.luci")
 rc=$?
 
 case "$connect_time" in
 	''|0|0.0|0.00|0.000|0.0000|0.00000|0.000000)
 		if [ "$rc" -eq 0 ]; then
-			fail "WAN TCP/18443 returned a response and is directly exposed"
+			fail "WAN TCP/$LUCI_PORT returned a response and exposes LuCI management"
 		else
-			pass "WAN TCP/18443 did not complete a TCP connection"
+			pass "WAN TCP/$LUCI_PORT did not complete a TCP connection"
 		fi
 		;;
 	*)
-		fail "WAN TCP/18443 is TCP-reachable (connect time $connect_time s, curl rc=$rc)"
+		fail "WAN TCP/$LUCI_PORT is TCP-reachable (connect time $connect_time s, curl rc=$rc)"
 		;;
 esac
 
 printf '\nExternal-client result: %d failure(s), %d warning(s).\n' "$FAIL" "$WARN"
-printf '%s\n' 'Telegram Desktop, LAN LuCI, reboot persistence, and Cloudflare rollback still require explicit checks.'
+printf '%s\n' 'Telegram Desktop, LAN LuCI on the management port, reboot persistence, and Cloudflare rollback still require explicit checks.'
 [ "$FAIL" -eq 0 ]

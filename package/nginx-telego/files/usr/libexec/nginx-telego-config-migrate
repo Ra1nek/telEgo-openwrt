@@ -90,6 +90,8 @@ ensure_option direct_https enabled 0
 ensure_option direct_https hostname ''
 ensure_option direct_https certificate ''
 ensure_option direct_https certificate_key ''
+ensure_option direct_https luci_https_port 10443
+ensure_option direct_https split_dns_address ''
 
 ensure_section fallback fallback
 ensure_option fallback manage 1

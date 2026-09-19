@@ -59,11 +59,11 @@ path    role    ownership    presence    source
 
 | Профиль | Основной Nginx listener | Назначение |
 |---|---|---|
-| Direct HTTPS | `0.0.0.0:18443` + `[::]:18443` | dual-stack backend для package-owned WAN TCP/443 firewall redirect |
+| Direct HTTPS | `0.0.0.0:443` + `[::]:443` | dedicated dual-stack TLS endpoint для LAN и WAN |
 | Cloudflare Tunnel | `127.0.0.1:18080` | loopback origin для `cloudflared` |
 | Native Shared-Port | `127.0.0.1:8443` + certificate source `:8444` | TLS splice после public telEgo `:443` |
 
-Renderer никогда не объединяет эти профили в одном generated ingress. При Direct HTTPS firewall ownership живёт отдельно в `firewall.telego_direct_https`; Nginx file ownership и firewall ownership намеренно не смешиваются.
+Renderer никогда не объединяет эти профили в одном generated ingress. При Direct HTTPS Nginx file ownership, WAN firewall ownership (`firewall.telego_direct_https`) и platform ownership LuCI/split-DNS (`nginx-telego-platform`) остаются отдельными границами. Platform helper переносит только package-owned uhttpd `:443` listeners и удаляет при rollback только те split-DNS entries, которые добавил сам.
 
 
 

@@ -6,7 +6,7 @@
       "ubus": {
         "service": ["list"],
         "telego": ["status"],
-        "telego.nginx": ["inventory", "managed_content", "foreign_content", "foreign_revision", "firewall_status", "firewall_preflight", "certificate_status", "certificate_preflight"]
+        "telego.nginx": ["inventory", "managed_content", "foreign_content", "foreign_revision", "platform_status", "platform_preflight", "firewall_status", "firewall_preflight", "certificate_status", "certificate_preflight"]
       }
     },
     "write": {

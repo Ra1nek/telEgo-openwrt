@@ -59,11 +59,11 @@ One conditional path is shared by three **mutually exclusive** managed ingress p
 
 | Profile | Primary Nginx listener | Purpose |
 |---|---|---|
-| Direct HTTPS | `0.0.0.0:18443` + `[::]:18443` | dual-stack backend for the package-owned WAN TCP/443 firewall redirect |
+| Direct HTTPS | `0.0.0.0:443` + `[::]:443` | dedicated dual-stack TLS endpoint for LAN and WAN |
 | Cloudflare Tunnel | `127.0.0.1:18080` | loopback origin for `cloudflared` |
 | Native Shared-Port | `127.0.0.1:8443` plus certificate source `:8444` | TLS splice behind public telEgo `:443` |
 
-The renderer never combines these profiles in one generated ingress. Direct HTTPS firewall ownership lives separately in `firewall.telego_direct_https`; Nginx file ownership and firewall ownership intentionally remain separate boundaries.
+The renderer never combines these profiles in one generated ingress. With Direct HTTPS, Nginx file ownership, WAN firewall ownership (`firewall.telego_direct_https`), and LuCI/split-DNS platform ownership (`nginx-telego-platform`) remain separate boundaries. The platform helper moves only package-owned uhttpd `:443` listeners and removes on rollback only split-DNS entries it added itself.
 
 
 

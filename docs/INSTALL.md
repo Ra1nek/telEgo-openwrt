@@ -12,7 +12,7 @@
 - Не менее 32 MiB свободного места в `/tmp` и `/` для предварительной проверки интерактивного установщика.
 - `uclient-fetch`, `wget` или `curl` для загрузки файлов.
 - Свободный TCP-порт для MTProxy; по умолчанию проект использует `0.0.0.0:443`.
-- Для обычного MTProxy — подходящее правило WAN firewall для выбранного MTProxy-порта. Direct HTTPS управляет только своим собственным WAN TCP/443 redirect автоматически.
+- Для обычного MTProxy — подходящее правило WAN firewall для выбранного MTProxy-порта. Direct HTTPS управляет своим собственным WAN TCP/443 INPUT allow-rule; Nginx напрямую владеет TCP/443.
 
 Для WEB Proxy нужен публичный hostname. Managed Direct HTTPS и Native Shared-Port генерируют Nginx TLS-конфигурацию сами, но сертификат остаётся отдельным deployment asset: его можно предоставить вручную или выпустить через опциональный OpenWrt ACME DNS-01 add-on.
 
@@ -49,7 +49,7 @@ sh /tmp/telego-install.sh
 |---|---|---|
 | `telego-pkg` | daemon, UCI, procd/ujail | выбран |
 | `luci-app-telego` | LuCI и локальный rpcd | выбран |
-| `nginx-telego` | managed WEB ingress, firewall/certificate helpers | выбран, но **все ingress-профили выключены** |
+| `nginx-telego` | managed WEB ingress, platform/firewall/certificate helpers | выбран, но **все ingress-профили выключены** |
 | `luci-i18n-telego-ru` | русский перевод | по языку/выбору пользователя |
 | OpenWrt ACME DNS-01 | `acme-acmesh + acme-acmesh-dnsapi + luci-app-acme` | **не выбран** |
 
@@ -188,7 +188,7 @@ apk add --allow-untrusted \
 
 1. Откройте **Services → telEgo** в LuCI.
 2. Добавьте хотя бы одного пользователя с секретом из 32 шестнадцатеричных символов.
-3. Выберите порт MTProxy. Для **Direct HTTPS** используйте не `:443` (например, `0.0.0.0:9443`); WAN TCP/443 в этом режиме принадлежит WEB/Nginx. Если WEB и MTProxy должны делить публичный `:443`, используйте **Native Shared-Port**.
+3. Выберите порт MTProxy. Для **Direct HTTPS** используйте не `:443` (например, `0.0.0.0:9443`); TCP/443 в этом режиме принадлежит WEB/Nginx и в LAN, и в WAN. Если WEB и MTProxy должны делить публичный `:443`, используйте **Native Shared-Port**.
 4. Настройте TLS Fronting в соответствии с выбранной схемой подключения.
 5. Оставьте WEB Proxy выключенным, пока не будут подготовлены Nginx и TLS.
 6. Включите MTProxy.
@@ -198,13 +198,13 @@ apk add --allow-untrusted \
 
 ## Рекомендуемый путь: Direct HTTPS + ACME DNS-01
 
-Это безопасный порядок для новой установки. Он не публикует WAN TCP/443, пока backend и сертификат не прошли проверки.
+Это безопасный порядок для новой установки. WAN TCP/443 не публикуется, пока platform ownership, Nginx и сертификат не прошли проверки.
 
 1. Установите telEgo. Если хотите управлять сертификатом средствами OpenWrt, в installer отметьте **OpenWrt ACME DNS-01** или используйте `--acme`.
 2. В **Services → telEgo → Configuration**:
    - включите telEgo;
    - задайте MTProxy listener на отдельном порту, например `0.0.0.0:9443`;
-   - если MTProxy должен быть доступен из Internet, создайте обычное WAN TCP/9443 allow-rule самостоятельно; `nginx-telego-firewall` намеренно управляет только Direct WEB redirect WAN TCP/443 → :18443;
+   - если MTProxy должен быть доступен из Internet, создайте обычное WAN TCP/9443 allow-rule самостоятельно; `nginx-telego-firewall` намеренно управляет только Direct WEB WAN TCP/443 INPUT allow-rule;
    - добавьте пользователя/secret;
    - включите WEB Proxy;
    - оставьте WEB bind `127.0.0.1:8080`;
@@ -217,9 +217,9 @@ apk add --allow-untrusted \
    /etc/ssl/acme/<hostname>.fullchain.crt
    /etc/ssl/acme/<hostname>.key
    ```
-5. Откройте **Services → telEgo → WEB Ingress**, выберите **Direct HTTPS**, укажите hostname/certificate/key и сначала запустите **Certificate Preflight** и **Firewall Preflight**.
-6. Только после успешных preflight нажмите **Save & Apply**. Apply-path выполняется в безопасном порядке: firewall check → Nginx reconcile/`nginx -t` → package-owned WAN TCP/443 redirect.
-7. Выполните [аппаратную проверку Direct HTTPS](DIRECT_HTTPS_TEST.md): LAN :443 → LuCI, WAN :443 → Nginx, WAN :18443 закрыт напрямую, HTTP/2, Telegram Desktop, reboot и rollback.
+5. Откройте **Services → telEgo → WEB Ingress**, выберите **Direct HTTPS**, укажите hostname/certificate/key, LuCI HTTPS management port (по умолчанию `10443`) и при необходимости LAN Split-DNS Address. Затем запустите **Certificate Preflight** и **Firewall Preflight**.
+6. Только после успешных preflight нажмите **Save & Apply**. Apply-path выполняется в безопасном порядке: platform check → firewall check → перенос package-owned uhttpd `:443`/optional split DNS → Nginx reconcile/`nginx -t` на `:443` → package-owned WAN TCP/443 INPUT allow.
+7. Выполните [аппаратную проверку Direct HTTPS](DIRECT_HTTPS_TEST.md): LAN WEB → Nginx `:443`, LuCI → management port, WAN `:443` → Nginx напрямую, WAN management port закрыт, legacy `:18443` отсутствует, затем HTTP/2, Telegram, reboot и rollback.
 
 > [!IMPORTANT]
 > Direct HTTPS не является способом совместить MTProxy и WEB на одном публичном TCP/443. Для этого существует **Native Shared-Port (Advanced)**.

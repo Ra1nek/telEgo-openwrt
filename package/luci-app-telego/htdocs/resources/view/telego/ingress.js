@@ -6,6 +6,18 @@
 'require uci';
 'require view';
 
+const callPlatformStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'platform_status',
+	expect: { '': {} }
+});
+
+const callPlatformPreflight = rpc.declare({
+	object: 'telego.nginx',
+	method: 'platform_preflight',
+	expect: { '': {} }
+});
+
 const callFirewallStatus = rpc.declare({
 	object: 'telego.nginx',
 	method: 'firewall_status',
@@ -30,6 +42,7 @@ const callCertificatePreflight = rpc.declare({
 	expect: { '': {} }
 });
 
+let platformState = null;
 let firewallState = null;
 let certificateState = null;
 
@@ -65,7 +78,7 @@ function managedWebContractError() {
 function directHttpsPortError() {
 	const bind = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
 	return /:443$/.test(bind)
-		? _('Direct HTTPS reserves WAN TCP/443 for WEB/Nginx. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443.')
+		? _('Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443.')
 		: null;
 }
 
@@ -143,6 +156,49 @@ function sharedContractText() {
 	].join(' · ');
 }
 
+function platformStatusText() {
+	if (!platformState || !platformState.ok)
+		return _('Unavailable');
+
+	let splitDns;
+	if (platformState.split_dns_state === 'owned')
+		splitDns = _('Owned and in sync');
+	else if (platformState.split_dns_state === 'external')
+		splitDns = _('Administrator-owned');
+	else if (platformState.split_dns_state === 'absent')
+		splitDns = _('Configured but absent');
+	else
+		splitDns = _('Disabled');
+
+	return [
+		_('LuCI HTTPS') + ': :' + (platformState.luci_https_port || '10443'),
+		_('uhttpd owns TCP/443') + ': ' + (platformState.uhttpd_has_443 ? _('Yes') : _('No')),
+		_('uhttpd management listener') + ': ' + (platformState.uhttpd_has_luci_port ? _('present') : _('not detected')),
+		_('Split DNS') + ': ' + splitDns,
+		platformState.split_dns_address ? _('LAN address') + ': ' + platformState.split_dns_address : null,
+		_('Pending platform changes') + ': ' +
+			((platformState.pending_uhttpd || platformState.pending_dhcp) ? _('Yes') : _('No'))
+	].filter(Boolean).join(' · ');
+}
+
+function notifyPlatformPreflight(result) {
+	if (result && result.ok) {
+		ui.addNotification(
+			null,
+			E('p', {}, result.message || _('Platform preflight passed.')),
+			'info'
+		);
+		return;
+	}
+
+	const error = result && result.error ? String(result.error) : _('unknown error');
+	ui.addNotification(
+		null,
+		E('p', {}, _('Platform preflight failed:') + ' ' + error),
+		'danger'
+	);
+}
+
 function firewallStatusText() {
 	if (!firewallState || !firewallState.ok)
 		return _('Unavailable');
@@ -158,15 +214,10 @@ function firewallStatusText() {
 	const conflict = firewallState.foreign_wan443 && firewallState.foreign_wan443 !== '-'
 		? firewallState.foreign_wan443
 		: _('none');
-	const backendConflict = firewallState.foreign_wan18443 && firewallState.foreign_wan18443 !== '-'
-		? firewallState.foreign_wan18443
-		: _('none');
-
 	return [
 		_('Managed rule') + ': ' + state,
 		_('WAN input') + ': ' + (firewallState.wan_input || _('unknown')),
 		_('Foreign WAN TCP/443') + ': ' + conflict,
-		_('Foreign WAN TCP/18443') + ': ' + backendConflict,
 		_('Pending firewall changes') + ': ' + (firewallState.pending_changes ? _('Yes') : _('No'))
 	].join(' · ');
 }
@@ -258,14 +309,16 @@ return view.extend({
 		return Promise.all([
 			uci.load('nginx_telego'),
 			uci.load('telego'),
+			L.resolveDefault(callPlatformStatus(), null),
 			L.resolveDefault(callFirewallStatus(), null),
 			L.resolveDefault(callCertificateStatus(), null)
 		]);
 	},
 
 	render: function (data) {
-		firewallState = data && data[2] ? data[2] : null;
-		certificateState = data && data[3] ? data[3] : null;
+		platformState = data && data[2] ? data[2] : null;
+		firewallState = data && data[3] ? data[3] : null;
+		certificateState = data && data[4] ? data[4] : null;
 
 		const m = new form.Map(
 			'nginx_telego',
@@ -281,7 +334,7 @@ return view.extend({
 			form.ListValue,
 			'_mode',
 			_('Mode'),
-			_('Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves WAN TCP/443 for WEB/Nginx, so MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443.')
+			_('Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN and moves LuCI HTTPS to a separate management port; MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443.')
 		);
 		o.value('disabled', _('Disabled'));
 		o.value('direct_https', 'Direct HTTPS');
@@ -394,7 +447,7 @@ return view.extend({
 			form.Value,
 			'direct_https_certificate',
 			_('TLS Certificate'),
-			_('Absolute path to the certificate chain used by the Direct HTTPS Nginx listener on local port 18443.')
+			_('Absolute path to the certificate chain used by the dedicated Direct HTTPS Nginx listener on TCP/443.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.rmempty = false;
@@ -428,22 +481,92 @@ return view.extend({
 		};
 		o.validate = validateAbsolutePath;
 
-		o = s.option(form.DummyValue, '_direct_https_flow', _('Direct HTTPS Flow'));
+		o = s.option(
+		form.Value,
+		'direct_https_luci_port',
+		_('LuCI HTTPS Management Port'),
+		_('When uhttpd still owns HTTPS TCP/443, nginx-telego moves only those LuCI listeners to this management port before Nginx claims TCP/443. Existing administrator-managed non-443 LuCI listeners are preserved.')
+	);
+	o.depends('_mode', 'direct_https');
+	o.datatype = 'port';
+	o.rmempty = false;
+	o.default = '10443';
+	o.cfgvalue = function () {
+		return uci.get('nginx_telego', 'direct_https', 'luci_https_port') || '10443';
+	};
+	o.write = function (sectionId, value) {
+		uci.set('nginx_telego', 'direct_https', 'luci_https_port', value || '10443');
+	};
+	o.validate = function (sectionId, value) {
+		return value === '443'
+			? _('LuCI management port must differ from Direct HTTPS TCP/443.')
+			: true;
+	};
+
+	o = s.option(
+		form.Value,
+		'direct_https_split_dns_address',
+		_('LAN Split-DNS Address'),
+		_('Optional router LAN IPv4 address returned for the WEB hostname to LAN clients. This avoids public-IP hairpin NAT. Leave empty to keep administrator-managed DNS unchanged.')
+	);
+	o.depends('_mode', 'direct_https');
+	o.datatype = 'ip4addr';
+	o.rmempty = true;
+	o.cfgvalue = function () {
+		return uci.get('nginx_telego', 'direct_https', 'split_dns_address') || '';
+	};
+	o.write = function (sectionId, value) {
+		setOrUnset('nginx_telego', 'direct_https', 'split_dns_address', value);
+	};
+	o.remove = function () {
+		uci.unset('nginx_telego', 'direct_https', 'split_dns_address');
+	};
+
+	o = s.option(form.DummyValue, '_direct_https_flow', _('Direct HTTPS Flow'));
 		o.depends('_mode', 'direct_https');
 		o.cfgvalue = function () {
-			return 'WAN TCP/443 → firewall4 REDIRECT → Nginx :18443 → telEgo WEB 127.0.0.1:8080';
+			return 'LAN/WAN TCP/443 → Nginx :443 → telEgo WEB 127.0.0.1:8080';
 		};
 
 		o = s.option(
 			form.DummyValue,
 			'_direct_https_ports',
 			_('Port Ownership'),
-			_('Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx. The telEgo MTProxy listener must use another port; LAN TCP/443 remains with uhttpd/LuCI.')
+			_('Direct HTTPS dedicates TCP/443 to WEB/Nginx on both LAN and WAN. LuCI/uhttpd uses the configured management port; MTProxy must use another public port.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.cfgvalue = function () {
 			const bind = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
-			return 'WEB: WAN :443 · Nginx backend: :18443 · MTProxy: ' + bind;
+			const luciPort = uci.get('nginx_telego', 'direct_https', 'luci_https_port') || '10443';
+			return 'WEB/Nginx: :443 · LuCI/uhttpd: :' + luciPort + ' · MTProxy: ' + bind;
+		};
+
+		o = s.option(
+			form.DummyValue,
+			'_platform_status',
+			_('Platform Status'),
+			_('Read-only Direct HTTPS ownership status for LuCI/uhttpd and optional dnsmasq split DNS.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.cfgvalue = platformStatusText;
+
+		o = s.option(
+			form.Button,
+			'_platform_preflight',
+			_('Platform Preflight'),
+			_('Checks LuCI TCP/443 migration safety, the configured management port, optional split DNS, pending UCI changes and ownership drift without changing services or configuration.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.inputtitle = _('Run Platform Preflight');
+		o.inputstyle = 'apply';
+		o.onclick = function () {
+			return L.resolveDefault(callPlatformPreflight(), {
+				ok: false,
+				error: 'rpc-failed'
+			}).then(function (result) {
+				notifyPlatformPreflight(result);
+				return result;
+			});
 		};
 
 		o = s.option(
@@ -472,7 +595,7 @@ return view.extend({
 			form.Button,
 			'_firewall_preflight',
 			_('Firewall Preflight'),
-			_('Checks WAN zone safety, foreign TCP/443 ownership, pending UCI changes and fw4 syntax without changing firewall rules.')
+			_('Checks dedicated WAN TCP/443 ownership, WAN zone safety, pending UCI changes and fw4 syntax without changing firewall rules.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.inputtitle = _('Run Preflight');

@@ -302,20 +302,22 @@ See [NGINX_FILES_EN.md](NGINX_FILES_EN.md) for the complete ownership state mach
 
 ### Direct HTTPS topology
 
-Direct HTTPS separates LAN management from public WEB ingress at the firewall4 boundary. uhttpd keeps local TCP/443 while a package-owned redirect applies only to traffic entering from the `wan` firewall zone:
+P12.6 Direct HTTPS uses a dedicated-port topology: Nginx owns TCP/443 directly on both LAN and WAN. LuCI/uhttpd uses a separate HTTPS management port (default `:10443`). Optional split DNS resolves the WEB hostname to a router LAN IPv4 so LAN WEB traffic does not require public-IP hairpin NAT. Firewall ownership is limited to a package-owned WAN INPUT allow for TCP/443.
 
 ```mermaid
 flowchart LR
-    LAN["LAN client"] --> U["uhttpd / LuCI<br/>LAN :443"]
-    WAN["Internet client<br/>WAN :443"] --> FW["firewall.telego_direct_https<br/>DNAT 443 → 18443"]
-    FW --> TLS["Nginx TLS<br/>0.0.0.0:18443 + [::]:18443"]
+    DNS["LAN split DNS<br/>WEB hostname → router LAN IPv4"] --> LAN["LAN WEB client"]
+    LAN --> TLS["Nginx TLS<br/>0.0.0.0:443 + [::]:443"]
+    ADMIN["LAN administrator"] --> U["uhttpd / LuCI<br/>:10443"]
+    WAN["Internet client<br/>WAN :443"] --> FW["firewall.telego_direct_https<br/>INPUT ACCEPT TCP/443"]
+    FW --> TLS
     TLS --> LOC["telego.locations"]
     LOC --> WEB["127.0.0.1:8080<br/>telEgo WEB"]
 ```
 
-Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx, so the telEgo MTProxy listener must use another public port. Operators who need both protocols on public `:443` use Native Shared-Port instead.
+Direct HTTPS dedicates TCP/443 to WEB/Nginx on both LAN and WAN, so the telEgo MTProxy listener must use another public port. Operators who need both protocols on public `:443` use Native Shared-Port instead.
 
-The apply order deliberately avoids a dead public path: firewall ownership and reserved-backend exposure are preflighted first, Nginx is reconciled and validated with `nginx -t`, and only then is WAN/443 redirected to `:18443`. When leaving Direct HTTPS, the managed redirect is removed before the backend listener.
+The apply order deliberately prevents accidental WAN exposure of management: platform and firewall ownership are preflighted first; package-owned uhttpd `:443` listeners move to the configured management port and optional split DNS is reconciled; Nginx then claims `:443` and passes `nginx -t`; only then does firewall4 install the WAN TCP/443 INPUT allow. When leaving Direct HTTPS, WAN exposure is removed first, Nginx releases `:443`, and only then is package-owned LuCI/split-DNS state restored.
 
 Certificate status/renewal is documented in [TLS_CERTIFICATE_EN.md](TLS_CERTIFICATE_EN.md); real LAN/WAN acceptance is in [DIRECT_HTTPS_TEST_EN.md](DIRECT_HTTPS_TEST_EN.md).
 

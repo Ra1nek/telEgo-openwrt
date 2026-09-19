@@ -304,20 +304,22 @@ Reconciler и P8 admin helper используют один kernel `flock(2)` lo
 
 ### Direct HTTPS topology
 
-Direct HTTPS разделяет LAN management и public WEB ingress на уровне firewall4. uhttpd продолжает владеть локальным TCP/443, а package-owned redirect применяется только к трафику из firewall zone `wan`:
+P12.6 Direct HTTPS использует dedicated-port topology: Nginx напрямую владеет TCP/443 и для LAN, и для WAN. LuCI/uhttpd использует отдельный HTTPS management port (по умолчанию `:10443`). Optional split DNS направляет WEB hostname на LAN IPv4 роутера, поэтому LAN WEB traffic не требует public-IP hairpin NAT. Firewall ownership ограничен package-owned WAN INPUT allow для TCP/443.
 
 ```mermaid
 flowchart LR
-    LAN["LAN client"] --> U["uhttpd / LuCI<br/>LAN :443"]
-    WAN["Internet client<br/>WAN :443"] --> FW["firewall.telego_direct_https<br/>DNAT 443 → 18443"]
-    FW --> TLS["Nginx TLS<br/>0.0.0.0:18443 + [::]:18443"]
+    DNS["LAN split DNS<br/>WEB hostname → router LAN IPv4"] --> LAN["LAN WEB client"]
+    LAN --> TLS["Nginx TLS<br/>0.0.0.0:443 + [::]:443"]
+    ADMIN["LAN administrator"] --> U["uhttpd / LuCI<br/>:10443"]
+    WAN["Internet client<br/>WAN :443"] --> FW["firewall.telego_direct_https<br/>INPUT ACCEPT TCP/443"]
+    FW --> TLS
     TLS --> LOC["telego.locations"]
     LOC --> WEB["127.0.0.1:8080<br/>telEgo WEB"]
 ```
 
-Direct HTTPS dedicates WAN TCP/443 to WEB/Nginx, so the telEgo MTProxy listener must use another public port. Operators who need both protocols on public `:443` use Native Shared-Port instead.
+Direct HTTPS dedicates TCP/443 to WEB/Nginx on both LAN and WAN, so the telEgo MTProxy listener must use another public port. Operators who need both protocols on public `:443` use Native Shared-Port instead.
 
-Apply ordering intentionally avoids a dead public path: firewall ownership and reserved-backend exposure are preflighted first, Nginx is reconciled and validated with `nginx -t`, and only then is WAN/443 redirected to `:18443`. When leaving Direct HTTPS, the managed redirect is removed before the backend listener.
+Apply ordering deliberately prevents accidental WAN exposure of management: platform and firewall ownership are preflighted first; package-owned uhttpd `:443` listeners are moved to the configured management port and optional split DNS is reconciled; Nginx then claims `:443` and passes `nginx -t`; only after that does firewall4 install the WAN TCP/443 INPUT allow. When leaving Direct HTTPS, WAN exposure is removed first, Nginx releases `:443`, and only then is package-owned LuCI/split-DNS state restored.
 
 Certificate status/renewal is described in [TLS_CERTIFICATE.md](TLS_CERTIFICATE.md); real LAN/WAN acceptance is in [DIRECT_HTTPS_TEST.md](DIRECT_HTTPS_TEST.md).
 

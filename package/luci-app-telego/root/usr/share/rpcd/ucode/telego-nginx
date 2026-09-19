@@ -4,6 +4,7 @@ import { popen } from 'fs';
 
 const ADMIN = '/usr/libexec/nginx-telego-admin';
 const EDITOR = '/usr/libexec/nginx-telego-editor';
+const PLATFORM = '/usr/libexec/nginx-telego-platform';
 const FIREWALL = '/usr/libexec/nginx-telego-firewall';
 const CERTIFICATE = '/usr/libexec/nginx-telego-cert';
 const MAX_EDIT_BYTES = 65536;
@@ -28,6 +29,94 @@ function run_admin(args) {
 		return { ok: false, output: '', error: trim(output) || 'admin-operation-failed' };
 
 	return { ok: true, output: output, error: '' };
+}
+
+function run_platform(args) {
+	let command = PLATFORM;
+	for (let arg in args)
+		command += ' ' + shell_quote(arg);
+	command += ' 2>&1';
+
+	const proc = popen(command, 'r');
+	if (!proc)
+		return { ok: false, output: '', error: 'platform-helper-unavailable' };
+
+	const output = proc.read('all') || '';
+	const exit_code = proc.close();
+	if (exit_code != 0)
+		return { ok: false, output: '', error: trim(output) || 'platform-operation-failed' };
+
+	return { ok: true, output: output, error: '' };
+}
+
+function platform_status() {
+	const result = run_platform(['status']);
+	if (!result.ok)
+		return {
+			ok: false,
+			profile_enabled: false,
+			state_file: false,
+			luci_https_port: '',
+			uhttpd_has_443: false,
+			uhttpd_has_luci_port: false,
+			split_dns_address: '',
+			split_dns_state: 'unknown',
+			pending_uhttpd: false,
+			pending_dhcp: false,
+			error: result.error
+		};
+
+	const values = {};
+	for (let line in split(result.output, '\n')) {
+		line = rtrim(line, '\r');
+		if (!length(line))
+			continue;
+
+		const fields = split(line, '\t');
+		if (length(fields) != 2)
+			return { ok: false, error: 'invalid-platform-status' };
+
+		values[fields[0]] = fields[1];
+	}
+
+	const required = [
+		'profile_enabled',
+		'state_file',
+		'luci_https_port',
+		'uhttpd_has_443',
+		'uhttpd_has_luci_port',
+		'split_dns_address',
+		'split_dns_state',
+		'pending_uhttpd',
+		'pending_dhcp'
+	];
+	for (let key in required)
+		if (!(key in values))
+			return { ok: false, error: 'invalid-platform-status' };
+
+	if (!(values.split_dns_state in ['disabled', 'owned', 'external', 'absent']))
+		return { ok: false, error: 'invalid-platform-status' };
+
+	return {
+		ok: true,
+		profile_enabled: values.profile_enabled == '1',
+		state_file: values.state_file == '1',
+		luci_https_port: values.luci_https_port,
+		uhttpd_has_443: values.uhttpd_has_443 == '1',
+		uhttpd_has_luci_port: values.uhttpd_has_luci_port == '1',
+		split_dns_address: values.split_dns_address == '-' ? '' : values.split_dns_address,
+		split_dns_state: values.split_dns_state,
+		pending_uhttpd: values.pending_uhttpd == '1',
+		pending_dhcp: values.pending_dhcp == '1',
+		error: ''
+	};
+}
+
+function platform_preflight() {
+	const result = run_platform(['preflight']);
+	return result.ok
+		? { ok: true, message: trim(result.output), error: '' }
+		: { ok: false, message: '', error: result.error };
 }
 
 function run_firewall(args) {
@@ -59,7 +148,6 @@ function firewall_status() {
 			wan_zone_count: 0,
 			wan_input: 'unknown',
 			foreign_wan443: '',
-			foreign_wan18443: '',
 			pending_changes: false,
 			error: result.error
 		};
@@ -84,7 +172,6 @@ function firewall_status() {
 		'wan_zone_count',
 		'wan_input',
 		'foreign_wan443',
-		'foreign_wan18443',
 		'pending_changes'
 	];
 	for (let key in required)
@@ -102,7 +189,6 @@ function firewall_status() {
 		wan_zone_count: int(+values.wan_zone_count),
 		wan_input: values.wan_input,
 		foreign_wan443: values.foreign_wan443 == '-' ? '' : values.foreign_wan443,
-		foreign_wan18443: values.foreign_wan18443 == '-' ? '' : values.foreign_wan18443,
 		pending_changes: values.pending_changes == '1',
 		error: ''
 	};
@@ -398,6 +484,8 @@ function rename_active(name, new_name, revision) {
 
 const methods = {
 	inventory: { call: function () { return inventory(); } },
+	platform_status: { call: function () { return platform_status(); } },
+	platform_preflight: { call: function () { return platform_preflight(); } },
 	firewall_status: { call: function () { return firewall_status(); } },
 	firewall_preflight: { call: function () { return firewall_preflight(); } },
 	certificate_status: { call: function () { return certificate_status(); } },

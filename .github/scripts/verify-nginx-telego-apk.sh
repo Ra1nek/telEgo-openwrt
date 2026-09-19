@@ -46,6 +46,7 @@ assert_regular /usr/libexec/nginx-telego-files 755
 assert_regular /usr/libexec/nginx-telego-render 755
 assert_regular /usr/libexec/nginx-telego-reconcile 755
 assert_regular /usr/libexec/nginx-telego-firewall 755
+assert_regular /usr/libexec/nginx-telego-platform 755
 assert_regular /usr/libexec/nginx-telego-cert 755
 assert_regular /etc/hotplug.d/acme/90-nginx-telego 755
 assert_regular /usr/libexec/nginx-telego-admin 755

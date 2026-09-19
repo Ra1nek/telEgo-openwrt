@@ -29,6 +29,19 @@ function popen(command, mode) {
 			close: function() { return editor_exit_code(); }
 		};
 	}
+	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-platform ') == 0) {
+		global.platform_command = command;
+		if (global.fixture?.mode == 'popen-failed') return null;
+		if (global.fixture?.mode == 'platform-failed')
+			return { read: function(kind) { return 'nginx-telego-platform: preflight rejected\n'; }, close: function() { return 1; } };
+
+		let output = '';
+		if (index(command, " 'status'") >= 0)
+			output = 'profile_enabled\t1\nstate_file\t1\nluci_https_port\t10443\nuhttpd_has_443\t0\nuhttpd_has_luci_port\t1\nsplit_dns_address\t192.168.88.1\nsplit_dns_state\towned\npending_uhttpd\t0\npending_dhcp\t0\n';
+		else if (index(command, " 'preflight'") >= 0)
+			output = 'nginx-telego-platform: Direct HTTPS platform preflight passed\n';
+		return { read: function(kind) { return output; }, close: function() { return 0; } };
+	}
 	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-firewall ') == 0) {
 		global.firewall_command = command;
 		if (global.fixture?.mode == 'popen-failed') return null;
@@ -37,9 +50,9 @@ function popen(command, mode) {
 
 		let output = '';
 		if (index(command, " 'status'") >= 0)
-			output = 'profile_enabled\t1\nsection_state\towned\nmanaged_match\t1\nwan_zone_count\t1\nwan_input\treject\nforeign_wan443\t-\nforeign_wan18443\t-\npending_changes\t0\n';
+			output = 'profile_enabled\t1\nsection_state\towned\nmanaged_match\t1\nwan_zone_count\t1\nwan_input\treject\nforeign_wan443\t-\npending_changes\t0\n';
 		else if (index(command, " 'preflight'") >= 0)
-			output = 'nginx-telego-firewall: Direct HTTPS firewall preflight passed for WAN TCP/443 -> :18443\n';
+			output = 'nginx-telego-firewall: Direct HTTPS firewall preflight passed for dedicated WAN TCP/443\n';
 		return { read: function(kind) { return output; }, close: function() { return 0; } };
 	}
 	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-cert ') == 0) {

@@ -9,7 +9,7 @@ const store = {
 	nginx_telego: {
 		shared: { enabled: '0', hostname: '', certificate: '', certificate_key: '' },
 		cloudflare: { enabled: '0', hostname: '' },
-		direct_https: { enabled: '0', hostname: '', certificate: '', certificate_key: '' },
+		direct_https: { enabled: '0', hostname: '', certificate: '', certificate_key: '', luci_https_port: '10443', split_dns_address: '' },
 		fallback: { manage: '1' }
 	},
 	telego: {
@@ -25,6 +25,20 @@ const store = {
 	}
 };
 
+const platformStatus = {
+	ok: true,
+	profile_enabled: true,
+	state_file: true,
+	luci_https_port: '10443',
+	uhttpd_has_443: false,
+	uhttpd_has_luci_port: true,
+	split_dns_address: '192.168.88.1',
+	split_dns_state: 'owned',
+	pending_uhttpd: false,
+	pending_dhcp: false,
+	error: ''
+};
+
 const firewallStatus = {
 	ok: true,
 	profile_enabled: false,
@@ -33,7 +47,6 @@ const firewallStatus = {
 	wan_zone_count: 1,
 	wan_input: 'reject',
 	foreign_wan443: '',
-	foreign_wan18443: '',
 	pending_changes: false,
 	error: ''
 };
@@ -73,6 +86,16 @@ const uci = {
 
 const rpc = {
 	declare: spec => {
+		if (spec.method === 'platform_status')
+			return async () => {
+				rpcCalls.push('platform_status');
+				return platformStatus;
+			};
+		if (spec.method === 'platform_preflight')
+			return async () => {
+				rpcCalls.push('platform_preflight');
+				return { ok: true, message: 'platform preflight passed', error: '' };
+			};
 		if (spec.method === 'firewall_status')
 			return async () => {
 				rpcCalls.push('firewall_status');
@@ -145,10 +168,12 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 
 (async () => {
 	const loaded = await ingress.load();
-	assert.equal(loaded[2], firewallStatus);
-	assert.equal(loaded[3], certificateStatus);
+	assert.equal(loaded[2], platformStatus);
+	assert.equal(loaded[3], firewallStatus);
+	assert.equal(loaded[4], certificateStatus);
 	const rendered = await ingress.render(loaded);
 	assert.equal(rendered.config, 'nginx_telego');
+	assert.ok(rpcCalls.includes('platform_status'));
 	assert.ok(rpcCalls.includes('firewall_status'));
 	assert.ok(rpcCalls.includes('certificate_status'));
 	assert.deepEqual(sections, [{ section: 'shared', title: 'Ingress Profile' }],
@@ -219,16 +244,48 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	directCert.remove();
 	assert.equal(store.nginx_telego.direct_https.certificate, undefined);
 
+	const luciPort = options.find(o => o.name === 'direct_https_luci_port');
+	assert.deepEqual(luciPort.dependencies, [['_mode', 'direct_https']]);
+	assert.equal(luciPort.cfgvalue(), '10443');
+	assert.notEqual(luciPort.validate(null, '443'), true);
+	assert.equal(luciPort.validate(null, '10443'), true);
+	luciPort.write(null, '11443');
+	assert.equal(store.nginx_telego.direct_https.luci_https_port, '11443');
+	store.nginx_telego.direct_https.luci_https_port = '10443';
+
+	const splitDns = options.find(o => o.name === 'direct_https_split_dns_address');
+	assert.deepEqual(splitDns.dependencies, [['_mode', 'direct_https']]);
+	assert.equal(splitDns.cfgvalue(), '');
+	splitDns.write(null, '192.168.88.1');
+	assert.equal(store.nginx_telego.direct_https.split_dns_address, '192.168.88.1');
+	splitDns.remove();
+	assert.equal(store.nginx_telego.direct_https.split_dns_address, undefined);
+
 	const portOwnership = options.find(o => o.name === '_direct_https_ports');
 	assert.deepEqual(portOwnership.dependencies, [['_mode', 'direct_https']]);
+	assert.ok(portOwnership.cfgvalue().includes('WEB/Nginx: :443'));
+	assert.ok(portOwnership.cfgvalue().includes('LuCI/uhttpd: :10443'));
 	assert.ok(portOwnership.cfgvalue().includes('MTProxy: 0.0.0.0:9443'));
+
+	const platform = options.find(o => o.name === '_platform_status');
+	assert.deepEqual(platform.dependencies, [['_mode', 'direct_https']]);
+	assert.ok(platform.cfgvalue().includes('LuCI HTTPS: :10443'));
+	assert.ok(platform.cfgvalue().includes('uhttpd owns TCP/443: No'));
+	assert.ok(platform.cfgvalue().includes('Split DNS: Owned and in sync'));
+	assert.ok(platform.cfgvalue().includes('LAN address: 192.168.88.1'));
+
+	const platformPreflight = options.find(o => o.name === '_platform_preflight');
+	assert.deepEqual(platformPreflight.dependencies, [['_mode', 'direct_https']]);
+	const platformPreflightResult = await platformPreflight.onclick();
+	assert.equal(platformPreflightResult.ok, true);
+	assert.ok(rpcCalls.includes('platform_preflight'));
+	assert.equal(notifications.at(-1).style, 'info');
 
 	const firewall = options.find(o => o.name === '_firewall_status');
 	assert.deepEqual(firewall.dependencies, [['_mode', 'direct_https']]);
 	assert.ok(firewall.cfgvalue().includes('Owned and in sync'));
 	assert.ok(firewall.cfgvalue().includes('WAN input: reject'));
 	assert.ok(firewall.cfgvalue().includes('Foreign WAN TCP/443: none'));
-	assert.ok(firewall.cfgvalue().includes('Foreign WAN TCP/18443: none'));
 
 	const preflight = options.find(o => o.name === '_firewall_preflight');
 	assert.deepEqual(preflight.dependencies, [['_mode', 'direct_https']]);
@@ -302,5 +359,5 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_status'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_preflight'));
 
-	console.log('LuCI P12 ACME Direct HTTPS ingress tests passed');
+	console.log('LuCI P12.6 dedicated Direct HTTPS ingress tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
