@@ -164,6 +164,12 @@ The telEgo hook **does not issue a second reload**. This avoids duplicate reload
 
 If the early preflight finds a problem, the hook logs the error. The stock Nginx reload still performs its own `nginx -t`; with an invalid configuration it refuses to signal the running master process.
 
+## P12.7: renewal and OCSP
+
+P12.7 does not enable `ssl_stapling` for Let's Encrypt certificates. Certificate lifecycle remains based on ACME renewal, X.509/private-key/hostname/expiry validation, and a safe `nginx -t` before the stock reload. This is separate from HSTS: staged Direct HTTPS HSTS is controlled by `nginx_telego.direct_https.hsts_max_age` and defaults to `604800` seconds.
+
+After successful hardware/reboot/renewal acceptance, HSTS may be raised to `31536000`; the package does not generate `includeSubDomains` or `preload`.
+
 ## Manual verification
 
 ```sh
