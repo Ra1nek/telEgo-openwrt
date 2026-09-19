@@ -303,7 +303,7 @@ Stable release tag должен совпадать с `PKG_VERSION`. Release wor
 ## Checklist перед публикацией в Internet
 
 - [ ] Проверить нужный MTProxy bind address/port; для Direct HTTPS MTProxy не должен использовать TCP/443.
-- [ ] Проверить, что firewall/NAT публикуют только необходимые ports; для Direct HTTPS WAN TCP/18443 не должен быть доступен напрямую.
+- [ ] Проверить, что firewall публикует только необходимые ports; Direct HTTPS должен иметь только managed WAN TCP/443 INPUT allow, а LuCI management/:80 не должны публиковаться пакетом.
 - [ ] Оставить private listeners WEB Proxy и metrics на loopback, если нет отдельно reviewed причины менять это.
 - [ ] Использовать валидный administrator/ACME-managed TLS certificate и выполнить certificate preflight.
 - [ ] Убедиться, что Nginx включает project snippet и сохраняет sanitized `419` path.
