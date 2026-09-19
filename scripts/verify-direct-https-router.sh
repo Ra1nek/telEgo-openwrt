@@ -39,15 +39,51 @@ service_enabled=$(uci -q get telego.general.enabled 2>/dev/null || true)
 
 mtproxy_bind=$(uci -q get telego.general.bind_to 2>/dev/null || true)
 case "$mtproxy_bind" in
-	*:443) fail "MTProxy listener $mtproxy_bind conflicts with Direct HTTPS WAN/443 ownership; use another MTProxy port or Native Shared-Port" ;;
+	*:443) fail "MTProxy listener $mtproxy_bind conflicts with Direct HTTPS TCP/443 ownership; use another MTProxy port or Native Shared-Port" ;;
 	'') fail "telego.general.bind_to is missing" ;;
 	*) pass "MTProxy listener uses separate port: $mtproxy_bind" ;;
 esac
 
+PLATFORM=/usr/libexec/nginx-telego-platform
 FW=/usr/libexec/nginx-telego-firewall
 CERT=/usr/libexec/nginx-telego-cert
 NGINX=/usr/sbin/nginx
 CONF=/etc/nginx/uci.conf
+
+if [ -x "$PLATFORM" ]; then
+	platform_status=$("$PLATFORM" status 2>&1) || {
+		fail "platform status failed: $platform_status"
+		platform_status=''
+	}
+	if [ -n "$platform_status" ]; then
+		[ "$(field "$platform_status" uhttpd_has_443)" = 0 ] \
+			&& pass "uhttpd does not own TCP/443" \
+			|| fail "uhttpd still owns TCP/443"
+		[ "$(field "$platform_status" pending_uhttpd)" = 0 ] \
+			&& pass "no pending uhttpd UCI changes" \
+			|| fail "pending uhttpd UCI changes detected"
+		[ "$(field "$platform_status" pending_dhcp)" = 0 ] \
+			&& pass "no pending DHCP/dnsmasq UCI changes" \
+			|| fail "pending DHCP/dnsmasq UCI changes detected"
+		split_state=$(field "$platform_status" split_dns_state)
+		case "$split_state" in
+			owned) pass "split DNS is package-owned" ;;
+			external) pass "split DNS is administrator-owned" ;;
+			disabled) warn "package-managed split DNS is disabled" ;;
+			absent) fail "configured split-DNS entry is absent" ;;
+			'') warn "split-DNS state was not reported" ;;
+			*) warn "split-DNS state is $split_state" ;;
+		esac
+	fi
+	if "$PLATFORM" preflight >/tmp/nginx-telego-platform-preflight.$ 2>&1; then
+		pass "platform preflight"
+	else
+		fail "platform preflight: $(cat /tmp/nginx-telego-platform-preflight.$ 2>/dev/null)"
+	fi
+	rm -f /tmp/nginx-telego-platform-preflight.$
+else
+	fail "$PLATFORM is missing or not executable"
+fi
 
 if [ -x "$FW" ]; then
 	fw_status=$("$FW" status 2>&1) || {
@@ -155,7 +191,6 @@ else
 	fail "/etc/nginx/conf.d/80-telego-ingress.conf is missing"
 fi
 
-printf '\nRouter-side result: %d failure(s), %d warning(s).\n' "$FAIL" "$WARN"
 split_address=$(uci -q get nginx_telego.direct_https.split_dns_address 2>/dev/null || true)
 if [ -n "$split_address" ]; then
 	pass "split-DNS target configured: $split_address"
@@ -163,5 +198,6 @@ else
 	warn "split_dns_address is empty; LAN clients may use administrator-managed DNS instead"
 fi
 
+printf '\nRouter-side result: %d failure(s), %d warning(s).\n' "$FAIL" "$WARN"
 printf '%s\n' 'External LAN/WAN, LuCI management-port isolation, HTTP/2, Telegram Desktop, reboot and Cloudflare rollback tests are still required.'
 [ "$FAIL" -eq 0 ]
