@@ -2,7 +2,7 @@
 
 [Русский](DIRECT_HTTPS_TEST.md) · [**English**](DIRECT_HTTPS_TEST_EN.md) · [TLS certificate](TLS_CERTIFICATE_EN.md) · [Cloudflare Tunnel](CLOUDFLARE_EN.md)
 
-This is the P12.6 hardware acceptance runbook. In the dedicated-port topology Nginx owns TCP/443 directly, LuCI/uhttpd uses a separate HTTPS management port, and firewall4 no longer DNATs/REDIRECTs public 443 to a private backend.
+This is the P12.6/P12.7 Direct HTTPS hardware acceptance runbook. Nginx owns TCP/443 directly, LuCI/uhttpd uses a separate HTTPS management port, firewall4 does not DNAT/REDIRECT, and P12.7 additionally verifies the TLS baseline, staged HSTS, version disclosure, and fallback-only headers. LuCI plain HTTP `:80` deliberately remains administrator-managed.
 
 ```text
 LAN WEB client
@@ -13,6 +13,7 @@ Nginx :443 ───────────────► telEgo WEB 127.0.0.1
 LAN administrator
     ▼
 uhttpd / LuCI :10443
+uhttpd / LuCI :80 (optional, administrator-managed)
 
 Internet client
     │ WAN TCP/443
@@ -41,6 +42,7 @@ You need:
 - WAN input policy `REJECT` or `DROP`;
 - TCP/443 available for Nginx;
 - LuCI/uhttpd on the management port, default `:10443`, when LuCI is installed;
+- LuCI plain HTTP `:80` may remain enabled: P12.7 does not manage `listen_http` or disable it;
 - a router LAN IPv4 in `nginx_telego.direct_https.split_dns_address` if package-managed split DNS is desired.
 
 The public A/AAAA record must point to the OpenWrt WAN endpoint rather than Cloudflare Tunnel/Proxy. If Cloudflare hosts the zone, use **DNS only** for direct ingress.
@@ -57,7 +59,7 @@ wget -O /tmp/verify-direct-https-router.sh \
 sh /tmp/verify-direct-https-router.sh
 ```
 
-The helper is read-only. It checks Direct HTTPS ownership, firewall/certificate preflight, `nginx -t`, listeners, generated Nginx configuration, and the configured split-DNS target.
+The helper is read-only. It checks Direct HTTPS ownership, firewall/certificate preflight, `nginx -t`, listeners, generated Nginx configuration, TLS 1.0/1.1 rejection, TLS 1.2/1.3 acceptance, unknown-SNI rejection, staged HSTS, `server_tokens off`, the unchanged `200 OK` fallback, and fallback-only headers.
 
 Manual equivalent:
 
@@ -73,7 +75,7 @@ nginx -t -c /etc/nginx/uci.conf
 uci show firewall.telego_direct_https
 uci -q show uhttpd.main
 uci -q show dhcp.@dnsmasq[0] | grep -F 'web.example.com' || true
-netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 ```
 
 Expected package-owned firewall section:
@@ -126,7 +128,7 @@ With curl:
 curl -k -I https://<router-lan-ip>:10443/cgi-bin/luci/
 ```
 
-Expect LuCI/uhttpd. `<router-lan-ip>:443` belongs to Direct HTTPS Nginx and must not expose LuCI.
+Expect LuCI/uhttpd. `<router-lan-ip>:443` belongs to Direct HTTPS Nginx and must not expose LuCI. If the administrator retained plain HTTP LuCI, `http://<router-lan-ip>/` on `:80` must also keep working; the package does not change that listener.
 
 ## 5. WAN :443 must reach Nginx directly
 
@@ -144,7 +146,7 @@ For IPv6:
 IP_FAMILY=6 sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IPV6>
 ```
 
-The helper verifies public TLS, HTTP/2, the actual remote IP, and that the LuCI management port is not published on WAN.
+The helper verifies public TLS, HTTP/2, the actual remote IP, HSTS with the expected `max-age` (default `604800`), absence of an Nginx version in the `Server` header, and that the LuCI HTTPS management port is not published on WAN. After promotion to one-year HSTS, run it with `HSTS_MAX_AGE=31536000`.
 
 Manual test:
 
@@ -201,7 +203,7 @@ Perform a controlled reboot and then re-run:
 /usr/libexec/nginx-telego-firewall status
 /usr/libexec/nginx-telego-cert status
 nginx -t -c /etc/nginx/uci.conf
-netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 ```
 
 Repeat the LAN WEB, LAN LuCI, and external WAN checks. This proves persistence across UCI, uhttpd, dnsmasq, Nginx, and firewall4.
@@ -247,7 +249,8 @@ Expected:
 - Direct HTTPS Nginx `:443` is absent;
 - Cloudflare ingress listens on `127.0.0.1:18080`;
 - telEgo WEB remains on `127.0.0.1:8080`;
-- if P12.6 originally moved uhttpd away from 443, only that package-owned original listener is restored;
+- if P12.6 originally moved uhttpd HTTPS away from 443, only that package-owned original listener is restored;
+- LuCI `listen_http`/`:80` is unchanged during both apply and rollback;
 - pre-existing LuCI `:10443` or split-DNS state remains administrator-owned and is not removed automatically.
 
 ## 10. PASS criteria
@@ -261,7 +264,11 @@ Expected:
 | WAN TCP/443 | reaches Nginx :443 through the managed INPUT allow |
 | WAN management port | not published by the package |
 | Legacy :18443 | listener/redirect absent |
-| TLS | certificate/key/hostname match |
+| TLS | TLS 1.0/1.1 rejected; TLS 1.2/1.3 accepted; unknown SNI rejected; certificate/key/hostname match |
+| HSTS | `max-age` matches UCI; no `includeSubDomains`/`preload` |
+| Nginx disclosure | `Server` contains no Nginx version |
+| Fallback | remains `200 OK`; only `nosniff`, `no-referrer`, `no-store`; no CSP/Permissions-Policy |
+| LuCI HTTP :80 | package does not change it; if administrator-enabled, it persists |
 | HTTP/2 | public endpoint negotiates HTTP/2 |
 | Telegram | a real WEB session works |
 | Reboot | topology persists |
