@@ -20,8 +20,9 @@ Nginx integration for telEgo native WEB Proxy. Installs reusable upstream and
 location snippets, an explicit managed-file ownership registry, canonical repair
 copies, guarded administrator operations for foreign/custom conf.d files, a
 restricted transactional editor and lifecycle helper for foreign files, a
-transactional firewall4 manager plus LuCI/split-DNS platform reconciliation for Direct HTTPS dedicated TCP/443 ownership, X.509/ACME
-readiness checks with a renewal hotplug preflight, and opt-in native shared-port,
+transactional firewall4 manager plus LuCI/split-DNS platform reconciliation for
+Direct HTTPS dedicated TCP/443 ownership, X.509/ACME readiness checks with a
+renewal hotplug preflight, and opt-in native shared-port,
 Cloudflare Tunnel, or Direct HTTPS ingress profiles. Managed listeners are disabled
 by default.
 endef
@@ -67,6 +68,8 @@ define Package/nginx-telego/install
 		$(1)/usr/libexec/nginx-telego-config-migrate
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-firewall \
 		$(1)/usr/libexec/nginx-telego-firewall
+	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-platform \
+		$(1)/usr/libexec/nginx-telego-platform
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-cert \
 		$(1)/usr/libexec/nginx-telego-cert
 	$(INSTALL_BIN) ./files/usr/libexec/nginx-telego-admin \
@@ -95,12 +98,13 @@ define Package/nginx-telego/prerm
 	if [ -x /usr/libexec/nginx-telego-firewall ]; then
 		/usr/libexec/nginx-telego-firewall remove || exit $?
 	fi
+	if [ -x /usr/libexec/nginx-telego-reconcile ]; then
+		/usr/libexec/nginx-telego-reconcile remove-generated || exit $?
+	fi
 	if [ -x /usr/libexec/nginx-telego-platform ]; then
 		/usr/libexec/nginx-telego-platform remove || exit $?
 	fi
-	[ -x /usr/libexec/nginx-telego-reconcile ] || exit 0
-	/usr/libexec/nginx-telego-reconcile remove-generated
-	exit $$?
+	exit 0
 endef
 
 $(eval $(call BuildPackage,nginx-telego))
