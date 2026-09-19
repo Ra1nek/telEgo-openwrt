@@ -19,12 +19,12 @@ OpenWrt ACME (DNS-01)
 /etc/ssl/acme/<hostname>.fullchain.crt
 /etc/ssl/acme/<hostname>.key
       ↓
-Nginx :18443
+Nginx :443
       ↓
 telEgo WEB 127.0.0.1:8080
 ```
 
-DNS-01 подтверждает владение доменом через TXT-запись. Поэтому ACME не требуется временно занимать WAN TCP/80 или TCP/443 и не требуется менять ownership LuCI/uhttpd или Direct HTTPS firewall redirect.
+DNS-01 подтверждает владение доменом через TXT-запись. Поэтому ACME-клиенту не требуется временно занимать TCP/80 или TCP/443. Ownership Direct HTTPS остаётся у P12.6: Nginx владеет `:443`, LuCI/uhttpd использует отдельный management port, а firewall4 публикует только WAN TCP/443.
 
 ## Пакеты
 
@@ -180,7 +180,7 @@ logread -e nginx-telego-acme
 
 ```sh
 uci show firewall.telego_direct_https
-ss -lntp | grep ':18443'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443'
 ```
 
 ## Граница ответственности
@@ -193,6 +193,6 @@ ss -lntp | grep ':18443'
 - не добавляет ACME как обязательную зависимость `nginx-telego`;
 - не перехватывает штатный `acme.renew` Nginx trigger;
 - не удаляет пользовательские certificate/key files;
-- не использует HTTP-01/ALPN-01 и не отбирает порты 80/443 у существующих сервисов.
+- не использует HTTP-01/ALPN-01 и сам ACME-клиент не занимает порты 80/443; ownership TCP/443 определяется выбранным ingress-профилем.
 
 ACME остаётся отдельным OpenWrt subsystem. telEgo только потребляет стабильные certificate paths, показывает их состояние и добавляет безопасный preflight перед штатным renewal reload.
