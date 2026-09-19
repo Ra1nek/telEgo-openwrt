@@ -65,7 +65,7 @@ function managedWebContractError() {
 function directHttpsPortError() {
 	const bind = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
 	return /:443$/.test(bind)
-		? _('Direct HTTPS reserves WAN TCP/443 for WEB/Nginx. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443.')
+		? _('Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN. Move the telEgo MTProxy listener to another port, or use Native Shared-Port to share public TCP/443.')
 		: null;
 }
 
@@ -276,7 +276,7 @@ return view.extend({
 			form.ListValue,
 			'_mode',
 			_('Mode'),
-			_('Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves WAN TCP/443 for WEB/Nginx, so MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443.')
+			_('Direct HTTPS and Cloudflare are normal ingress modes. Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN and moves LuCI HTTPS to a separate management port; MTProxy must use another public port. Native Shared-Port remains available when WEB and MTProxy must share public TCP/443.')
 		);
 		o.value('disabled', _('Disabled'));
 		o.value('direct_https', 'Direct HTTPS');
