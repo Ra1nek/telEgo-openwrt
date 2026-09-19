@@ -304,7 +304,7 @@ Reconciler и P8 admin helper используют один kernel `flock(2)` lo
 
 ### Direct HTTPS topology
 
-P12.6 Direct HTTPS использует dedicated-port topology: Nginx напрямую владеет TCP/443 и для LAN, и для WAN. LuCI/uhttpd использует отдельный HTTPS management port (по умолчанию `:10443`). Optional split DNS направляет WEB hostname на LAN IPv4 роутера, поэтому LAN WEB traffic не требует public-IP hairpin NAT. Firewall ownership ограничен package-owned WAN INPUT allow для TCP/443.
+P12.6/P12.7 Direct HTTPS использует dedicated-port topology: Nginx напрямую владеет TCP/443 и для LAN, и для WAN. Только uhttpd HTTPS listener, ранее занимавший `:443`, переносится на отдельный management port (по умолчанию `:10443`); plain HTTP LuCI `:80` остаётся administrator-managed. Optional split DNS направляет WEB hostname на LAN IPv4 роутера, firewall ownership ограничен package-owned WAN INPUT allow для TCP/443, а P12.7 добавляет TLS 1.2/1.3 baseline, staged HSTS и `server_tokens off`.
 
 ```mermaid
 flowchart LR
