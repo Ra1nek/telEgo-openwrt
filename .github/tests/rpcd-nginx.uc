@@ -6,7 +6,7 @@ const firewallStatus = nginx.firewall_status.call();
 assert(firewallStatus.ok && firewallStatus.profile_enabled, 'firewall status profile enabled');
 assert(firewallStatus.section_state == 'owned' && firewallStatus.managed_match, 'firewall managed state');
 assert(firewallStatus.wan_zone_count == 1 && firewallStatus.wan_input == 'reject', 'firewall WAN status');
-assert(firewallStatus.foreign_wan443 == '' && firewallStatus.foreign_wan18443 == '' && !firewallStatus.pending_changes, 'firewall conflict status');
+assert(firewallStatus.foreign_wan443 == '' && !firewallStatus.pending_changes, 'firewall conflict status');
 assert(global.firewall_command == "/usr/libexec/nginx-telego-firewall 'status' 2>&1", 'firewall status uses dedicated helper');
 
 const firewallPreflight = nginx.firewall_preflight.call();
@@ -121,4 +121,4 @@ assert(!revisionUnavailable.ok && revisionUnavailable.error == 'editor-helper-un
 const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
 assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 
-print('rpcd Nginx P12 ACME ingress and foreign lifecycle tests passed\n');
+print('rpcd Nginx P12.6 dedicated ingress and foreign lifecycle tests passed\n');
