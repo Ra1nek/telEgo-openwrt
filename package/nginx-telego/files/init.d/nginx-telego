@@ -6,6 +6,7 @@ USE_PROCD=1
 
 RECONCILE=${NGINX_TELEGO_RECONCILE:-/usr/libexec/nginx-telego-reconcile}
 FIREWALL_MANAGER=${NGINX_TELEGO_FIREWALL:-/usr/libexec/nginx-telego-firewall}
+PLATFORM_MANAGER=${NGINX_TELEGO_PLATFORM:-/usr/libexec/nginx-telego-platform}
 UCI_BIN=${UCI_BIN:-/sbin/uci}
 
 is_enabled() {
@@ -22,16 +23,30 @@ direct_https_enabled() {
 
 apply_config() {
 	if direct_https_enabled; then
-		# Fail before exposing/changing the Nginx backend when WAN/443 cannot be
-		# owned safely. Then render Nginx before installing the public redirect.
+		# Dedicated Direct HTTPS owns TCP/443 directly in Nginx. Validate both
+		# system-side port ownership and WAN firewall ownership before mutation.
+		"$PLATFORM_MANAGER" check || return 1
 		"$FIREWALL_MANAGER" check || return 1
-		"$RECONCILE" apply || return 1
+
+		# Move package-managed LuCI HTTPS away from :443 and install optional
+		# split DNS before Nginx claims the socket. If Nginx reconciliation then
+		# fails, restore only platform state that this package actually owned.
+		"$PLATFORM_MANAGER" apply || return 1
+		if ! "$RECONCILE" apply; then
+			"$PLATFORM_MANAGER" remove || true
+			return 1
+		fi
+
+		# Public exposure is the final step: WAN TCP/443 is accepted only after
+		# the direct Nginx listener has reconciled successfully.
 		"$FIREWALL_MANAGER" apply
 	else
-		# Remove any package-owned WAN redirect before removing or switching the
-		# backend listener so public traffic is never sent to a dead :18443.
+		# Stop WAN exposure first, then release Nginx :443, then restore only
+		# package-owned LuCI/split-DNS state. This prevents traffic from being
+		# delivered to a management listener during a profile transition.
 		"$FIREWALL_MANAGER" apply || return 1
-		"$RECONCILE" apply
+		"$RECONCILE" apply || return 1
+		"$PLATFORM_MANAGER" apply
 	fi
 }
 
