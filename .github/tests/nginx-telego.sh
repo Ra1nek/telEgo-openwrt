@@ -152,15 +152,15 @@ export FIX_SHARED_HOSTNAME='' FIX_WEB_HOSTNAME=proxy.example.com
 "$RENDER" apply
 grep -q 'server_name proxy.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
-# Direct HTTPS owns real WEB TLS on the private firewall redirect backend.
+# Direct HTTPS owns real WEB TLS directly on dedicated TCP/443.
 export FIX_SHARED_ENABLED=0 FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=1
 export FIX_DIRECT_HOSTNAME=direct.example.com FIX_WEB_HOSTNAME=direct.example.com
 export FIX_PUBLIC_BIND=0.0.0.0:9443
 "$RENDER" apply
-grep -q 'listen 0.0.0.0:18443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
-grep -Fq 'listen [::]:18443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
-grep -q 'listen 0.0.0.0:18443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
-grep -Fq 'listen [::]:18443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'listen 0.0.0.0:443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'listen [::]:443 ssl default_server;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -q 'listen 0.0.0.0:443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
+grep -Fq 'listen [::]:443 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'server_name direct.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'http2 on;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q "ssl_certificate $FIX_DIRECT_CERT;" "$NGINX_TELEGO_INGRESS_OUTPUT"
