@@ -172,13 +172,13 @@ export FIX_DIRECT_HOSTNAME='' FIX_WEB_HOSTNAME=direct.example.com
 "$RENDER" apply
 grep -q 'server_name direct.example.com;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
-# Direct HTTPS owns WAN/443 for WEB. MTProxy on the same port is rejected
+# Direct HTTPS owns TCP/443 on LAN and WAN. MTProxy on the same port is rejected
 # before generated state changes; Native Shared-Port is the supported shared-443 mode.
 cp "$NGINX_TELEGO_INGRESS_OUTPUT" "$work/before-port-contract"
 export FIX_PUBLIC_BIND=0.0.0.0:443
 if "$RENDER" apply >"$work/direct-port.out" 2>&1; then exit 1; fi
 cmp "$work/before-port-contract" "$NGINX_TELEGO_INGRESS_OUTPUT"
-grep -q 'Direct HTTPS reserves WAN TCP/443' "$work/direct-port.out"
+grep -q 'Direct HTTPS reserves TCP/443 for WEB/Nginx on LAN and WAN' "$work/direct-port.out"
 export FIX_PUBLIC_BIND=0.0.0.0:9443
 
 # A managed WEB ingress cannot be published while the telEgo daemon is disabled.
