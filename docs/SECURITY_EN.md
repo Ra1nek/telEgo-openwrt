@@ -303,7 +303,7 @@ Stable release tags must match `PKG_VERSION`. The release workflow supplies the 
 Before exposing telEgo to the Internet:
 
 - [ ] Confirm the intended MTProxy bind address/port; Direct HTTPS must not use TCP/443 for MTProxy.
-- [ ] Confirm firewall/NAT rules expose only required ports; Direct HTTPS must not expose WAN TCP/18443 directly.
+- [ ] Confirm the firewall exposes only required ports; Direct HTTPS should have only the managed WAN TCP/443 INPUT allow, while LuCI management/:80 are not published by the package.
 - [ ] Keep WEB Proxy and metrics private listeners on loopback unless you have a reviewed reason to change them.
 - [ ] Use a valid administrator/ACME-managed TLS certificate and run the certificate preflight.
 - [ ] Confirm Nginx includes the project snippet without removing the sanitized `419` path.
