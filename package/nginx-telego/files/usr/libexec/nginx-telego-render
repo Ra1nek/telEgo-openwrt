@@ -441,7 +441,7 @@ if is_enabled "$direct_https_enabled"; then
     direct_https_certificate=$(uci_get nginx_telego direct_https certificate '')
     direct_https_certificate_key=$(uci_get nginx_telego direct_https certificate_key '')
     validate_tls_material "$direct_https_certificate" "$direct_https_certificate_key" 'Direct HTTPS'
-    check_port_free 18443 'Direct HTTPS ingress'
+    check_port_free 443 'Direct HTTPS ingress'
 fi
 
 if [ "$desired_fallback" -eq 1 ]; then
@@ -504,18 +504,18 @@ fi
 if is_enabled "$direct_https_enabled"; then
     cat >>"$ingress_candidate" <<EOF_DIRECT_HTTPS
 
-# Direct HTTPS backend: nginx-telego-firewall redirects WAN TCP/443 -> Nginx :18443.
-# The listener intentionally binds all local addresses so firewall4 REDIRECT can
-# deliver packets without changing uhttpd/LuCI ownership of LAN TCP/443.
+# Direct HTTPS dedicated endpoint: Nginx owns TCP/443 on all local addresses.
+# nginx-telego-platform moves LuCI/uhttpd to its configured management port;
+# nginx-telego-firewall separately opens WAN TCP/443 without NAT/REDIRECT.
 server {
-    listen 0.0.0.0:18443 ssl default_server;
-    listen [::]:18443 ssl default_server;
+    listen 0.0.0.0:443 ssl default_server;
+    listen [::]:443 ssl default_server;
     ssl_reject_handshake on;
 }
 
 server {
-    listen 0.0.0.0:18443 ssl;
-    listen [::]:18443 ssl;
+    listen 0.0.0.0:443 ssl;
+    listen [::]:443 ssl;
     http2 on;
     server_name $direct_https_hostname;
     client_max_body_size 16m;
