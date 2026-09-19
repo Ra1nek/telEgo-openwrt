@@ -543,6 +543,34 @@ return view.extend({
 
 		o = s.option(
 			form.DummyValue,
+			'_platform_status',
+			_('Platform Status'),
+			_('Read-only Direct HTTPS ownership status for LuCI/uhttpd and optional dnsmasq split DNS.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.cfgvalue = platformStatusText;
+
+		o = s.option(
+			form.Button,
+			'_platform_preflight',
+			_('Platform Preflight'),
+			_('Checks LuCI TCP/443 migration safety, the configured management port, optional split DNS, pending UCI changes and ownership drift without changing services or configuration.')
+		);
+		o.depends('_mode', 'direct_https');
+		o.inputtitle = _('Run Platform Preflight');
+		o.inputstyle = 'apply';
+		o.onclick = function () {
+			return L.resolveDefault(callPlatformPreflight(), {
+				ok: false,
+				error: 'rpc-failed'
+			}).then(function (result) {
+				notifyPlatformPreflight(result);
+				return result;
+			});
+		};
+
+		o = s.option(
+			form.DummyValue,
 			'_acme_dns01',
 			_('ACME DNS-01'),
 			_('OpenWrt ACME can issue and renew the certificate without taking over WAN ports 80 or 443. For an ACME-managed hostname, use /etc/ssl/acme/<hostname>.fullchain.crt and /etc/ssl/acme/<hostname>.key. The nginx-telego hotplug hook preflights renewed material before OpenWrt emits acme.renew; the stock Nginx service then performs nginx -t and reloads safely.')
