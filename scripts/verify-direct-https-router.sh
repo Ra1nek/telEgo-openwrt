@@ -207,7 +207,7 @@ if [ -r /etc/nginx/conf.d/80-telego-ingress.conf ]; then
 	grep -Fq "add_header Strict-Transport-Security \"max-age=$hsts_age\" always;" /etc/nginx/conf.d/80-telego-ingress.conf \
 		&& pass "staged HSTS max-age=$hsts_age is generated" \
 		|| fail "generated HSTS does not match nginx_telego.direct_https.hsts_max_age=$hsts_age"
-	if grep -Eq 'includeSubDomains|preload' /etc/nginx/conf.d/80-telego-ingress.conf; then
+	if grep -Eq 'Strict-Transport-Security.*(includeSubDomains|preload)' /etc/nginx/conf.d/80-telego-ingress.conf; then
 		fail "managed HSTS unexpectedly enables includeSubDomains or preload"
 	else
 		pass "HSTS excludes includeSubDomains and preload"
