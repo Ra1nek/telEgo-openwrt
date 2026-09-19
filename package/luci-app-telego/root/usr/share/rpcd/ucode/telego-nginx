@@ -59,7 +59,6 @@ function firewall_status() {
 			wan_zone_count: 0,
 			wan_input: 'unknown',
 			foreign_wan443: '',
-			foreign_wan18443: '',
 			pending_changes: false,
 			error: result.error
 		};
@@ -84,7 +83,6 @@ function firewall_status() {
 		'wan_zone_count',
 		'wan_input',
 		'foreign_wan443',
-		'foreign_wan18443',
 		'pending_changes'
 	];
 	for (let key in required)
@@ -102,7 +100,6 @@ function firewall_status() {
 		wan_zone_count: int(+values.wan_zone_count),
 		wan_input: values.wan_input,
 		foreign_wan443: values.foreign_wan443 == '-' ? '' : values.foreign_wan443,
-		foreign_wan18443: values.foreign_wan18443 == '-' ? '' : values.foreign_wan18443,
 		pending_changes: values.pending_changes == '1',
 		error: ''
 	};
