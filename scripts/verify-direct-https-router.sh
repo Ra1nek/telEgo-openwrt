@@ -256,7 +256,7 @@ if command -v openssl >/dev/null 2>&1 && [ -n "$tls_hostname" ]; then
 		flag=$1
 		label=$2
 		expect=$3
-		out=/tmp/nginx-telego-tls-probe.$.out
+		out=/tmp/nginx-telego-tls-probe.$$.out
 		if openssl s_client -connect 127.0.0.1:443 -servername "$tls_hostname" "$flag" </dev/null >"$out" 2>&1; then
 			rc=0
 		else
@@ -274,7 +274,7 @@ if command -v openssl >/dev/null 2>&1 && [ -n "$tls_hostname" ]; then
 	tls_probe -tls1_2 'TLS 1.2' pass
 	tls_probe -tls1_3 'TLS 1.3' pass
 
-	unknown_out=/tmp/nginx-telego-unknown-sni.$.out
+	unknown_out=/tmp/nginx-telego-unknown-sni.$$.out
 	if openssl s_client -connect 127.0.0.1:443 -servername invalid-sni.nginx-telego.invalid -tls1_2 </dev/null >"$unknown_out" 2>&1; then
 		fail "unknown SNI TLS handshake unexpectedly accepted"
 	else
