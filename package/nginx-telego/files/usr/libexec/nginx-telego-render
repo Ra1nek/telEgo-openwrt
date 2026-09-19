@@ -64,6 +64,15 @@ is_enabled() {
     esac
 }
 
+validate_hsts_max_age() {
+    value=$1
+    case "$value" in
+        ''|*[!0-9]*) fail "Direct HTTPS HSTS max-age must be an integer number of seconds: $value" ;;
+    esac
+    [ "$value" -le 63072000 ] 2>/dev/null ||
+        fail "Direct HTTPS HSTS max-age must be between 0 and 63072000 seconds: $value"
+}
+
 role_marker() {
     case "$1" in
         ingress) printf '%s' "$INGRESS_ROLE_MARKER" ;;
@@ -453,7 +462,9 @@ if is_enabled "$direct_https_enabled"; then
     validate_direct_https_contract "$direct_https_hostname"
     direct_https_certificate=$(uci_get nginx_telego direct_https certificate '')
     direct_https_certificate_key=$(uci_get nginx_telego direct_https certificate_key '')
+    direct_https_hsts_max_age=$(uci_get nginx_telego direct_https hsts_max_age 604800)
     validate_tls_material "$direct_https_certificate" "$direct_https_certificate_key" 'Direct HTTPS'
+    validate_hsts_max_age "$direct_https_hsts_max_age"
     check_port_free 443 'Direct HTTPS ingress'
 fi
 
@@ -477,6 +488,7 @@ if is_enabled "$shared_enabled"; then
 # Unknown SNI is rejected before it can reach the WEB fallback.
 server {
     listen 127.0.0.1:8443 ssl proxy_protocol default_server;
+    server_tokens off;
     ssl_reject_handshake on;
 }
 
@@ -485,6 +497,7 @@ server {
     http2 on;
     server_name $shared_hostname;
     client_max_body_size 16m;
+    server_tokens off;
 
     ssl_certificate $shared_certificate;
     ssl_certificate_key $shared_certificate_key;
@@ -496,12 +509,14 @@ server {
 # Separate certificate source used by telEgo's FakeTLS certificate fetcher.
 server {
     listen 127.0.0.1:8444 ssl default_server;
+    server_tokens off;
     ssl_reject_handshake on;
 }
 
 server {
     listen 127.0.0.1:8444 ssl;
     server_name $shared_hostname;
+    server_tokens off;
 
     ssl_certificate $shared_certificate;
     ssl_certificate_key $shared_certificate_key;
@@ -518,11 +533,13 @@ if is_enabled "$direct_https_enabled"; then
     cat >>"$ingress_candidate" <<EOF_DIRECT_HTTPS
 
 # Direct HTTPS dedicated endpoint: Nginx owns TCP/443 on all local addresses.
-# nginx-telego-platform moves LuCI/uhttpd to its configured management port;
+# nginx-telego-platform moves only LuCI/uhttpd HTTPS listeners that occupied
+# TCP/443; administrator-managed plain HTTP (commonly :80) is left untouched.
 # nginx-telego-firewall separately opens WAN TCP/443 without NAT/REDIRECT.
 server {
     listen 0.0.0.0:443 ssl default_server;
     listen [::]:443 ssl default_server;
+    server_tokens off;
     ssl_reject_handshake on;
 }
 
@@ -532,10 +549,15 @@ server {
     http2 on;
     server_name $direct_https_hostname;
     client_max_body_size 16m;
+    server_tokens off;
 
     ssl_certificate $direct_https_certificate;
     ssl_certificate_key $direct_https_certificate_key;
     ssl_protocols TLSv1.2 TLSv1.3;
+
+    # Staged HSTS: default is seven days. Deliberately no includeSubDomains
+    # and no preload; raise max-age only after deployment acceptance.
+    add_header Strict-Transport-Security "max-age=$direct_https_hsts_max_age" always;
 
     include /etc/nginx/snippets/telego.locations;
 }
@@ -556,6 +578,7 @@ server {
     listen 127.0.0.1:18080;
     server_name $cloudflare_hostname;
     access_log off;
+    server_tokens off;
 
     location / {
         proxy_pass http://telego_web;
@@ -637,6 +660,13 @@ server {
     listen 127.0.0.1:8090;
     server_name _;
     access_log off;
+    server_tokens off;
+
+    # These headers belong only to the ordinary fallback response. They are
+    # intentionally not injected into telEgo carrier responses.
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "no-referrer" always;
+    add_header Cache-Control "no-store" always;
 
     location / {
         default_type text/plain;
