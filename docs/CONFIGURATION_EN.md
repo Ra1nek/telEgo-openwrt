@@ -245,7 +245,7 @@ or a supported local Unix socket.
 
 `20-telego-core.conf` defines the shared `telego_web → 127.0.0.1:8080` upstream and the Nginx maps used by the integration. Its canonical repair source is stored under `/usr/share/nginx-telego/templates/20-telego-core.conf`.
 
-`telego.locations` is a reusable HTTP/WebSocket/fallback snippet for a normal Nginx TLS server. It is **not an MTProto handler**. Direct HTTPS includes it on Nginx `:18443`; Native Shared-Port includes it on the private TLS listener `:8443` after telEgo has separated MTProxy from ordinary TLS.
+`telego.locations` is a reusable HTTP/WebSocket/fallback snippet for a normal Nginx TLS server. It is **not an MTProto handler**. Direct HTTPS includes it on dedicated Nginx `:443`; Native Shared-Port includes it on the private TLS listener `:8443` after telEgo has separated MTProxy from ordinary TLS.
 
 The opt-in managed profiles use:
 
