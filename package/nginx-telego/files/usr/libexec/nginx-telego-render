@@ -247,7 +247,22 @@ port_conflict() {
     done
 
     if [ -r "$NGINX_UCI_CONFIG" ] &&
-       grep -Eq "^[[:space:]]*(option|list)[[:space:]]+listen[[:space:]].*(:|[[:space:]'\"])[[]?[^'\"]*:?${port}([[:space:]'\"]|$)" "$NGINX_UCI_CONFIG"; then
+       awk -v port="$port" '
+            /^[[:space:]]*config[[:space:]]+/ {
+                active = ($2 == "server")
+                next
+            }
+            active && /^[[:space:]]*(option|list)[[:space:]]+listen[[:space:]]+/ {
+                line = $0
+                sub(/^[[:space:]]*(option|list)[[:space:]]+listen[[:space:]]+/, "", line)
+                gsub(/["']/,"",line)
+                if (line ~ "(^|[^0-9])" port "([^0-9]|$)") {
+                    found = 1
+                    exit
+                }
+            }
+            END { exit found ? 0 : 1 }
+        ' "$NGINX_UCI_CONFIG"; then
         echo "$NGINX_UCI_CONFIG"
         return 0
     fi
