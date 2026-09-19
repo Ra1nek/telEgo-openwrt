@@ -145,6 +145,26 @@ grep -Fqx 'telego_direct_https|rule|enabled|1' "$FIREWALL_CONFIG"
 "$MANAGER" apply >/dev/null
 [[ $(wc -l <"$RELOAD_LOG") == 1 ]]
 
+# Legacy P12.5 package-owned redirect is migrated in place.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+telego_direct_https|redirect||
+telego_direct_https|redirect|name|telEgo Direct HTTPS (managed)
+telego_direct_https|redirect|src|wan
+telego_direct_https|redirect|proto|tcp
+telego_direct_https|redirect|src_dport|443
+telego_direct_https|redirect|dest_port|18443
+telego_direct_https|redirect|family|any
+telego_direct_https|redirect|target|dnat
+telego_direct_https|redirect|reflection|0
+telego_direct_https|redirect|enabled|1
+STATE
+"$MANAGER" apply >/dev/null
+grep -Fqx 'telego_direct_https|rule|dest_port|443' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|target|ACCEPT' "$FIREWALL_CONFIG"
+! grep -q '^telego_direct_https|redirect|' "$FIREWALL_CONFIG"
+
+# A foreign WAN redirect that claims TCP/443 is rejected.
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
 foreign|redirect||
@@ -161,46 +181,66 @@ fi
 grep -q "foreign firewall entry 'redirect:foreign' already claims WAN TCP/443" "$work/foreign.out"
 cmp "$work/before" "$FIREWALL_CONFIG"
 
+# A foreign WAN INPUT ACCEPT rule for TCP/443 is also rejected.
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
-range|redirect||
-range|redirect|src|wan
-range|redirect|proto|tcp
-range|redirect|src_dport|440-450
+foreign_rule|rule||
+foreign_rule|rule|src|wan
+foreign_rule|rule|proto|tcp
+foreign_rule|rule|dest_port|443
+foreign_rule|rule|target|ACCEPT
+STATE
+if "$MANAGER" apply >"$work/foreign-rule.out" 2>&1; then
+  echo 'foreign WAN/443 input rule was unexpectedly accepted' >&2
+  exit 1
+fi
+grep -q "foreign firewall entry 'rule:foreign_rule' already claims WAN TCP/443" "$work/foreign-rule.out"
+
+# Port ranges that include 443 also claim the dedicated endpoint.
+baseline
+cat >>"$FIREWALL_CONFIG" <<'STATE'
+range|rule||
+range|rule|src|wan
+range|rule|proto|tcp
+range|rule|dest_port|440-450
+range|rule|target|ACCEPT
 STATE
 if "$MANAGER" apply >"$work/range.out" 2>&1; then exit 1; fi
 grep -q 'claims WAN TCP/443' "$work/range.out"
 
+# UDP/443 does not conflict with the TCP endpoint.
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
-udp443|redirect||
-udp443|redirect|src|wan
-udp443|redirect|proto|udp
-udp443|redirect|src_dport|443
+udp443|rule||
+udp443|rule|src|wan
+udp443|rule|proto|udp
+udp443|rule|dest_port|443
+udp443|rule|target|ACCEPT
 STATE
 "$MANAGER" apply >/dev/null
 grep -q '^udp443|' "$FIREWALL_CONFIG"
 
+# A broad WAN INPUT ACCEPT policy makes ownership ambiguous.
 baseline
 sed -i 's/wan|zone|input|reject/wan|zone|input|accept/' "$FIREWALL_CONFIG"
 if "$MANAGER" apply >"$work/accept.out" 2>&1; then exit 1; fi
 grep -q 'input ACCEPT' "$work/accept.out"
 
-
-# P12.6 has no private :18443 backend; WAN ownership is checked directly on TCP/443.
+# The reserved section name remains protected from administrator-owned content.
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
-telego_direct_https|redirect||
-telego_direct_https|redirect|name|Administrator rule
-telego_direct_https|redirect|src|wan
-telego_direct_https|redirect|proto|tcp
-telego_direct_https|redirect|src_dport|444
+telego_direct_https|rule||
+telego_direct_https|rule|name|Administrator rule
+telego_direct_https|rule|src|wan
+telego_direct_https|rule|proto|tcp
+telego_direct_https|rule|dest_port|444
 STATE
 cp "$FIREWALL_CONFIG" "$work/before"
 if "$MANAGER" apply >"$work/reserved.out" 2>&1; then exit 1; fi
 grep -q 'reserved firewall section' "$work/reserved.out"
 cmp "$work/before" "$FIREWALL_CONFIG"
 
+# Candidate fw4 failure restores the exact pre-transaction file.
 baseline
 cp "$FIREWALL_CONFIG" "$work/before"
 export FW4_FAIL_AT=2
@@ -211,6 +251,7 @@ grep -q 'firewall transaction rolled back' "$work/check-fail.out"
 [[ ! -s "$RELOAD_LOG" ]]
 unset FW4_FAIL_AT
 
+# Reload failure also rolls back and reloads the restored ruleset.
 baseline
 cp "$FIREWALL_CONFIG" "$work/before"
 export RELOAD_FAIL_AT=1
@@ -221,25 +262,36 @@ grep -q 'firewall transaction rolled back' "$work/reload-fail.out"
 [[ $(wc -l <"$RELOAD_LOG") == 2 ]]
 unset RELOAD_FAIL_AT
 
+# Disabled Direct HTTPS removes only the package-owned reserved section.
 baseline
 "$MANAGER" apply >/dev/null
 sed -i 's/direct_https|direct_https|enabled|1/direct_https|direct_https|enabled|0/' "$NGINX_CONFIG_STATE"
 "$MANAGER" apply >/dev/null
 ! grep -q '^telego_direct_https|' "$FIREWALL_CONFIG"
 
+# Pending administrator changes are never folded into a package transaction.
 baseline
 export UCI_PENDING=1
 if "$MANAGER" apply >"$work/pending.out" 2>&1; then exit 1; fi
 grep -q 'uncommitted firewall UCI changes' "$work/pending.out"
 unset UCI_PENDING
 
+# Check/preflight are read-only.
 baseline
 cp "$FIREWALL_CONFIG" "$work/before"
 "$MANAGER" check >/dev/null
 cmp "$work/before" "$FIREWALL_CONFIG"
 [[ ! -s "$RELOAD_LOG" ]]
 
-# LuCI status is read-only and machine-readable.
+baseline
+sed -i 's/direct_https|direct_https|enabled|1/direct_https|direct_https|enabled|0/' "$NGINX_CONFIG_STATE"
+cp "$FIREWALL_CONFIG" "$work/before"
+"$MANAGER" preflight >/dev/null
+cmp "$work/before" "$FIREWALL_CONFIG"
+[[ $(cat "$FW4_COUNT") == 1 ]]
+[[ ! -s "$RELOAD_LOG" ]]
+
+# Status is read-only and machine-readable.
 baseline
 status=$("$MANAGER" status)
 grep -Eq '^profile_enabled[[:space:]]+1$' <<<"$status"
@@ -252,17 +304,7 @@ grep -Eq '^pending_changes[[:space:]]+0$' <<<"$status"
 [[ ! -e "$FW4_COUNT" ]]
 [[ ! -s "$RELOAD_LOG" ]]
 
-# LuCI preflight validates Direct HTTPS readiness even before the profile is
-# enabled, and never mutates firewall state.
-baseline
-sed -i 's/direct_https|direct_https|enabled|1/direct_https|direct_https|enabled|0/' "$NGINX_CONFIG_STATE"
-cp "$FIREWALL_CONFIG" "$work/before"
-"$MANAGER" preflight >/dev/null
-cmp "$work/before" "$FIREWALL_CONFIG"
-[[ $(cat "$FW4_COUNT") == 1 ]]
-[[ ! -s "$RELOAD_LOG" ]]
-
-# Status surfaces foreign WAN/443 ownership without failing the read.
+# Status surfaces the exact kind of foreign WAN/443 owner.
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
 foreign_status|redirect||
@@ -271,9 +313,9 @@ foreign_status|redirect|proto|tcp
 foreign_status|redirect|src_dport|443
 STATE
 status=$("$MANAGER" status)
-grep -Eq '^foreign_wan443[[:space:]]+redirect:foreign_status
+grep -Eq '^foreign_wan443[[:space:]]+redirect:foreign_status$' <<<"$status"
 
-# There is no legacy backend-exposure status in the dedicated-port model.
+# Concurrent reconciliation is serialized.
 baseline
 block="$work/block"
 FW4_BLOCK="$block" "$MANAGER" check >"$work/first.out" 2>&1 &
@@ -292,37 +334,4 @@ grep -q 'another firewall reconciliation is already running' "$work/second.out"
 wait "$background_pid"
 background_pid=''
 
-echo 'nginx-telego firewall4 manager tests passed'
- <<<"$status"
-
-# Status also surfaces direct backend exposure without mutating state.
-baseline
-cat >>"$FIREWALL_CONFIG" <<'STATE'
-backend_status|rule||
-backend_status|rule|src|wan
-backend_status|rule|proto|tcp
-backend_status|rule|dest_port|18443
-backend_status|rule|target|ACCEPT
-STATE
-status=$("$MANAGER" status)
-grep -Eq '^foreign_wan18443[[:space:]]+rule:backend_status$' <<<"$status"
-
-baseline
-block="$work/block"
-FW4_BLOCK="$block" "$MANAGER" check >"$work/first.out" 2>&1 &
-background_pid=$!
-for _ in {1..100}; do
-  [[ -e "$block.entered" ]] && break
-  sleep 0.05
-done
-[[ -e "$block.entered" ]]
-if "$MANAGER" check >"$work/second.out" 2>&1; then
-  echo 'concurrent firewall reconciliation unexpectedly acquired the lock' >&2
-  exit 1
-fi
-grep -q 'another firewall reconciliation is already running' "$work/second.out"
-: >"$block.release"
-wait "$background_pid"
-background_pid=''
-
-echo 'nginx-telego firewall4 manager tests passed'
+echo 'nginx-telego P12.6 dedicated firewall manager tests passed'
