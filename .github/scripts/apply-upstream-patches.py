@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Apply the small OpenWrt-only delta to the pinned upstream telEgo source."""
 from pathlib import Path
+import subprocess
 
 ROOT = Path(__file__).resolve().parents[2]
 MAIN = ROOT / "telego-src" / "cmd" / "telego" / "main.go"
@@ -158,3 +159,9 @@ func TestBuildServerHello_WithALPN(t *testing.T) {
 if old_alpn_test not in test_text:
     raise SystemExit("expected pinned upstream ALPN test block not found")
 FAKETLS_TEST.write_text(test_text.replace(old_alpn_test, new_alpn_test, 1), encoding="utf-8")
+
+
+# Apply maintained OpenWrt-only Go deltas after the small in-script compatibility fixes.
+PATCH = ROOT / "patches" / "0001-dd-downlink-shaping.patch"
+subprocess.run(["git", "apply", "--check", str(PATCH)], cwd=ROOT / "telego-src", check=True)
+subprocess.run(["git", "apply", str(PATCH)], cwd=ROOT / "telego-src", check=True)

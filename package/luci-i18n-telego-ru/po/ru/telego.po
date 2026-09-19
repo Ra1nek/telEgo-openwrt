@@ -842,3 +842,22 @@ msgstr "не обнаружен"
 
 msgid "LAN address"
 msgstr "LAN-адрес"
+
+
+msgid "DD Downlink Chunk (bytes)"
+msgstr "Размер блока DD вниз (байт)"
+
+msgid "0 keeps the upstream raw-DD batching. For restrictive mobile networks, start with 1200 bytes together with a small DD downlink delay."
+msgstr "0 сохраняет стандартную пакетную отправку raw DD. Для мобильных сетей с фильтрацией начните с 1200 байт вместе с небольшой задержкой DD вниз."
+
+msgid "Use 0 or a value from 256 to 65536 bytes."
+msgstr "Используйте 0 или значение от 256 до 65536 байт."
+
+msgid "DD Downlink Delay"
+msgstr "Задержка DD вниз"
+
+msgid "Paces raw-DD proxy-to-client writes without blocking the event loop. 0s disables pacing; start with 2ms when testing mobile DPI degradation."
+msgstr "Разносит по времени отправку raw DD от прокси к клиенту, не блокируя цикл событий. 0s отключает pacing; при проверке деградации мобильным DPI начните с 2ms."
+
+msgid "Use 0s or a positive integer duration such as 500us, 2ms, or 1s."
+msgstr "Используйте 0s или положительную целую длительность, например 500us, 2ms или 1s."

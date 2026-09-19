@@ -48,6 +48,8 @@ config performance 'performance'
 	option prefer_ip 'prefer-ipv4'
 	option idle_timeout '5m'
 	option max_write_buffer_mb '0'
+	option dd_downlink_chunk '0'
+	option dd_downlink_delay '0s'
 	option client_silence_close '0s'
 
 config upstream 'upstream'

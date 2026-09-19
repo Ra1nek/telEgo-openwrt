@@ -602,6 +602,27 @@ function makeConfigMap() {
 	o.datatype = 'uinteger';
 	o.default = '0';
 
+	o = s.option(form.Value, 'dd_downlink_chunk', _('DD Downlink Chunk (bytes)'));
+	o.datatype = 'uinteger';
+	o.default = '0';
+	o.description = _('0 keeps the upstream raw-DD batching. For restrictive mobile networks, start with 1200 bytes together with a small DD downlink delay.');
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 65536)
+			? true
+			: _('Use 0 or a value from 256 to 65536 bytes.');
+	};
+
+	o = s.option(form.Value, 'dd_downlink_delay', _('DD Downlink Delay'));
+	o.datatype = 'string';
+	o.default = '0s';
+	o.description = _('Paces raw-DD proxy-to-client writes without blocking the event loop. 0s disables pacing; start with 2ms when testing mobile DPI degradation.');
+	o.validate = function (section_id, value) {
+		return /^(?:0s|[1-9][0-9]*(?:us|ms|s))$/.test(value)
+			? true
+			: _('Use 0s or a positive integer duration such as 500us, 2ms, or 1s.');
+	};
+
 	o = s.option(form.Value, 'client_silence_close', _('Client Silence Close'));
 	o.datatype = 'string';
 	o.default = '0s';

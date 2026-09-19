@@ -1,0 +1,202 @@
+diff --git a/pkg/gproxy/server.go b/pkg/gproxy/server.go
+--- a/pkg/gproxy/server.go
++++ b/pkg/gproxy/server.go
+@@ -97,5 +97,12 @@
+ 	// Backpressure
+ 	MaxWriteBuffer int // Max pending bytes per connection before closing (0 = 4MB default)
+ 
++	// Optional raw-DD downstream shaping (proxy -> client direction).
++	// DDDownlinkChunk caps one raw Obfuscated2 write. 0 keeps the upstream
++	// relay batch size. DDDownlinkDelay spaces successive DD writes without
++	// sleeping on the gnet event loop. 0 keeps the upstream no-pacing behavior.
++	DDDownlinkChunk int
++	DDDownlinkDelay time.Duration
++
+ 	// Anti-DPI record shaping (proxy -> client direction).
+ 	// EnableDRS turns on the Chrome-style probe-then-ramp record sizer:
+diff --git a/pkg/gproxy/handler.go b/pkg/gproxy/handler.go
+--- a/pkg/gproxy/handler.go
++++ b/pkg/gproxy/handler.go
+@@ -141,3 +141,6 @@
+ 	logger.Info("OOM protection: max %dMB write buffer per connection", maxWriteBuf/1024/1024)
++	if cfg.DDDownlinkChunk > 0 {
++		logger.Info("DD downstream shaping enabled: max chunk %d bytes, delay %v", cfg.DDDownlinkChunk, cfg.DDDownlinkDelay)
++	}
+ 
+ 	return h
+diff --git a/pkg/config/config.go b/pkg/config/config.go
+--- a/pkg/config/config.go
++++ b/pkg/config/config.go
+@@ -78,4 +78,6 @@
+ 	PreferIP         string   `toml:"prefer-ip"`
+ 	IdleTimeout      Duration `toml:"idle-timeout"`
+ 	MaxWriteBufferMB int      `toml:"max-write-buffer-mb"` // Max pending bytes per connection (0 = 4MB)
++	DDDownlinkChunk  int      `toml:"dd-downlink-chunk"`   // Raw DD proxy->client max write; 0 = upstream batch size
++	DDDownlinkDelay  Duration `toml:"dd-downlink-delay"`   // Delay between raw DD proxy->client writes; 0 = no pacing
+ 	// ClientSilenceClose: close a relay whose server reply has gone unanswered by
+@@ -262,4 +262,16 @@
+ 	cfg.ClientSilenceClose = c.Performance.ClientSilenceClose.Duration()
++	if c.Performance.DDDownlinkChunk < 0 || c.Performance.DDDownlinkChunk > 64*1024 {
++		return gproxy.Config{}, errors.New("dd-downlink-chunk must be between 0 and 65536 bytes")
++	}
++	ddDelay := c.Performance.DDDownlinkDelay.Duration()
++	if ddDelay < 0 {
++		return gproxy.Config{}, errors.New("dd-downlink-delay cannot be negative")
++	}
++	if ddDelay > 0 && c.Performance.DDDownlinkChunk == 0 {
++		return gproxy.Config{}, errors.New("dd-downlink-delay requires a non-zero dd-downlink-chunk")
++	}
++	cfg.DDDownlinkChunk = c.Performance.DDDownlinkChunk
++	cfg.DDDownlinkDelay = ddDelay
+ 	cfg.NumEventLoop = c.Performance.NumEventLoops
+ 
+ 	switch strings.ToLower(c.Performance.PreferIP) {
+diff --git a/pkg/gproxy/dc_events.go b/pkg/gproxy/dc_events.go
+--- a/pkg/gproxy/dc_events.go
++++ b/pkg/gproxy/dc_events.go
+@@ -38,4 +38,6 @@
+-	closed   atomic.Bool
+-	onClosed func()
+-	drs      *faketls.DRSState
++	closed          atomic.Bool
++	onClosed        func()
++	drs             *faketls.DRSState
++	ddNextWriteNs   atomic.Int64
++	ddWakeScheduled atomic.Bool
+ }
+@@ -137,34 +137,69 @@
++func (h *ProxyHandler) ddDownlinkChunkSize(available int) int {
++	n := min(available, relayBatchSize)
++	if limit := h.config.DDDownlinkChunk; limit > 0 && n > limit {
++		n = limit
++	}
++	return n
++}
++
++func (h *ProxyHandler) scheduleDDDownlinkWake(dcConn gnet.Conn, dcCtx *DCConnContext, delay time.Duration) {
++	if delay <= 0 || !dcCtx.ddWakeScheduled.CompareAndSwap(false, true) {
++		return
++	}
++	time.AfterFunc(delay, func() {
++		dcCtx.ddWakeScheduled.Store(false)
++		if dcCtx.closed.Load() || dcCtx.ClientCtx == nil || dcCtx.ClientCtx.State() == StateClosed {
++			return
++		}
++		_ = dcConn.Wake(nil)
++	})
++}
++
+ func (h *ProxyHandler) handleDCTrafficDD(dcConn gnet.Conn, dcCtx *DCConnContext) gnet.Action {
+ 	clientCtx := dcCtx.ClientCtx
+ 	data, _ := dcConn.Peek(-1)
+ 	if len(data) == 0 {
+ 		return gnet.None
++	}
++	if delay := h.config.DDDownlinkDelay; delay > 0 {
++		now := time.Now().UnixNano()
++		if next := dcCtx.ddNextWriteNs.Load(); next > now {
++			h.scheduleDDDownlinkWake(dcConn, dcCtx, time.Duration(next-now))
++			return gnet.None
++		}
+ 	}
+ 	if len(data) > max(h.maxWriteBuffer, relayBatchSize) {
+ 		return gnet.Close
+ 	}
+ 	if dcCtx.ToClient == nil {
+ 		dcCtx.ToClient = newRelayOutput(dcCtx.ClientConn, dcConn, clientCtx, h.maxWriteBuffer)
+ 	}
+-	n := dcCtx.ToClient.reserve(min(len(data), relayBatchSize), 1)
++	n := dcCtx.ToClient.reserve(h.ddDownlinkChunkSize(len(data)), 1)
+ 	if n == 0 {
+ 		return gnet.None
+ 	}
+ 	buffer, release := h.relayBuffer(n)
+ 	dcCtx.DCDecrypt.XORKeyStream(buffer, data[:n])
+ 	dcCtx.ClientEncrypt.XORKeyStream(buffer, buffer)
+ 	if err := dcCtx.ToClient.write(buffer, release); err != nil {
+ 		return gnet.Close
+ 	}
+ 	if counter := clientCtx.TrafficOut(); counter != nil {
+ 		counter.Add(int64(n))
+ 	}
+ 	clientCtx.recordServerActivity()
+ 	_, _ = dcConn.Discard(n)
++
++	delay := h.config.DDDownlinkDelay
++	if delay > 0 {
++		dcCtx.ddNextWriteNs.Store(time.Now().Add(delay).UnixNano())
++	}
+ 	if len(data) > n {
+-		if err := dcConn.Wake(nil); err != nil {
++		if delay > 0 {
++			h.scheduleDDDownlinkWake(dcConn, dcCtx, delay)
++		} else if err := dcConn.Wake(nil); err != nil {
+ 			return gnet.Close
+ 		}
+ 	}
+ 	return gnet.None
+ }
+diff --git a/pkg/gproxy/openwrt_dd_shaping_test.go b/pkg/gproxy/openwrt_dd_shaping_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/gproxy/openwrt_dd_shaping_test.go
+@@ -0,0 +1,19 @@
++package gproxy
++
++import "testing"
++
++func TestDDDownlinkChunkSizeOpenWrt(t *testing.T) {
++	handler := NewProxyHandler(&Config{}, &testLogger{})
++
++	if got := handler.ddDownlinkChunkSize(2 * relayBatchSize); got != relayBatchSize {
++		t.Fatalf("unshaped DD chunk = %d, want %d", got, relayBatchSize)
++	}
++
++	handler.config.DDDownlinkChunk = 1200
++	if got := handler.ddDownlinkChunkSize(2 * relayBatchSize); got != 1200 {
++		t.Fatalf("shaped DD chunk = %d, want 1200", got)
++	}
++	if got := handler.ddDownlinkChunkSize(700); got != 700 {
++		t.Fatalf("short DD chunk = %d, want 700", got)
++	}
++}
+diff --git a/pkg/config/openwrt_dd_shaping_test.go b/pkg/config/openwrt_dd_shaping_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/config/openwrt_dd_shaping_test.go
+@@ -0,0 +1,35 @@
++package config
++
++import (
++	"testing"
++	"time"
++)
++
++func TestOpenWrtDDDownlinkShapingConfig(t *testing.T) {
++	cfg := Config{
++		Secrets: map[string]string{"test": "0123456789abcdef0123456789abcdef"},
++		TLSFronting: TLSFrontingConfig{MaskHost: "example.com"},
++		Performance: PerformanceConfig{
++			DDDownlinkChunk: 1200,
++			DDDownlinkDelay: Duration(2 * time.Millisecond),
++		},
++	}
++	got, err := cfg.ToGProxyConfig()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if got.DDDownlinkChunk != 1200 || got.DDDownlinkDelay != 2*time.Millisecond {
++		t.Fatalf("DD shaping = %d/%v, want 1200/2ms", got.DDDownlinkChunk, got.DDDownlinkDelay)
++	}
++}
++
++func TestOpenWrtDDDownlinkDelayRequiresChunk(t *testing.T) {
++	cfg := Config{
++		Secrets: map[string]string{"test": "0123456789abcdef0123456789abcdef"},
++		TLSFronting: TLSFrontingConfig{MaskHost: "example.com"},
++		Performance: PerformanceConfig{DDDownlinkDelay: Duration(time.Millisecond)},
++	}
++	if _, err := cfg.ToGProxyConfig(); err == nil {
++		t.Fatal("expected DD downlink delay without chunk to be rejected")
++	}
++}

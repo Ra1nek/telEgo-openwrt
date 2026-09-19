@@ -67,6 +67,8 @@ uci() {
 		telego.performance.prefer_ip) printf '%s\n' 'prefer-ipv4' ;;
 		telego.performance.idle_timeout) printf '%s\n' '5m' ;;
 		telego.performance.max_write_buffer_mb) printf '%s\n' '0' ;;
+		telego.performance.dd_downlink_chunk) printf '%s\n' '1200' ;;
+		telego.performance.dd_downlink_delay) printf '%s\n' '2ms' ;;
 		telego.performance.client_silence_close) printf '%s\n' '0s' ;;
 		telego.upstream.socks5) printf '%s\n' '' ;;
 		telego.metrics.bind_to) printf '%s\n' '127.0.0.1:9090' ;;
@@ -117,6 +119,8 @@ generate_config
 test -s "$RUNTIME_CONFIG"
 assert_shared_tls_runtime
 grep -Fqx 'splice-proxy-protocol = 2' "$RUNTIME_CONFIG"
+grep -Fqx 'dd-downlink-chunk = 1200' "$RUNTIME_CONFIG"
+grep -Fqx 'dd-downlink-delay = "2ms"' "$RUNTIME_CONFIG"
 
 awk '/^\[web-proxy\]$/{on=1;next} /^\[/{on=0} on' "$RUNTIME_CONFIG" >"$tmp/web"
 grep -Fqx 'enabled = true' "$tmp/web"

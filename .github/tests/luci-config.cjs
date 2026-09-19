@@ -123,6 +123,20 @@ async function check(initialStatus, ingressMode = 'disabled') {
 	assert.notEqual(queueBudget.validate(null, '1'), true);
 	assert.notEqual(queueBudget.validate(null, '33'), true);
 
+	const ddChunk = options.find(o => o.section === 'performance' && o.name === 'dd_downlink_chunk');
+	assert.equal(ddChunk.validate(null, '0'), true);
+	assert.equal(ddChunk.validate(null, '1200'), true);
+	assert.equal(ddChunk.validate(null, '65536'), true);
+	assert.notEqual(ddChunk.validate(null, '255'), true);
+	assert.notEqual(ddChunk.validate(null, '65537'), true);
+
+	const ddDelay = options.find(o => o.section === 'performance' && o.name === 'dd_downlink_delay');
+	assert.equal(ddDelay.validate(null, '0s'), true);
+	assert.equal(ddDelay.validate(null, '500us'), true);
+	assert.equal(ddDelay.validate(null, '2ms'), true);
+	assert.notEqual(ddDelay.validate(null, '-1ms'), true);
+	assert.notEqual(ddDelay.validate(null, '2.5ms'), true);
+
 	if (initialStatus) {
 		assert.equal(root.querySelector('#telego-status-pid').textContent, '42');
 		if (initialStatus.metrics_available) {

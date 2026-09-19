@@ -185,6 +185,8 @@ generate_config() {
 		write_toml_string 'prefer-ip' "$(uci_get_default performance prefer_ip 'prefer-ipv4')"
 		write_toml_string 'idle-timeout' "$(uci_get_default performance idle_timeout '5m')"
 		write_toml_int 'max-write-buffer-mb' "$(uci_get_default performance max_write_buffer_mb '0')"
+		write_toml_int 'dd-downlink-chunk' "$(uci_get_default performance dd_downlink_chunk '0')"
+		write_toml_string 'dd-downlink-delay' "$(uci_get_default performance dd_downlink_delay '0s')"
 		write_toml_string 'client-silence-close' "$(uci_get_default performance client_silence_close '0s')"
 
 		printf '\n%s\n' '[upstream]'

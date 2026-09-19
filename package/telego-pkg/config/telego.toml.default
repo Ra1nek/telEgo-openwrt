@@ -28,6 +28,8 @@ tcp-buffer-kb = 128
 prefer-ip = "prefer-ipv4"
 idle-timeout = "5m"
 num-event-loops = 0
+dd-downlink-chunk = 0
+dd-downlink-delay = "0s"
 [upstream]
 retry-delay = "1s"
 connect-timeout = "10s"
