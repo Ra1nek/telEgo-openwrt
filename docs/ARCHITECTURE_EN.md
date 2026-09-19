@@ -302,7 +302,7 @@ See [NGINX_FILES_EN.md](NGINX_FILES_EN.md) for the complete ownership state mach
 
 ### Direct HTTPS topology
 
-P12.6 Direct HTTPS uses a dedicated-port topology: Nginx owns TCP/443 directly on both LAN and WAN. LuCI/uhttpd uses a separate HTTPS management port (default `:10443`). Optional split DNS resolves the WEB hostname to a router LAN IPv4 so LAN WEB traffic does not require public-IP hairpin NAT. Firewall ownership is limited to a package-owned WAN INPUT allow for TCP/443.
+P12.6/P12.7 Direct HTTPS uses a dedicated-port topology: Nginx owns TCP/443 directly on both LAN and WAN. Only the uhttpd HTTPS listener that previously occupied `:443` moves to a separate management port (default `:10443`); plain HTTP LuCI `:80` remains administrator-managed. Optional split DNS resolves the WEB hostname to a router LAN IPv4, firewall ownership is limited to a package-owned WAN INPUT allow for TCP/443, and P12.7 adds the TLS 1.2/1.3 baseline, staged HSTS, and `server_tokens off`.
 
 ```mermaid
 flowchart LR
