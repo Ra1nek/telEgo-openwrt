@@ -791,3 +791,54 @@ msgstr "LAN-адрес Split DNS"
 
 msgid "Optional router LAN IPv4 address returned for the WEB hostname to LAN clients. This avoids public-IP hairpin NAT. Leave empty to keep administrator-managed DNS unchanged."
 msgstr "Необязательный LAN IPv4-адрес роутера, который будет возвращаться LAN-клиентам для WEB hostname. Это исключает hairpin NAT через публичный IP. Оставьте пустым, чтобы не изменять DNS, которым управляет администратор."
+
+msgid "Platform Status"
+msgstr "Состояние платформы"
+
+msgid "Read-only Direct HTTPS ownership status for LuCI/uhttpd and optional dnsmasq split DNS."
+msgstr "Состояние владения Direct HTTPS для LuCI/uhttpd и необязательного split DNS dnsmasq. Только чтение."
+
+msgid "Platform Preflight"
+msgstr "Предварительная проверка платформы"
+
+msgid "Checks LuCI TCP/443 migration safety, the configured management port, optional split DNS, pending UCI changes and ownership drift without changing services or configuration."
+msgstr "Проверяет безопасность переноса LuCI с TCP/443, настроенный порт управления, необязательный split DNS, неприменённые изменения UCI и отклонения владения без изменения служб или конфигурации."
+
+msgid "Run Platform Preflight"
+msgstr "Запустить проверку платформы"
+
+msgid "Platform preflight passed."
+msgstr "Предварительная проверка платформы пройдена."
+
+msgid "Platform preflight failed:"
+msgstr "Предварительная проверка платформы не пройдена:"
+
+msgid "LuCI HTTPS"
+msgstr "HTTPS LuCI"
+
+msgid "uhttpd owns TCP/443"
+msgstr "uhttpd владеет TCP/443"
+
+msgid "uhttpd management listener"
+msgstr "listener управления uhttpd"
+
+msgid "Split DNS"
+msgstr "Split DNS"
+
+msgid "Pending platform changes"
+msgstr "Неприменённые изменения платформы"
+
+msgid "Administrator-owned"
+msgstr "Управляется администратором"
+
+msgid "Configured but absent"
+msgstr "Настроено, но отсутствует"
+
+msgid "present"
+msgstr "есть"
+
+msgid "not detected"
+msgstr "не обнаружен"
+
+msgid "LAN address"
+msgstr "LAN-адрес"
