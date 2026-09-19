@@ -134,13 +134,13 @@ STATE
 
 baseline
 "$MANAGER" apply >/dev/null
-grep -Fqx 'telego_direct_https|redirect|name|telEgo Direct HTTPS (managed)' "$FIREWALL_CONFIG"
-grep -Fqx 'telego_direct_https|redirect|src|wan' "$FIREWALL_CONFIG"
-grep -Fqx 'telego_direct_https|redirect|proto|tcp' "$FIREWALL_CONFIG"
-grep -Fqx 'telego_direct_https|redirect|src_dport|443' "$FIREWALL_CONFIG"
-grep -Fqx 'telego_direct_https|redirect|dest_port|18443' "$FIREWALL_CONFIG"
-grep -Fqx 'telego_direct_https|redirect|family|any' "$FIREWALL_CONFIG"
-grep -Fqx 'telego_direct_https|redirect|reflection|0' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|name|telEgo Direct HTTPS (managed)' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|src|wan' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|proto|tcp' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|dest_port|443' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|family|any' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|target|ACCEPT' "$FIREWALL_CONFIG"
+grep -Fqx 'telego_direct_https|rule|enabled|1' "$FIREWALL_CONFIG"
 [[ $(wc -l <"$RELOAD_LOG") == 1 ]]
 "$MANAGER" apply >/dev/null
 [[ $(wc -l <"$RELOAD_LOG") == 1 ]]
@@ -158,7 +158,7 @@ if "$MANAGER" apply >"$work/foreign.out" 2>&1; then
   echo 'foreign WAN/443 redirect was unexpectedly accepted' >&2
   exit 1
 fi
-grep -q "foreign firewall redirect 'foreign' already claims WAN TCP/443" "$work/foreign.out"
+grep -q "foreign firewall entry 'redirect:foreign' already claims WAN TCP/443" "$work/foreign.out"
 cmp "$work/before" "$FIREWALL_CONFIG"
 
 baseline
@@ -187,72 +187,7 @@ if "$MANAGER" apply >"$work/accept.out" 2>&1; then exit 1; fi
 grep -q 'input ACCEPT' "$work/accept.out"
 
 
-# A specific WAN input ACCEPT for the private Direct HTTPS backend is unsafe
-# even when the zone default is REJECT/DROP.
-baseline
-cat >>"$FIREWALL_CONFIG" <<'STATE'
-backend_allow|rule||
-backend_allow|rule|src|wan
-backend_allow|rule|proto|tcp
-backend_allow|rule|dest_port|18443
-backend_allow|rule|target|ACCEPT
-STATE
-cp "$FIREWALL_CONFIG" "$work/before"
-if "$MANAGER" apply >"$work/backend-allow.out" 2>&1; then
-  echo 'foreign WAN/18443 input rule was unexpectedly accepted' >&2
-  exit 1
-fi
-grep -q "exposes reserved Direct HTTPS backend WAN TCP/18443" "$work/backend-allow.out"
-cmp "$work/before" "$FIREWALL_CONFIG"
-
-# Broad/ranged WAN rules that include 18443 are also conflicts.
-baseline
-cat >>"$FIREWALL_CONFIG" <<'STATE'
-backend_range|rule||
-backend_range|rule|src|wan
-backend_range|rule|proto|tcp
-backend_range|rule|dest_port|18000-19000
-backend_range|rule|target|accept
-STATE
-if "$MANAGER" apply >"$work/backend-range.out" 2>&1; then exit 1; fi
-grep -q 'WAN TCP/18443' "$work/backend-range.out"
-
-# Space-separated UCI port lists cannot hide the reserved backend.
-baseline
-cat >>"$FIREWALL_CONFIG" <<'STATE'
-backend_list|rule||
-backend_list|rule|src|wan
-backend_list|rule|proto|tcp
-backend_list|rule|dest_port|80 18443
-backend_list|rule|target|ACCEPT
-STATE
-if "$MANAGER" apply >"$work/backend-list.out" 2>&1; then exit 1; fi
-grep -q 'WAN TCP/18443' "$work/backend-list.out"
-
-# A WAN redirect published directly on 18443 violates the reserved-backend
-# contract even if it forwards elsewhere.
-baseline
-cat >>"$FIREWALL_CONFIG" <<'STATE'
-backend_redirect|redirect||
-backend_redirect|redirect|src|wan
-backend_redirect|redirect|proto|tcp
-backend_redirect|redirect|src_dport|18443
-backend_redirect|redirect|dest_port|9443
-STATE
-if "$MANAGER" apply >"$work/backend-redirect.out" 2>&1; then exit 1; fi
-grep -q "redirect:backend_redirect" "$work/backend-redirect.out"
-
-# UDP-only backend rules do not conflict with the TCP listener.
-baseline
-cat >>"$FIREWALL_CONFIG" <<'STATE'
-backend_udp|rule||
-backend_udp|rule|src|wan
-backend_udp|rule|proto|udp
-backend_udp|rule|dest_port|18443
-backend_udp|rule|target|ACCEPT
-STATE
-"$MANAGER" apply >/dev/null
-
+# P12.6 has no private :18443 backend; WAN ownership is checked directly on TCP/443.
 baseline
 cat >>"$FIREWALL_CONFIG" <<'STATE'
 telego_direct_https|redirect||
@@ -313,7 +248,6 @@ grep -Eq '^managed_match[[:space:]]+0$' <<<"$status"
 grep -Eq '^wan_zone_count[[:space:]]+1$' <<<"$status"
 grep -Eq '^wan_input[[:space:]]+reject$' <<<"$status"
 grep -Eq '^foreign_wan443[[:space:]]+-$' <<<"$status"
-grep -Eq '^foreign_wan18443[[:space:]]+-$' <<<"$status"
 grep -Eq '^pending_changes[[:space:]]+0$' <<<"$status"
 [[ ! -e "$FW4_COUNT" ]]
 [[ ! -s "$RELOAD_LOG" ]]
@@ -337,7 +271,29 @@ foreign_status|redirect|proto|tcp
 foreign_status|redirect|src_dport|443
 STATE
 status=$("$MANAGER" status)
-grep -Eq '^foreign_wan443[[:space:]]+foreign_status$' <<<"$status"
+grep -Eq '^foreign_wan443[[:space:]]+redirect:foreign_status
+
+# There is no legacy backend-exposure status in the dedicated-port model.
+baseline
+block="$work/block"
+FW4_BLOCK="$block" "$MANAGER" check >"$work/first.out" 2>&1 &
+background_pid=$!
+for _ in {1..100}; do
+  [[ -e "$block.entered" ]] && break
+  sleep 0.05
+done
+[[ -e "$block.entered" ]]
+if "$MANAGER" check >"$work/second.out" 2>&1; then
+  echo 'concurrent firewall reconciliation unexpectedly acquired the lock' >&2
+  exit 1
+fi
+grep -q 'another firewall reconciliation is already running' "$work/second.out"
+: >"$block.release"
+wait "$background_pid"
+background_pid=''
+
+echo 'nginx-telego firewall4 manager tests passed'
+ <<<"$status"
 
 # Status also surfaces direct backend exposure without mutating state.
 baseline
