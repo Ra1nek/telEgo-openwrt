@@ -7,6 +7,7 @@ USE_PROCD=1
 RECONCILE=${NGINX_TELEGO_RECONCILE:-/usr/libexec/nginx-telego-reconcile}
 FIREWALL_MANAGER=${NGINX_TELEGO_FIREWALL:-/usr/libexec/nginx-telego-firewall}
 PLATFORM_MANAGER=${NGINX_TELEGO_PLATFORM:-/usr/libexec/nginx-telego-platform}
+NGINX_INIT=${NGINX_INIT:-/etc/init.d/nginx}
 UCI_BIN=${UCI_BIN:-/sbin/uci}
 
 is_enabled() {
@@ -19,6 +20,27 @@ is_enabled() {
 direct_https_enabled() {
 	value=$($UCI_BIN -q get nginx_telego.direct_https.enabled 2>/dev/null || true)
 	is_enabled "$value"
+}
+
+ensure_nginx_running() {
+	[ -x "$NGINX_INIT" ] || {
+		echo "nginx-telego: nginx init script not found or not executable: $NGINX_INIT" >&2
+		return 1
+	}
+
+	if "$NGINX_INIT" status >/dev/null 2>&1; then
+		return 0
+	fi
+
+	"$NGINX_INIT" start || {
+		echo 'nginx-telego: failed to start nginx after reconciliation' >&2
+		return 1
+	}
+
+	"$NGINX_INIT" status >/dev/null 2>&1 || {
+		echo 'nginx-telego: nginx did not become active after start' >&2
+		return 1
+	}
 }
 
 apply_config() {
@@ -37,8 +59,13 @@ apply_config() {
 			return 1
 		fi
 
+		# nginx itself starts one rc stage before this helper. Recover it here if
+		# that early boot attempt failed: a valid reconciled Direct HTTPS config
+		# must have a live :443 owner before WAN exposure is enabled.
+		ensure_nginx_running || return 1
+
 		# Public exposure is the final step: WAN TCP/443 is accepted only after
-		# the direct Nginx listener has reconciled successfully.
+		# the direct Nginx listener has reconciled and the service is active.
 		"$FIREWALL_MANAGER" apply
 	else
 		# Stop WAN exposure first, then release Nginx :443, then restore only
