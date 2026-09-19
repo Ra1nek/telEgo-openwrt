@@ -54,10 +54,12 @@ diff --git a/pkg/config/config.go b/pkg/config/config.go
 diff --git a/pkg/gproxy/dc_events.go b/pkg/gproxy/dc_events.go
 --- a/pkg/gproxy/dc_events.go
 +++ b/pkg/gproxy/dc_events.go
-@@ -38,4 +38,6 @@
+@@ -37,5 +37,7 @@
+-	active   atomic.Bool
 -	closed   atomic.Bool
 -	onClosed func()
 -	drs      *faketls.DRSState
++	active          atomic.Bool
 +	closed          atomic.Bool
 +	onClosed        func()
 +	drs             *faketls.DRSState
@@ -174,7 +176,7 @@ new file mode 100644
 +
 +func TestOpenWrtDDDownlinkShapingConfig(t *testing.T) {
 +	cfg := Config{
-+		Secrets: map[string]string{"test": "0123456789abcdef0123456789abcdef"},
++		Secrets:     map[string]string{"test": "0123456789abcdef0123456789abcdef"},
 +		TLSFronting: TLSFrontingConfig{MaskHost: "example.com"},
 +		Performance: PerformanceConfig{
 +			DDDownlinkChunk: 1200,
@@ -192,7 +194,7 @@ new file mode 100644
 +
 +func TestOpenWrtDDDownlinkDelayRequiresChunk(t *testing.T) {
 +	cfg := Config{
-+		Secrets: map[string]string{"test": "0123456789abcdef0123456789abcdef"},
++		Secrets:     map[string]string{"test": "0123456789abcdef0123456789abcdef"},
 +		TLSFronting: TLSFrontingConfig{MaskHost: "example.com"},
 +		Performance: PerformanceConfig{DDDownlinkDelay: Duration(time.Millisecond)},
 +	}
