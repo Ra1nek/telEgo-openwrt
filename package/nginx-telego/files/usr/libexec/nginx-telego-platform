@@ -1,16 +1,17 @@
 #!/bin/sh
 # Reconcile system-side Direct HTTPS prerequisites that live outside Nginx.
 #
-# P12.6 gives Nginx direct ownership of TCP/443. When uhttpd still owns HTTPS
-# :443, this helper moves only those listener entries to the configured LuCI
-# management port. It also installs an optional dnsmasq split-DNS override so
-# LAN clients reach Nginx directly instead of hairpinning through the WAN IP.
+# P12.6 gives Nginx direct ownership of TCP/443. If uhttpd currently owns
+# HTTPS :443, this helper moves only those listener entries to the configured
+# LuCI management port. It can also install an optional dnsmasq split-DNS
+# override so LAN clients reach Nginx directly instead of hairpinning through
+# the WAN address.
 #
-# Ownership is conservative:
-# - pre-existing LuCI-on-management-port or split-DNS state is treated as
-#   administrator-owned and is never removed;
-# - only changes recorded in STATE_FILE are restored on profile disable/remove;
-# - uhttpd drift after a package-owned migration is never overwritten silently.
+# Ownership is deliberately conservative:
+# - pre-existing non-443 LuCI listeners and split-DNS entries remain external;
+# - only state recorded in STATE_FILE is restored on disable/remove;
+# - administrator drift of a package-owned uhttpd listener is never clobbered;
+# - uhttpd, dnsmasq and ownership-state changes form one rollback transaction.
 set -eu
 
 UCI_BIN=${UCI_BIN:-/sbin/uci}
@@ -121,6 +122,7 @@ migrated_uhttpd_list() {
 
 dns_entry_present() {
     entry=$1
+    [ -n "$entry" ] || return 1
     values=$(uci_get 'dhcp.@dnsmasq[0].address' '')
     for item in $values; do
         [ "$item" = "$entry" ] && return 0
@@ -131,10 +133,19 @@ dns_entry_present() {
 check_pending() {
     package=$1
     changes=$($UCI_BIN -q changes "$package" 2>/dev/null || true)
-    [ -z "$changes" ] || fail "uncommitted $package UCI changes are present; commit or revert them before Direct HTTPS reconciliation"
+    [ -z "$changes" ] ||
+        fail "uncommitted $package UCI changes are present; commit or revert them before Direct HTTPS reconciliation"
 }
 
-validate_regular_config() {
+validate_regular_if_present() {
+    path=$1
+    label=$2
+    if [ -L "$path" ] || { [ -e "$path" ] && [ ! -f "$path" ]; }; then
+        fail "$label configuration must be a regular non-symlink file: $path"
+    fi
+}
+
+require_regular_config() {
     path=$1
     label=$2
     [ -f "$path" ] && [ ! -L "$path" ] ||
@@ -159,8 +170,10 @@ direct_values() {
     SPLIT_ADDRESS=$(uci_get nginx_telego.direct_https.split_dns_address '')
     HOSTNAME=$(uci_get nginx_telego.direct_https.hostname '')
     [ -n "$HOSTNAME" ] || HOSTNAME=$(uci_get telego.web_proxy.hostname '')
+
     validate_port "$LUCI_PORT"
     validate_ipv4 "$SPLIT_ADDRESS"
+
     if [ -n "$SPLIT_ADDRESS" ]; then
         [ -n "$HOSTNAME" ] || fail 'split DNS requires a Direct HTTPS/WEB hostname'
         SPLIT_ENTRY="/$HOSTNAME/$SPLIT_ADDRESS"
@@ -172,24 +185,44 @@ direct_values() {
 preflight_enable() {
     direct_values
     is_enabled "$DIRECT_ENABLED" || fail 'Direct HTTPS profile is disabled'
-    check_pending uhttpd
-    check_pending dhcp
-    validate_regular_config "$UHTTPD_CONFIG" uhttpd
-    validate_regular_config "$DHCP_CONFIG" dhcp
     validate_state_path
 
+    check_pending uhttpd
+    validate_regular_if_present "$UHTTPD_CONFIG" uhttpd
     current=$(uci_get uhttpd.main.listen_https '')
-    [ -n "$current" ] || fail 'uhttpd.main.listen_https is empty; refusing to guess the LuCI HTTPS listener'
 
+    state_u_owned=0
     if [ -f "$STATE_FILE" ]; then
         version=$(state_get version || true)
-        [ "$version" = 1 ] || fail "unsupported platform state version: ${version:-missing}"
-        owned=$(state_get uhttpd_owned || true)
-        if [ "$owned" = 1 ]; then
+        [ "$version" = 1 ] ||
+            fail "unsupported platform state version: ${version:-missing}"
+        state_u_owned=$(state_get uhttpd_owned || true)
+        [ "$state_u_owned" = 1 ] || state_u_owned=0
+        if [ "$state_u_owned" = 1 ]; then
+            require_regular_config "$UHTTPD_CONFIG" uhttpd
             expected=$(state_get uhttpd_managed || true)
             [ "$current" = "$expected" ] ||
                 fail 'package-owned uhttpd listener state drifted; refusing to overwrite administrator changes'
         fi
+    fi
+
+    if [ "$state_u_owned" = 1 ] || listener_uses_port "$current" "$PUBLIC_PORT"; then
+        require_regular_config "$UHTTPD_CONFIG" uhttpd
+        [ -x "$UHTTPD_INIT" ] ||
+            fail "uhttpd init script not found: $UHTTPD_INIT"
+    fi
+
+    state_dns_owned=0
+    if [ -f "$STATE_FILE" ]; then
+        state_dns_owned=$(state_get split_dns_owned || true)
+        [ "$state_dns_owned" = 1 ] || state_dns_owned=0
+    fi
+
+    if [ -n "$SPLIT_ENTRY" ] || [ "$state_dns_owned" = 1 ]; then
+        check_pending dhcp
+        require_regular_config "$DHCP_CONFIG" dhcp
+        [ -x "$DNSMASQ_INIT" ] ||
+            fail "dnsmasq init script not found: $DNSMASQ_INIT"
     fi
 }
 
@@ -216,6 +249,7 @@ write_state() {
 
     mkdir -p "$(dirname "$STATE_FILE")"
     tmp="${STATE_FILE}.new.$$"
+    rm -f "$tmp"
     umask 077
     {
         printf 'version=1\n'
@@ -229,209 +263,12 @@ write_state() {
     mv -f "$tmp" "$STATE_FILE"
 }
 
-apply_enable() {
-    preflight_enable
-
-    original=$(uci_get uhttpd.main.listen_https '')
-    managed=$original
-    u_owned=0
-
-    if [ -f "$STATE_FILE" ] && [ "$(state_get uhttpd_owned || true)" = 1 ]; then
-        u_owned=1
-        original=$(state_get uhttpd_original || true)
-        managed=$(state_get uhttpd_managed || true)
-    elif listener_uses_port "$original" "$PUBLIC_PORT"; then
-        managed=$(migrated_uhttpd_list "$original" "$LUCI_PORT")
-        [ "$managed" != "$original" ] || fail 'could not derive LuCI management listener set'
-        u_owned=1
-    fi
-
-    dns_owned=0
-    if [ -f "$STATE_FILE" ] && [ "$(state_get split_dns_owned || true)" = 1 ]; then
-        dns_owned=1
-    fi
-
-    work=$(mktemp -d /tmp/nginx-telego-platform.XXXXXX)
-    trap 'rm -rf "$work"' EXIT HUP INT TERM
-    cp -p "$UHTTPD_CONFIG" "$work/uhttpd.before"
-    cp -p "$DHCP_CONFIG" "$work/dhcp.before"
-
-    u_changed=0
-    dns_changed=0
-
-    if [ "$u_owned" = 1 ] && [ "$(uci_get uhttpd.main.listen_https '')" != "$managed" ]; then
-        set_uhttpd_list "$managed"
-        u_changed=1
-    fi
-
-    if [ -n "$SPLIT_ENTRY" ] && ! dns_entry_present "$SPLIT_ENTRY"; then
-        "$UCI_BIN" add_list "dhcp.@dnsmasq[0].address=$SPLIT_ENTRY"
-        "$UCI_BIN" commit dhcp
-        dns_owned=1
-        dns_changed=1
-    fi
-
-    if [ "$u_changed" = 1 ]; then
-        [ -x "$UHTTPD_INIT" ] || {
-            cp -p "$work/uhttpd.before" "$UHTTPD_CONFIG"
-            fail "uhttpd init script not found: $UHTTPD_INIT"
-        }
-        if ! "$UHTTPD_INIT" restart; then
-            cp -p "$work/uhttpd.before" "$UHTTPD_CONFIG"
-            "$UCI_BIN" -q revert uhttpd >/dev/null 2>&1 || true
-            "$UHTTPD_INIT" restart >/dev/null 2>&1 || true
-            fail 'uhttpd restart failed; original configuration restored'
-        fi
-    fi
-
-    if [ "$dns_changed" = 1 ]; then
-        [ -x "$DNSMASQ_INIT" ] || {
-            cp -p "$work/dhcp.before" "$DHCP_CONFIG"
-            "$UCI_BIN" -q revert dhcp >/dev/null 2>&1 || true
-            [ "$u_changed" -eq 0 ] || {
-                cp -p "$work/uhttpd.before" "$UHTTPD_CONFIG"
-                "$UCI_BIN" -q revert uhttpd >/dev/null 2>&1 || true
-                "$UHTTPD_INIT" restart >/dev/null 2>&1 || true
-            }
-            fail "dnsmasq init script not found: $DNSMASQ_INIT"
-        }
-        if ! "$DNSMASQ_INIT" restart; then
-            cp -p "$work/dhcp.before" "$DHCP_CONFIG"
-            "$UCI_BIN" -q revert dhcp >/dev/null 2>&1 || true
-            "$DNSMASQ_INIT" restart >/dev/null 2>&1 || true
-            if [ "$u_changed" = 1 ]; then
-                cp -p "$work/uhttpd.before" "$UHTTPD_CONFIG"
-                "$UCI_BIN" -q revert uhttpd >/dev/null 2>&1 || true
-                "$UHTTPD_INIT" restart >/dev/null 2>&1 || true
-            fi
-            fail 'dnsmasq restart failed; original configuration restored'
-        fi
-    fi
-
-    write_state "$u_owned" "$original" "$managed" "$dns_owned" "$SPLIT_ENTRY"
-    rm -rf "$work"
-    trap - EXIT HUP INT TERM
-
-    if [ "$u_owned" = 1 ]; then
-        echo "nginx-telego-platform: LuCI/uhttpd HTTPS moved from TCP/$PUBLIC_PORT to TCP/$LUCI_PORT"
-    elif listener_uses_port "$(uci_get uhttpd.main.listen_https '')" "$LUCI_PORT"; then
-        echo "nginx-telego-platform: LuCI/uhttpd already uses external TCP/$LUCI_PORT state"
-    else
-        echo 'nginx-telego-platform: uhttpd does not own TCP/443; existing administrator management listener was left unchanged'
-    fi
-
-    if [ -n "$SPLIT_ENTRY" ]; then
-        if [ "$dns_owned" = 1 ]; then
-            echo "nginx-telego-platform: split DNS active: $HOSTNAME -> $SPLIT_ADDRESS"
-        else
-            echo "nginx-telego-platform: split DNS already existed externally: $HOSTNAME -> $SPLIT_ADDRESS"
-        fi
-    else
-        echo 'nginx-telego-platform: split DNS disabled (split_dns_address is empty)'
-    fi
-}
-
-restore_owned() {
-    validate_state_path
-    [ -f "$STATE_FILE" ] || {
-        echo 'nginx-telego-platform: no package-owned system state to restore'
-        return 0
-    }
-
-    check_pending uhttpd
-    check_pending dhcp
-    validate_regular_config "$UHTTPD_CONFIG" uhttpd
-    validate_regular_config "$DHCP_CONFIG" dhcp
-
-    version=$(state_get version || true)
-    [ "$version" = 1 ] || fail "unsupported platform state version: ${version:-missing}"
-
-    u_owned=$(state_get uhttpd_owned || true)
-    u_original=$(state_get uhttpd_original || true)
-    u_managed=$(state_get uhttpd_managed || true)
-    dns_owned=$(state_get split_dns_owned || true)
-    dns_entry=$(state_get split_dns_entry || true)
-
-    if [ "$u_owned" = 1 ]; then
-        current=$(uci_get uhttpd.main.listen_https '')
-        [ "$current" = "$u_managed" ] ||
-            fail 'package-owned uhttpd listener state drifted; refusing automatic restore'
-    fi
-
-    work=$(mktemp -d /tmp/nginx-telego-platform.XXXXXX)
-    trap 'rm -rf "$work"' EXIT HUP INT TERM
-    cp -p "$UHTTPD_CONFIG" "$work/uhttpd.before"
-    cp -p "$DHCP_CONFIG" "$work/dhcp.before"
-
-    if [ "$u_owned" = 1 ]; then
-        set_uhttpd_list "$u_original"
-        [ -x "$UHTTPD_INIT" ] || fail "uhttpd init script not found: $UHTTPD_INIT"
-        if ! "$UHTTPD_INIT" restart; then
-            cp -p "$work/uhttpd.before" "$UHTTPD_CONFIG"
-            "$UCI_BIN" -q revert uhttpd >/dev/null 2>&1 || true
-            "$UHTTPD_INIT" restart >/dev/null 2>&1 || true
-            fail 'uhttpd restore restart failed; previous configuration restored'
-        fi
-    fi
-
-    if [ "$dns_owned" = 1 ] && [ -n "$dns_entry" ] && dns_entry_present "$dns_entry"; then
-        "$UCI_BIN" -q del_list "dhcp.@dnsmasq[0].address=$dns_entry" >/dev/null 2>&1 || true
-        "$UCI_BIN" commit dhcp
-        [ -x "$DNSMASQ_INIT" ] || fail "dnsmasq init script not found: $DNSMASQ_INIT"
-        if ! "$DNSMASQ_INIT" restart; then
-            cp -p "$work/dhcp.before" "$DHCP_CONFIG"
-            "$UCI_BIN" -q revert dhcp >/dev/null 2>&1 || true
-            "$DNSMASQ_INIT" restart >/dev/null 2>&1 || true
-            fail 'dnsmasq restore restart failed; previous configuration restored'
-        fi
-    fi
-
-    rm -f "$STATE_FILE"
-    rm -rf "$work"
-    trap - EXIT HUP INT TERM
-    echo 'nginx-telego-platform: package-owned LuCI/split-DNS state restored'
-}
-
-status_report() {
-    direct_values
-    current=$(uci_get uhttpd.main.listen_https '')
-    if listener_uses_port "$current" "$PUBLIC_PORT"; then has443=1; else has443=0; fi
-    if listener_uses_port "$current" "$LUCI_PORT"; then has_luci=1; else has_luci=0; fi
-
-    state_present=0
-    [ -f "$STATE_FILE" ] && state_present=1
-
-    split_state=disabled
-    if [ -n "$SPLIT_ENTRY" ]; then
-        if dns_entry_present "$SPLIT_ENTRY"; then
-            if [ "$state_present" = 1 ] && [ "$(state_get split_dns_owned || true)" = 1 ]; then
-                split_state=owned
-            else
-                split_state=external
-            fi
-        else
-            split_state=absent
-        fi
-    fi
-
-    pending_uhttpd=0
-    [ -z "$($UCI_BIN -q changes uhttpd 2>/dev/null || true)" ] || pending_uhttpd=1
-    pending_dhcp=0
-    [ -z "$($UCI_BIN -q changes dhcp 2>/dev/null || true)" ] || pending_dhcp=1
-
-    if is_enabled "$DIRECT_ENABLED"; then profile_enabled=1; else profile_enabled=0; fi
-    printf 'profile_enabled\t%s\n' "$profile_enabled"
-    printf 'state_file\t%s\n' "$state_present"
-    printf 'luci_https_port\t%s\n' "$LUCI_PORT"
-    printf 'uhttpd_has_443\t%s\n' "$has443"
-    printf 'uhttpd_has_luci_port\t%s\n' "$has_luci"
-    printf 'split_dns_address\t%s\n' "${SPLIT_ADDRESS:--}"
-    printf 'split_dns_state\t%s\n' "$split_state"
-    printf 'pending_uhttpd\t%s\n' "$pending_uhttpd"
-    printf 'pending_dhcp\t%s\n' "$pending_dhcp"
-}
-
 lock_held=0
+work=''
+tx_active=0
+uhttpd_touched=0
+dnsmasq_touched=0
+
 acquire_lock() {
     [ -x "$FLOCK_BIN" ] || fail "flock executable not found: $FLOCK_BIN"
     mkdir -p "$(dirname "$LOCK_FILE")"
@@ -445,18 +282,322 @@ acquire_lock() {
     fi
     lock_held=1
 }
-cleanup_lock() {
+
+begin_transaction() {
+    work=$(mktemp -d /tmp/nginx-telego-platform.XXXXXX)
+    : >"$work/meta"
+
+    if [ -f "$UHTTPD_CONFIG" ] && [ ! -L "$UHTTPD_CONFIG" ]; then
+        cp -p "$UHTTPD_CONFIG" "$work/uhttpd.before"
+        echo 'uhttpd=1' >>"$work/meta"
+    else
+        echo 'uhttpd=0' >>"$work/meta"
+    fi
+
+    if [ -f "$DHCP_CONFIG" ] && [ ! -L "$DHCP_CONFIG" ]; then
+        cp -p "$DHCP_CONFIG" "$work/dhcp.before"
+        echo 'dhcp=1' >>"$work/meta"
+    else
+        echo 'dhcp=0' >>"$work/meta"
+    fi
+
+    if [ -f "$STATE_FILE" ] && [ ! -L "$STATE_FILE" ]; then
+        cp -p "$STATE_FILE" "$work/state.before"
+        echo 'state=1' >>"$work/meta"
+    else
+        echo 'state=0' >>"$work/meta"
+    fi
+
+    tx_active=1
+}
+
+meta_value() {
+    sed -n "s/^$1=//p" "$work/meta" | head -n 1
+}
+
+restore_file_snapshot() {
+    path=$1
+    key=$2
+    if [ "$(meta_value "$key")" = 1 ]; then
+        cp -p "$work/$key.before" "$path"
+    else
+        rm -f "$path"
+    fi
+}
+
+rollback_transaction() {
+    [ -n "$work" ] && [ -f "$work/meta" ] || return 1
+
+    restore_file_snapshot "$UHTTPD_CONFIG" uhttpd
+    restore_file_snapshot "$DHCP_CONFIG" dhcp
+    restore_file_snapshot "$STATE_FILE" state
+
+    "$UCI_BIN" -q revert uhttpd >/dev/null 2>&1 || true
+    "$UCI_BIN" -q revert dhcp >/dev/null 2>&1 || true
+
+    if [ "$uhttpd_touched" = 1 ] && [ -x "$UHTTPD_INIT" ]; then
+        "$UHTTPD_INIT" restart >/dev/null 2>&1 || true
+    fi
+    if [ "$dnsmasq_touched" = 1 ] && [ -x "$DNSMASQ_INIT" ]; then
+        "$DNSMASQ_INIT" restart >/dev/null 2>&1 || true
+    fi
+    return 0
+}
+
+finish_transaction() {
+    tx_active=0
+    rm -rf "$work"
+    work=''
+    uhttpd_touched=0
+    dnsmasq_touched=0
+}
+
+cleanup() {
     rc=$?
     trap - EXIT HUP INT TERM
-    if [ "$lock_held" = 1 ]; then exec 9>&-; fi
+
+    if [ "$tx_active" = 1 ]; then
+        if rollback_transaction; then
+            echo 'nginx-telego-platform: platform transaction rolled back' >&2
+        else
+            echo 'nginx-telego-platform: PLATFORM ROLLBACK FAILED; manual recovery is required' >&2
+            rc=1
+        fi
+    fi
+
+    [ -z "$work" ] || rm -rf "$work"
+    if [ "$lock_held" = 1 ]; then
+        exec 9>&-
+    fi
     exit "$rc"
 }
-trap cleanup_lock EXIT HUP INT TERM
-acquire_lock
 
+trap cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+apply_enable() {
+    preflight_enable
+
+    current=$(uci_get uhttpd.main.listen_https '')
+    old_u_owned=0
+    old_dns_owned=0
+    old_dns_entry=''
+
+    if [ -f "$STATE_FILE" ]; then
+        old_u_owned=$(state_get uhttpd_owned || true)
+        [ "$old_u_owned" = 1 ] || old_u_owned=0
+        old_dns_owned=$(state_get split_dns_owned || true)
+        [ "$old_dns_owned" = 1 ] || old_dns_owned=0
+        old_dns_entry=$(state_get split_dns_entry || true)
+    fi
+
+    if [ "$old_u_owned" = 1 ]; then
+        original=$(state_get uhttpd_original || true)
+        managed=$(migrated_uhttpd_list "$original" "$LUCI_PORT")
+        [ -n "$managed" ] || fail 'could not derive LuCI management listener set'
+        u_owned=1
+    elif listener_uses_port "$current" "$PUBLIC_PORT"; then
+        original=$current
+        managed=$(migrated_uhttpd_list "$original" "$LUCI_PORT")
+        [ "$managed" != "$original" ] ||
+            fail 'could not derive LuCI management listener set'
+        u_owned=1
+    else
+        original=''
+        managed=$current
+        u_owned=0
+    fi
+
+    dns_owned=$old_dns_owned
+    new_dns_entry=$old_dns_entry
+
+    begin_transaction
+
+    if [ "$u_owned" = 1 ] && [ "$current" != "$managed" ]; then
+        set_uhttpd_list "$managed"
+        uhttpd_touched=1
+        if ! "$UHTTPD_INIT" restart; then
+            fail 'uhttpd restart failed after moving LuCI HTTPS'
+        fi
+    fi
+
+    # Remove only a split-DNS entry previously recorded as package-owned when
+    # the desired hostname/address changed or split DNS was disabled.
+    if [ "$old_dns_owned" = 1 ] && [ -n "$old_dns_entry" ] &&
+       [ "$old_dns_entry" != "$SPLIT_ENTRY" ] && dns_entry_present "$old_dns_entry"; then
+        "$UCI_BIN" -q del_list "dhcp.@dnsmasq[0].address=$old_dns_entry" >/dev/null 2>&1 || true
+        "$UCI_BIN" commit dhcp
+        dnsmasq_touched=1
+        dns_owned=0
+        new_dns_entry=''
+    fi
+
+    if [ -n "$SPLIT_ENTRY" ]; then
+        if dns_entry_present "$SPLIT_ENTRY"; then
+            # Retain ownership only if this exact entry was already ours.
+            if [ "$old_dns_owned" = 1 ] && [ "$old_dns_entry" = "$SPLIT_ENTRY" ]; then
+                dns_owned=1
+                new_dns_entry=$SPLIT_ENTRY
+            else
+                dns_owned=0
+                new_dns_entry=''
+            fi
+        else
+            "$UCI_BIN" add_list "dhcp.@dnsmasq[0].address=$SPLIT_ENTRY"
+            "$UCI_BIN" commit dhcp
+            dnsmasq_touched=1
+            dns_owned=1
+            new_dns_entry=$SPLIT_ENTRY
+        fi
+    else
+        dns_owned=0
+        new_dns_entry=''
+    fi
+
+    if [ "$dnsmasq_touched" = 1 ]; then
+        if ! "$DNSMASQ_INIT" restart; then
+            fail 'dnsmasq restart failed after split-DNS reconciliation'
+        fi
+    fi
+
+    write_state "$u_owned" "$original" "$managed" "$dns_owned" "$new_dns_entry"
+    finish_transaction
+
+    if [ "$u_owned" = 1 ]; then
+        echo "nginx-telego-platform: LuCI/uhttpd HTTPS uses package-managed TCP/$LUCI_PORT"
+    elif listener_uses_port "$current" "$LUCI_PORT"; then
+        echo "nginx-telego-platform: LuCI/uhttpd already uses external TCP/$LUCI_PORT state"
+    else
+        echo 'nginx-telego-platform: uhttpd does not own TCP/443; administrator management listeners were left unchanged'
+    fi
+
+    if [ -n "$SPLIT_ENTRY" ]; then
+        if [ "$dns_owned" = 1 ]; then
+            echo "nginx-telego-platform: package-owned split DNS active: $HOSTNAME -> $SPLIT_ADDRESS"
+        else
+            echo "nginx-telego-platform: matching split DNS already exists externally: $HOSTNAME -> $SPLIT_ADDRESS"
+        fi
+    else
+        echo 'nginx-telego-platform: split DNS disabled (split_dns_address is empty)'
+    fi
+}
+
+restore_owned() {
+    validate_state_path
+    [ -f "$STATE_FILE" ] || {
+        echo 'nginx-telego-platform: no package-owned system state to restore'
+        return 0
+    }
+
+    version=$(state_get version || true)
+    [ "$version" = 1 ] ||
+        fail "unsupported platform state version: ${version:-missing}"
+
+    u_owned=$(state_get uhttpd_owned || true)
+    [ "$u_owned" = 1 ] || u_owned=0
+    u_original=$(state_get uhttpd_original || true)
+    u_managed=$(state_get uhttpd_managed || true)
+    dns_owned=$(state_get split_dns_owned || true)
+    [ "$dns_owned" = 1 ] || dns_owned=0
+    dns_entry=$(state_get split_dns_entry || true)
+
+    if [ "$u_owned" = 1 ]; then
+        check_pending uhttpd
+        require_regular_config "$UHTTPD_CONFIG" uhttpd
+        [ -x "$UHTTPD_INIT" ] ||
+            fail "uhttpd init script not found: $UHTTPD_INIT"
+        current=$(uci_get uhttpd.main.listen_https '')
+        [ "$current" = "$u_managed" ] ||
+            fail 'package-owned uhttpd listener state drifted; refusing automatic restore'
+    fi
+
+    if [ "$dns_owned" = 1 ]; then
+        check_pending dhcp
+        require_regular_config "$DHCP_CONFIG" dhcp
+        [ -x "$DNSMASQ_INIT" ] ||
+            fail "dnsmasq init script not found: $DNSMASQ_INIT"
+    fi
+
+    begin_transaction
+
+    if [ "$u_owned" = 1 ]; then
+        set_uhttpd_list "$u_original"
+        uhttpd_touched=1
+        if ! "$UHTTPD_INIT" restart; then
+            fail 'uhttpd restart failed while restoring the original LuCI listener'
+        fi
+    fi
+
+    if [ "$dns_owned" = 1 ] && [ -n "$dns_entry" ] && dns_entry_present "$dns_entry"; then
+        "$UCI_BIN" -q del_list "dhcp.@dnsmasq[0].address=$dns_entry" >/dev/null 2>&1 || true
+        "$UCI_BIN" commit dhcp
+        dnsmasq_touched=1
+        if ! "$DNSMASQ_INIT" restart; then
+            fail 'dnsmasq restart failed while restoring split-DNS state'
+        fi
+    fi
+
+    rm -f "$STATE_FILE"
+    finish_transaction
+    echo 'nginx-telego-platform: package-owned LuCI/split-DNS state restored'
+}
+
+status_report() {
+    direct_values
+    validate_state_path
+    validate_regular_if_present "$UHTTPD_CONFIG" uhttpd
+    validate_regular_if_present "$DHCP_CONFIG" dhcp
+
+    current=$(uci_get uhttpd.main.listen_https '')
+    if listener_uses_port "$current" "$PUBLIC_PORT"; then has443=1; else has443=0; fi
+    if listener_uses_port "$current" "$LUCI_PORT"; then has_luci=1; else has_luci=0; fi
+
+    state_present=0
+    [ -f "$STATE_FILE" ] && state_present=1
+
+    split_state=disabled
+    if [ -n "$SPLIT_ENTRY" ]; then
+        if dns_entry_present "$SPLIT_ENTRY"; then
+            state_entry=''
+            state_owned=0
+            if [ "$state_present" = 1 ]; then
+                state_entry=$(state_get split_dns_entry || true)
+                state_owned=$(state_get split_dns_owned || true)
+            fi
+            if [ "$state_owned" = 1 ] && [ "$state_entry" = "$SPLIT_ENTRY" ]; then
+                split_state=owned
+            else
+                split_state=external
+            fi
+        else
+            split_state=absent
+        fi
+    fi
+
+    pending_uhttpd=0
+    [ -z "$($UCI_BIN -q changes uhttpd 2>/dev/null || true)" ] ||
+        pending_uhttpd=1
+    pending_dhcp=0
+    [ -z "$($UCI_BIN -q changes dhcp 2>/dev/null || true)" ] ||
+        pending_dhcp=1
+
+    if is_enabled "$DIRECT_ENABLED"; then profile_enabled=1; else profile_enabled=0; fi
+    printf 'profile_enabled\t%s\n' "$profile_enabled"
+    printf 'state_file\t%s\n' "$state_present"
+    printf 'luci_https_port\t%s\n' "$LUCI_PORT"
+    printf 'uhttpd_has_443\t%s\n' "$has443"
+    printf 'uhttpd_has_luci_port\t%s\n' "$has_luci"
+    printf 'split_dns_address\t%s\n' "${SPLIT_ADDRESS:--}"
+    printf 'split_dns_state\t%s\n' "$split_state"
+    printf 'pending_uhttpd\t%s\n' "$pending_uhttpd"
+    printf 'pending_dhcp\t%s\n' "$pending_dhcp"
+}
+
+acquire_lock
 case "$MODE" in
     status)
-        validate_state_path
         status_report
         ;;
     preflight)
@@ -469,8 +610,7 @@ case "$MODE" in
             preflight_enable
             echo 'nginx-telego-platform: Direct HTTPS platform preflight passed'
         else
-            check_pending uhttpd
-            check_pending dhcp
+            validate_state_path
             echo 'nginx-telego-platform: Direct HTTPS platform management is disabled'
         fi
         ;;
