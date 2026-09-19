@@ -242,20 +242,26 @@ The `419` path removes request body/content metadata and carrier-sensitive heade
 
 ## Direct HTTPS firewall boundary
 
-Direct HTTPS intentionally uses Nginx listeners on `0.0.0.0:18443` and `[::]:18443` so a firewall4 redirect can deliver locally addressed WAN traffic without depending on a static WAN IP. Port `:18443` itself is **not a public ingress port**.
-
-`nginx-telego-firewall` owns only the named section:
+Direct HTTPS uses Nginx listeners `0.0.0.0:443` and `[::]:443` directly. `nginx-telego-firewall` owns only the named section:
 
 ```text
 firewall.telego_direct_https
 ```
 
-It redirects WAN TCP/443 to local `:18443`. The manager refuses Direct HTTPS when a foreign WAN/443 redirect exists, a WAN rule/redirect directly publishes TCP/18443, the reserved section is foreign, uncommitted firewall UCI changes exist, or the WAN input policy is `ACCEPT`. LAN TCP/443 is outside this redirect and remains available to uhttpd/LuCI.
+The section is a WAN TCP/443 `INPUT ACCEPT` rule with `family=any`; current topology has no DNAT/REDIRECT and no private `:18443` backend. The manager refuses to enable the profile when a foreign WAN/443 owner exists, the reserved section is foreign, firewall UCI changes are pending, or WAN input policy is `ACCEPT`.
 
-Direct HTTPS also requires the telEgo MTProxy listener to use a port **other than TCP/443** because WAN/443 is dedicated to WEB/Nginx. Use Native Shared-Port when WEB and MTProxy must share public `:443`.
+If uhttpd occupied HTTPS `:443`, the platform reconciler moves only those HTTPS listeners to the management port. **LuCI plain HTTP `listen_http` (commonly `:80`) is outside nginx-telego ownership, is not disabled, and receives no package-owned WAN allow rule.** Reachability is controlled by the administrator's uhttpd and firewall configuration.
+
+Direct HTTPS requires the telEgo MTProxy listener to use a port other than TCP/443. Use Native Shared-Port when WEB and MTProxy must share public `:443`.
+
+### P12.7 TLS/HTTPS hardening
+
+Managed Direct HTTPS permits only TLS 1.2/1.3, rejects unknown SNI, uses `server_tokens off`, and emits staged HSTS. `nginx_telego.direct_https.hsts_max_age` defaults to `604800`; `includeSubDomains` and `preload` are not generated. After hardware, reboot, and renewal acceptance it may be raised to `31536000`.
+
+The package deliberately does not enable OCSP stapling for Let's Encrypt, does not pin a large hand-written cipher list, and does not add global CSP/Permissions-Policy over the WEB carrier. The managed ordinary fallback remains `200 OK`; its extra headers are limited to `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, and `Cache-Control: no-store`.
 
 > [!IMPORTANT]
-> After changing unrelated firewall rules, verify separately that WAN TCP/18443 did not become directly reachable. See the [Direct HTTPS hardware test](DIRECT_HTTPS_TEST_EN.md).
+> HSTS is browser state, not a certificate fix. Increase `max-age` only after hostname, certificate renewal, reboot, and rollback checks. `max-age=0` remains available as a controlled way to remove HSTS on future responses.
 
 ## TLS certificates and deployment ownership
 
