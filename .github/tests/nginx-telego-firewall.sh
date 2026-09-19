@@ -14,6 +14,22 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Reproduce the OpenWrt hardware portability failure that motivated P12.7-r7:
+# POSIX character-class operands may pass through unchanged, while simple
+# A-Z/a-z ranges remain portable. Any runtime dependency on the former must fail.
+REAL_TR=$(command -v tr)
+export REAL_TR
+cat >"$work/tr" <<'SH'
+#!/bin/sh
+if [ "${1:-}" = '[:upper:]' ] && [ "${2:-}" = '[:lower:]' ]; then
+  cat
+else
+  exec "$REAL_TR" "$@"
+fi
+SH
+chmod +x "$work/tr"
+export PATH="$work:$PATH"
+
 cat >"$work/uci" <<'SH'
 #!/bin/sh
 [ "${1:-}" = -q ] && shift
@@ -222,7 +238,7 @@ grep -q '^udp443|' "$FIREWALL_CONFIG"
 
 # A broad WAN INPUT ACCEPT policy makes ownership ambiguous.
 baseline
-sed -i 's/wan|zone|input|reject/wan|zone|input|accept/' "$FIREWALL_CONFIG"
+sed -i 's/wan|zone|input|reject/wan|zone|input|ACCEPT/' "$FIREWALL_CONFIG"
 if "$MANAGER" apply >"$work/accept.out" 2>&1; then exit 1; fi
 grep -q 'input ACCEPT' "$work/accept.out"
 

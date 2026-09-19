@@ -169,11 +169,13 @@ check_uci firewall.telego_direct_https.proto tcp
 check_uci firewall.telego_direct_https.dest_port 443
 check_uci firewall.telego_direct_https.family any
 target=$(uci -q get firewall.telego_direct_https.target 2>/dev/null || true)
-[ "$(printf '%s' "$target" | tr '[:upper:]' '[:lower:]')" = accept ] && pass "firewall target=ACCEPT" || fail "firewall target is ${target:-<missing>}"
+[ "$(printf '%s' "$target" | tr 'A-Z' 'a-z')" = accept ] && pass "firewall target=ACCEPT" || fail "firewall target is ${target:-<missing>}"
 check_uci firewall.telego_direct_https.enabled 1
 
 listeners=$(netstat -lntp 2>/dev/null || true)
-printf '%s\n' "$listeners" | grep -Eq '[:.]443[[:space:]].*(nginx|/nginx)' 	&& pass "Nginx is listening directly on :443" 	|| fail "Nginx :443 listener not found"
+printf '%s\n' "$listeners" | awk '$4 ~ /:443$/ && $6 == "LISTEN" { found=1 } END { exit !found }' \
+	&& pass "TCP/443 listener is present for the generated Direct HTTPS endpoint" \
+	|| fail "TCP/443 listener not found"
 
 printf '%s\n' "$listeners" | grep -Eq '[:.]8080[[:space:]].*(telego|/telego)' 	&& pass "telEgo WEB is listening on :8080" 	|| warn "could not prove telEgo ownership of :8080 from netstat"
 

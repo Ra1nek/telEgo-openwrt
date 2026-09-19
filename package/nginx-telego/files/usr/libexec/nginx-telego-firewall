@@ -113,7 +113,7 @@ effective_wan_input_policy() {
         fi
     fi
     [ -n "$policy" ] || policy=drop
-    printf '%s' "$policy" | tr '[:upper:]' '[:lower:]'
+    printf '%s' "$policy" | tr 'A-Z' 'a-z'
 }
 
 proto_matches_tcp() {
@@ -193,7 +193,7 @@ redirect_claims_wan_https() {
     entry_enabled "$section" || return 1
     [ "$(uci_get_path "firewall.$section.src" '')" = "$WAN_ZONE" ] || return 1
 
-    target=$(uci_get_path "firewall.$section.target" 'dnat' | tr '[:upper:]' '[:lower:]')
+    target=$(uci_get_path "firewall.$section.target" 'dnat' | tr 'A-Z' 'a-z')
     [ "$target" != snat ] || return 1
     proto_matches_tcp "$(uci_get_path "firewall.$section.proto" '')" || return 1
     port_matches "$(uci_get_path "firewall.$section.src_dport" '')" "$PUBLIC_PORT"
@@ -206,7 +206,7 @@ rule_claims_wan_https() {
 
     # Destination-zone rules are forwarding, not local INPUT ownership.
     [ -z "$(uci_get_path "firewall.$section.dest" '')" ] || return 1
-    target=$(uci_get_path "firewall.$section.target" '' | tr '[:upper:]' '[:lower:]')
+    target=$(uci_get_path "firewall.$section.target" '' | tr 'A-Z' 'a-z')
     [ "$target" = accept ] || return 1
     proto_matches_tcp "$(uci_get_path "firewall.$section.proto" '')" || return 1
     port_matches "$(uci_get_path "firewall.$section.dest_port" '')" "$PUBLIC_PORT"
@@ -277,7 +277,7 @@ managed_section_matches_desired() {
     [ "$(uci_get_path "firewall.$MANAGED_SECTION.proto" '')" = tcp ] || return 1
     [ "$(uci_get_path "firewall.$MANAGED_SECTION.dest_port" '')" = "$PUBLIC_PORT" ] || return 1
     [ "$(uci_get_path "firewall.$MANAGED_SECTION.family" '')" = any ] || return 1
-    [ "$(uci_get_path "firewall.$MANAGED_SECTION.target" '' | tr '[:upper:]' '[:lower:]')" = accept ] || return 1
+    [ "$(uci_get_path "firewall.$MANAGED_SECTION.target" '' | tr 'A-Z' 'a-z')" = accept ] || return 1
     is_enabled "$(uci_get_path "firewall.$MANAGED_SECTION.enabled" '0')" || return 1
 
     lines=$($UCI_BIN -q show "firewall.$MANAGED_SECTION" 2>/dev/null | wc -l | tr -d ' ')

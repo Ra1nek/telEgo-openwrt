@@ -11,6 +11,9 @@ from pathlib import Path
 
 router_verify = Path('scripts/verify-direct-https-router.sh').read_text(encoding='utf-8')
 assert router_verify.count('/tmp/nginx-telego-platform-preflight.$') == 3
+assert router_verify.count('/tmp/nginx-telego-fw-preflight.$') == 3
+assert router_verify.count('/tmp/nginx-telego-cert-preflight.$') == 3
+assert router_verify.count('/tmp/nginx-telego-nginx-test.$') == 3
 print('Direct HTTPS hardware verifier temp-file contract passed')
 PY
 python3 .github/scripts/check-doc-links.py
