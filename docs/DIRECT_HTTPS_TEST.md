@@ -2,7 +2,7 @@
 
 [**Русский**](DIRECT_HTTPS_TEST.md) · [English](DIRECT_HTTPS_TEST_EN.md) · [TLS-сертификат](TLS_CERTIFICATE.md) · [Cloudflare Tunnel](CLOUDFLARE.md)
 
-Эта инструкция — аппаратная приёмка P12.6 Direct HTTPS. В новой topology Nginx напрямую владеет TCP/443, LuCI/uhttpd использует отдельный HTTPS-порт управления, а firewall4 больше не делает DNAT/REDIRECT на приватный backend.
+Эта инструкция — аппаратная приёмка P12.6/P12.7 Direct HTTPS. Nginx напрямую владеет TCP/443, LuCI/uhttpd использует отдельный HTTPS-порт управления, firewall4 не делает DNAT/REDIRECT, а P12.7 дополнительно проверяет TLS baseline, staged HSTS, version disclosure и fallback-only headers. LuCI plain HTTP `:80` намеренно остаётся administrator-managed.
 
 ```text
 LAN WEB client
@@ -13,6 +13,7 @@ Nginx :443 ───────────────► telEgo WEB 127.0.0.1
 LAN administrator
     ▼
 uhttpd / LuCI :10443
+uhttpd / LuCI :80 (optional, administrator-managed)
 
 Internet client
     │ WAN TCP/443
@@ -41,6 +42,7 @@ Nginx :443 ───────────────► telEgo WEB 127.0.0.1
 - WAN zone с input `REJECT` или `DROP`;
 - свободный TCP/443 для Nginx;
 - LuCI/uhttpd на management port, по умолчанию `:10443`, если LuCI установлен;
+- LuCI plain HTTP `:80` может оставаться включённым: P12.7 не управляет `listen_http` и не отключает его;
 - для managed split DNS — LAN IPv4 роутера в `nginx_telego.direct_https.split_dns_address`.
 
 Публичная A/AAAA-запись Direct HTTPS должна указывать на OpenWrt WAN, а не на Cloudflare Tunnel/Proxy. Если DNS обслуживает Cloudflare, используйте **DNS only** для direct endpoint.
@@ -57,7 +59,7 @@ wget -O /tmp/verify-direct-https-router.sh \
 sh /tmp/verify-direct-https-router.sh
 ```
 
-Скрипт read-only: он проверяет Direct HTTPS ownership, firewall/certificate preflight, `nginx -t`, listeners, generated Nginx config и configured split-DNS target.
+Скрипт read-only: он проверяет Direct HTTPS ownership, firewall/certificate preflight, `nginx -t`, listeners, generated Nginx config, TLS 1.0/1.1 reject, TLS 1.2/1.3 accept, unknown-SNI reject, staged HSTS, `server_tokens off`, unchanged `200 OK` fallback и fallback-only headers.
 
 Ручной эквивалент:
 
@@ -73,7 +75,7 @@ nginx -t -c /etc/nginx/uci.conf
 uci show firewall.telego_direct_https
 uci -q show uhttpd.main
 uci -q show dhcp.@dnsmasq[0] | grep -F 'web.example.com' || true
-netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 ```
 
 Ожидаемый package-owned firewall section:
@@ -133,7 +135,7 @@ https://<router-lan-ip>:10443/cgi-bin/luci/
 curl -k -I https://<router-lan-ip>:10443/cgi-bin/luci/
 ```
 
-Ожидается LuCI/uhttpd. При этом `<router-lan-ip>:443` уже принадлежит Direct HTTPS Nginx и не должен открывать LuCI.
+Ожидается LuCI/uhttpd. При этом `<router-lan-ip>:443` принадлежит Direct HTTPS Nginx и не должен открывать LuCI. Если администратор сохранил LuCI plain HTTP, `http://<router-lan-ip>/` на `:80` также должен продолжать работать; пакет не меняет этот listener.
 
 ## 5. WAN :443 должен попадать прямо в Nginx
 
@@ -151,7 +153,7 @@ sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IP>
 IP_FAMILY=6 sh /tmp/verify-direct-https-client.sh web.example.com <EXPECTED_WAN_IPV6>
 ```
 
-Helper проверяет public TLS, HTTP/2, фактический remote IP и то, что LuCI management port не опубликован с WAN.
+Helper проверяет public TLS, HTTP/2, фактический remote IP, HSTS с ожидаемым `max-age` (по умолчанию `604800`), отсутствие версии в `Server: nginx`, а также то, что LuCI HTTPS management port не опубликован с WAN. После перехода на годовой HSTS запускайте его с `HSTS_MAX_AGE=31536000`.
 
 Ручная проверка:
 
@@ -227,7 +229,7 @@ reboot
 /usr/libexec/nginx-telego-firewall status
 /usr/libexec/nginx-telego-cert status
 nginx -t -c /etc/nginx/uci.conf
-netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 ```
 
 Повторите LAN WEB, LAN LuCI и внешний WAN curl. Это проверяет persistence UCI, uhttpd, dnsmasq, Nginx и firewall4, а не только состояние после ручного reload.
@@ -273,7 +275,8 @@ nginx -t -c /etc/nginx/uci.conf
 - Direct HTTPS Nginx `:443` отсутствует;
 - Cloudflare ingress слушает `127.0.0.1:18080`;
 - telEgo WEB остаётся на `127.0.0.1:8080`;
-- если P12.6 сам переносил uhttpd с 443, package-owned original listener восстановлен;
+- если P12.6 сам переносил uhttpd HTTPS с 443, package-owned original listener восстановлен;
+- LuCI `listen_http`/`:80` не изменяется ни при apply, ни при rollback;
 - если LuCI `:10443` и split DNS существовали до P12.6, они считаются administrator-owned и не удаляются автоматически.
 
 ## 10. Критерии PASS
@@ -287,7 +290,11 @@ nginx -t -c /etc/nginx/uci.conf
 | WAN TCP/443 | достигает Nginx :443 напрямую через managed INPUT allow |
 | WAN management port | не опубликован пакетом |
 | Legacy :18443 | listener/redirect отсутствуют |
-| TLS | certificate/key/hostname совпадают |
+| TLS | TLS 1.0/1.1 rejected; TLS 1.2/1.3 accepted; unknown SNI rejected; certificate/key/hostname совпадают |
+| HSTS | `max-age` совпадает с UCI; нет `includeSubDomains`/`preload` |
+| Nginx disclosure | `Server` не содержит версию Nginx |
+| Fallback | остаётся `200 OK`; только `nosniff`, `no-referrer`, `no-store`; нет CSP/Permissions-Policy |
+| LuCI HTTP :80 | не изменяется пакетом; если был включён администратором, сохраняется |
 | HTTP/2 | public endpoint согласует HTTP/2 |
 | Telegram | реальная WEB session работает |
 | Reboot | topology сохраняется |
