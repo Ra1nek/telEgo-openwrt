@@ -135,7 +135,7 @@ flowchart LR
 - upstream NAT/port forwarding, если OpenWrt находится за другим router;
 - service logs сразу после внешней попытки подключения.
 
-Для обычного MTProxy installer не создаёт WAN firewall rules автоматически. **Исключение — managed Direct HTTPS:** `nginx-telego-firewall` транзакционно владеет только `firewall.telego_direct_https` и создаёт WAN TCP/443 → local `:18443`. Не дублируйте этот redirect вручную.
+Для обычного MTProxy installer не создаёт WAN firewall rules автоматически. **Исключение — managed Direct HTTPS:** `nginx-telego-firewall` транзакционно владеет только `firewall.telego_direct_https` и создаёт WAN TCP/443 `INPUT ACCEPT`. Nginx слушает `:443` напрямую; DNAT/REDIRECT и backend `:18443` в текущей topology отсутствуют.
 
 ## Direct HTTPS не работает
 
@@ -143,11 +143,13 @@ flowchart LR
 
 - `telego.general.enabled` должен быть `1`;
 - MTProxy не должен слушать TCP/443; используйте отдельный порт (например `:9443`) или Native Shared-Port;
-- `foreign_wan443` и `foreign_wan18443` в firewall status должны быть пустыми/`-`;
+- `foreign_wan443` в firewall status должен быть пустым/`-`;
 - WEB listener должен оставаться `127.0.0.1:8080`;
 - при опубликованном AAAA проверяйте IPv6 отдельно.
+- `nginx_telego.direct_https.hsts_max_age` по умолчанию `604800`; после полной приёмки допускается `31536000`;
+- LuCI HTTPS `:443`, если он был занят uhttpd, переносится на management port, но LuCI plain HTTP `:80` P12.7 намеренно не отключает.
 
-Затем отделите Nginx backend от WAN redirect:
+Затем отделите локальный Nginx listener от WAN firewall ownership:
 
 ```sh
 /usr/libexec/nginx-telego-firewall status
@@ -155,7 +157,7 @@ flowchart LR
 /usr/libexec/nginx-telego-cert status
 /usr/libexec/nginx-telego-cert preflight
 nginx -t -c /etc/nginx/uci.conf
-netstat -lntp 2>/dev/null | grep -E ':443|:8080|:18443'
+netstat -lntp 2>/dev/null | grep -E ':443|:10443|:8080|:80'
 ```
 
 Если router-side проверки проходят, используйте внешний клиент из другой сети. Полный acceptance-test: **[Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md)**.
