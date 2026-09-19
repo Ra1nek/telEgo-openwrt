@@ -244,20 +244,26 @@ Path `419` удаляет request body/content metadata и carrier-sensitive hea
 
 ## Direct HTTPS firewall boundary
 
-Direct HTTPS намеренно использует Nginx listeners `0.0.0.0:18443` и `[::]:18443`, потому что firewall4 redirect должен доставлять локально адресованный WAN-трафик независимо от динамического WAN IP. Сам `:18443` **не является публичным ingress-портом**.
-
-`nginx-telego-firewall` владеет только именованной секцией:
+Direct HTTPS напрямую использует Nginx listeners `0.0.0.0:443` и `[::]:443`. `nginx-telego-firewall` владеет только именованной секцией:
 
 ```text
 firewall.telego_direct_https
 ```
 
-Она перенаправляет только WAN TCP/443 в local `:18443`. Manager отказывается включать Direct HTTPS при чужом WAN/443 redirect, прямом WAN rule/redirect на TCP/18443, зарезервированной foreign-секции, незакоммиченных firewall UCI changes или WAN input policy `ACCEPT`. LAN TCP/443 остаётся вне этого redirect и должен продолжать обслуживаться uhttpd/LuCI.
+Секция является WAN TCP/443 `INPUT ACCEPT` rule с `family=any`; DNAT/REDIRECT и private backend `:18443` в текущей topology отсутствуют. Manager отказывается включать профиль при чужом WAN/443 owner, reserved foreign-section, незакоммиченных firewall UCI changes или WAN input policy `ACCEPT`.
 
-Direct HTTPS также требует, чтобы MTProxy telEgo **не слушал TCP/443**: этот WAN-порт целиком зарезервирован для WEB/Nginx. Для совместного WEB+MTProxy public `:443` используйте Native Shared-Port.
+Если uhttpd занимал HTTPS `:443`, platform reconciler переносит только эти HTTPS listeners на management port. **LuCI plain HTTP `listen_http` (обычно `:80`) не входит в ownership nginx-telego, не отключается и не получает package-owned WAN allow-rule.** Его доступность определяется конфигурацией uhttpd и firewall администратора.
+
+Direct HTTPS требует, чтобы telEgo MTProxy не слушал TCP/443. Для совместного WEB+MTProxy public `:443` используйте Native Shared-Port.
+
+### P12.7 TLS/HTTPS hardening
+
+Managed Direct HTTPS разрешает только TLS 1.2/1.3, отклоняет unknown SNI, использует `server_tokens off` и staged HSTS. Значение `nginx_telego.direct_https.hsts_max_age` по умолчанию `604800`; `includeSubDomains` и `preload` не генерируются. После аппаратной, reboot и renewal-приёмки значение можно увеличить до `31536000`.
+
+Пакет намеренно не включает OCSP stapling для Let's Encrypt, не закрепляет большой ручной cipher-list и не добавляет глобальные CSP/Permissions-Policy поверх WEB carrier. Managed ordinary fallback остаётся `200 OK`; дополнительные headers ограничены `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` и `Cache-Control: no-store`.
 
 > [!IMPORTANT]
-> После изменения сторонних firewall rules отдельно проверяйте, что WAN TCP/18443 не стал доступен напрямую. Полная процедура: [Проверка Direct HTTPS](DIRECT_HTTPS_TEST.md).
+> HSTS — состояние браузера, а не исправление сертификата. Увеличивайте `max-age` только после проверки hostname, certificate renewal, reboot и rollback. `max-age=0` доступен как контролируемый способ снять HSTS для будущих ответов.
 
 ## TLS certificates и ответственность deployment
 
