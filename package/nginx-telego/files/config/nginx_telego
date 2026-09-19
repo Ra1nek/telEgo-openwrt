@@ -18,8 +18,10 @@ config cloudflare 'cloudflare'
 	option hostname ''
 
 # Direct HTTPS dedicates TCP/443 to dual-stack Nginx for both LAN and WAN WEB
-# ingress. LuCI/uhttpd is moved to a separate HTTPS management port (10443 by
-# default). nginx-telego-firewall owns only the WAN TCP/443 ACCEPT rule.
+# ingress. Only LuCI/uhttpd HTTPS listeners that occupied :443 are moved to the
+# separate HTTPS management port (10443 by default). Plain LuCI HTTP (commonly
+# :80) remains administrator-managed and is never disabled by nginx-telego.
+# nginx-telego-firewall owns only the WAN TCP/443 ACCEPT rule.
 # An optional split-DNS address lets LAN clients resolve the WEB hostname to a
 # router LAN address and avoid public-IP hairpin NAT entirely.
 # Configure telEgo MTProxy on another public port. Use Native Shared-Port when
@@ -31,6 +33,9 @@ config direct_https 'direct_https'
 	option hostname ''
 	option certificate ''
 	option certificate_key ''
+	# Staged HSTS. 604800 = 7 days. After hardware/reboot/renewal acceptance,
+	# operators may raise this to 31536000. No includeSubDomains/preload is emitted.
+	option hsts_max_age '604800'
 	option luci_https_port '10443'
 	option split_dns_address ''
 
