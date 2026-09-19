@@ -245,7 +245,7 @@ Explicit backend нужен только для compatibility topology, напр
 
 `20-telego-core.conf` создаёт общий `telego_web → 127.0.0.1:8080` и необходимые Nginx maps. Его canonical repair source хранится в `/usr/share/nginx-telego/templates/20-telego-core.conf`.
 
-`telego.locations` — reusable HTTP/WebSocket/fallback snippet для обычного Nginx TLS server. Он **не является MTProto handler**. Direct HTTPS подключает его на Nginx `:18443`, а Native Shared-Port — на приватном TLS listener `:8443` после того, как telEgo отделил MTProxy от обычного TLS.
+`telego.locations` — reusable HTTP/WebSocket/fallback snippet для обычного Nginx TLS server. Он **не является MTProto handler**. Direct HTTPS подключает его на dedicated Nginx `:443`, а Native Shared-Port — на приватном TLS listener `:8443` после того, как telEgo отделил MTProxy от обычного TLS.
 
 Opt-in managed profiles используют:
 
