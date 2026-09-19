@@ -6,6 +6,13 @@ bash -n scripts/install-on-router.sh
 sh -n install.sh
 sh -n scripts/verify-direct-https-router.sh
 sh -n scripts/verify-direct-https-client.sh
+python3 - <<'PY'
+from pathlib import Path
+
+router_verify = Path('scripts/verify-direct-https-router.sh').read_text(encoding='utf-8')
+assert router_verify.count('/tmp/nginx-telego-platform-preflight.$') == 3
+print('Direct HTTPS hardware verifier temp-file contract passed')
+PY
 python3 .github/scripts/check-doc-links.py
 python3 -m py_compile .github/scripts/apply-upstream-patches.py .github/scripts/check-doc-links.py
 python3 - <<'PY'
