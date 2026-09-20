@@ -3,7 +3,7 @@ const fs = require('node:fs');
 
 class Element {
 	constructor(tag, attrs = {}, children = []) {
-		this.tag = tag; this.attrs = attrs; this.style = {};
+		this.tag = tag; this.attrs = attrs; this.style = {}; this.hidden = attrs.hidden === true;
 		this.children = Array.isArray(children) ? children : [children];
 		this.classList = { add() {}, remove() {} };
 	}
@@ -137,7 +137,14 @@ async function check(initialStatus, ingressMode = 'disabled') {
 	assert.notEqual(ddDelay.validate(null, '-1ms'), true);
 	assert.notEqual(ddDelay.validate(null, '2.5ms'), true);
 
+	const webGroup = root.querySelector('#telego-status-group-web');
+	const middleEndGroup = root.querySelector('#telego-status-group-middleend');
+	assert.ok(webGroup, 'WEB runtime status group exists');
+	assert.ok(middleEndGroup, 'Middle-End runtime status group exists');
+
 	if (initialStatus) {
+		assert.equal(webGroup.hidden, !initialStatus.web_enabled, 'WEB runtime visibility follows backend status');
+		assert.equal(middleEndGroup.hidden, !initialStatus.middleend_enabled, 'Middle-End runtime visibility follows backend status');
 		assert.equal(root.querySelector('#telego-status-pid').textContent, '42');
 		if (initialStatus.metrics_available) {
 			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Running');
@@ -154,10 +161,25 @@ async function check(initialStatus, ingressMode = 'disabled') {
 			assert.equal(root.querySelector('#telego-status-error').textContent, 'Metrics: Error (fetch-failed)');
 		}
 	} else {
+		assert.equal(webGroup.hidden, true, 'WEB runtime stays hidden until backend status is available');
+		assert.equal(middleEndGroup.hidden, true, 'Middle-End runtime stays hidden until backend status is available');
 		assert.equal(root.querySelector('#telego-status-error').textContent, 'Unable to read telEgo status.');
 	}
 	assert.equal(typeof poll, 'function');
-	await poll(); // RPC failures must not reject the polling callback.
+
+	if (initialStatus) {
+		reply = { ...initialStatus, web_enabled: false, middleend_enabled: false };
+		await poll();
+		assert.equal(webGroup.hidden, true, 'poll hides WEB runtime when it becomes disabled');
+		assert.equal(middleEndGroup.hidden, true, 'poll hides Middle-End runtime when it becomes disabled');
+
+		reply = { ...initialStatus, web_enabled: true, middleend_enabled: true };
+		await poll();
+		assert.equal(webGroup.hidden, false, 'poll restores WEB runtime when it becomes enabled');
+		assert.equal(middleEndGroup.hidden, false, 'poll restores Middle-End runtime when it becomes enabled');
+	} else {
+		await poll(); // RPC failures must not reject the polling callback.
+	}
 }
 
 const healthyStatus = {
@@ -181,6 +203,9 @@ const healthyStatus = {
 	await check(healthyStatus, 'cloudflare');
 	await check(healthyStatus, 'direct_https');
 	await check(healthyStatus, 'shared');
+	await check({ ...healthyStatus, web_enabled: false });
+	await check({ ...healthyStatus, middleend_enabled: false });
+	await check({ ...healthyStatus, web_enabled: false, middleend_enabled: false });
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

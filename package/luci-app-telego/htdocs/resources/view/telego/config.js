@@ -98,11 +98,23 @@ function statusCard(label, key) {
 	]);
 }
 
-function statusGroup(title, cards) {
-	return E('div', { 'class': 'telego-status-section' }, [
+function statusGroup(title, cards, key) {
+	const attrs = { 'class': 'telego-status-section' };
+	if (key) {
+		attrs.id = 'telego-status-group-' + key;
+		attrs.hidden = true;
+	}
+
+	return E('div', attrs, [
 		E('h3', {}, title),
 		E('div', { 'class': 'telego-status-grid' }, cards)
 	]);
+}
+
+function setStatusGroupVisible(root, key, visible) {
+	const node = root.querySelector('#telego-status-group-' + key);
+	if (node)
+		node.hidden = !visible;
 }
 
 function buildStatusView() {
@@ -132,7 +144,7 @@ function buildStatusView() {
 		statusCard(_('WEB Sessions Closed'), 'web-closed'),
 		statusCard(_('Carrier Retries'), 'web-retries'),
 		statusCard(_('Backpressure Events'), 'web-backpressure')
-	]);
+	], 'web');
 
 	const middleEnd = statusGroup(_('Middle-End Runtime'), [
 		statusCard(_('Middle-End State'), 'me-state'),
@@ -144,7 +156,7 @@ function buildStatusView() {
 		statusCard(_('Slot Failures'), 'me-failures'),
 		statusCard(_('Artifact State'), 'me-artifact'),
 		statusCard(_('Artifact Refresh Failures'), 'me-artifact-failures')
-	]);
+	], 'middleend');
 
 	const error = E('p', {
 		'class': 'telego-status-error',
@@ -164,6 +176,9 @@ function buildStatusView() {
 
 function updateStatus(status, root) {
 	root = root || document;
+	setStatusGroupVisible(root, 'web', !!(status && status.web_enabled));
+	setStatusGroupVisible(root, 'middleend', !!(status && status.middleend_enabled));
+
 	const metricsReady = !!(status && status.metrics_available);
 	const metricsVisible = !!(status && status.running && metricsReady);
 	const values = {
