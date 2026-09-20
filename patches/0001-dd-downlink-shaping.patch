@@ -49,6 +49,9 @@ diff --git a/pkg/config/config.go b/pkg/config/config.go
 +	if ddDelay > 0 && c.Performance.DDDownlinkChunk == 0 {
 +		return gproxy.Config{}, errors.New("dd-downlink-delay requires a non-zero dd-downlink-chunk")
 +	}
++	if c.MiddleEnd.Enabled && (c.Performance.DDDownlinkChunk > 0 || ddDelay > 0) {
++		return gproxy.Config{}, errors.New("DD downstream shaping is not supported with Middle-End enabled")
++	}
 +	cfg.DDDownlinkChunk = c.Performance.DDDownlinkChunk
 +	cfg.DDDownlinkDelay = ddDelay
  	cfg.NumEventLoop = c.Performance.NumEventLoops
@@ -346,6 +349,18 @@ new file mode 100644
 +	}
 +	if _, err := cfg.ToGProxyConfig(); err == nil {
 +		t.Fatal("expected DD downlink delay without chunk to be rejected")
++	}
++}
++
++func TestOpenWrtDDDownlinkRejectsMiddleEnd(t *testing.T) {
++	cfg := Config{
++		Secrets:     map[string]string{"test": "0123456789abcdef0123456789abcdef"},
++		TLSFronting: TLSFrontingConfig{MaskHost: "example.com"},
++		Performance: PerformanceConfig{DDDownlinkChunk: 1200},
++		MiddleEnd:   MiddleEndConfig{Enabled: true},
++	}
++	if _, err := cfg.ToGProxyConfig(); err == nil {
++		t.Fatal("expected DD shaping with Middle-End to be rejected")
 +	}
 +}
 +

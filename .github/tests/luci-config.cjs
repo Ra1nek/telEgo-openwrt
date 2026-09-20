@@ -21,7 +21,7 @@ class Element {
 	}
 }
 
-async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled = '1') {
+async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled = '1', ddChunkValue = '0', ddDelayValue = '0s') {
 	const options = [];
 	let poll;
 	let modal;
@@ -63,6 +63,8 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			if (config === 'telego' && section === 'general' && option === 'public_port') return '';
 			if (config === 'telego' && section === 'tls_fronting' && option === 'enabled') return tlsFrontingEnabled;
 			if (config === 'telego' && section === 'tls_fronting' && option === 'mask_host') return 'ya.ru';
+			if (config === 'telego' && section === 'performance' && option === 'dd_downlink_chunk') return ddChunkValue;
+			if (config === 'telego' && section === 'performance' && option === 'dd_downlink_delay') return ddDelayValue;
 			if (config === 'telego' && section === 'user1' && option === 'name') return 'aiser';
 			if (config === 'telego' && section === 'user1' && option === 'secret') return '0123456789abcdef0123456789abcdef';
 			if (config === 'nginx_telego' && section === 'cloudflare' && option === 'enabled')
@@ -165,6 +167,9 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	for (const name of ['trusted_proxy_cidrs', 'backend', 'num_event_loops'])
 		assert.equal(options.find(o => o.section === 'web_proxy' && o.name === name), undefined, 'advanced WEB option leaked into Configuration: ' + name);
 
+	const middleEndEnabledOption = options.find(o => o.section === 'middle_end' && o.name === 'enabled');
+	ddChunkValue === '0' && ddDelayValue === '0s'\n\t\t? assert.equal(middleEndEnabledOption.validate(null, '1'), true)\n\t\t: assert.notEqual(middleEndEnabledOption.validate(null, '1'), true);
+
 	const proxyTag = options.find(o => o.section === 'middle_end' && o.name === 'proxy_tag');
 	assert.equal(proxyTag.retain, true, 'hidden Middle-End proxy tag must survive disabled Save & Apply');
 	assert.equal(proxyTag.validate(null, ''), true);
@@ -248,5 +253,6 @@ const healthyStatus = {
 	await check({ ...healthyStatus, web_enabled: false, middleend_enabled: false });
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	await check(healthyStatus, 'disabled', '0');
+	await check(healthyStatus, 'disabled', '1', '1200', '5ms');
 	console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

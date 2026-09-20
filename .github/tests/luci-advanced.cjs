@@ -113,6 +113,8 @@ function option(options, section, name) {
 	for (const name of ['bind_to', 'path', 'diagnostics'])
 		assert.ok(option(options, 'metrics', name), 'missing Metrics option ' + name);
 
+	result = await renderAdvanced({ middleEnd: '0' });
+	options = result.options;
 	let ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	let ddDelay = option(options, 'performance', 'dd_downlink_delay');
 	assert.equal(ddChunk.validate('performance', '0'), true);
@@ -140,6 +142,15 @@ function option(options, section, name) {
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
+	assert.equal(ddChunk.validate('performance', '0'), true);
+	assert.equal(ddDelay.validate('performance', '0s'), true);
+
+	result = await renderAdvanced({ middleEnd: '1', formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } } });
+	options = result.options;
+	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
+	ddDelay = option(options, 'performance', 'dd_downlink_delay');
+	assert.notEqual(ddChunk.validate('performance', '1200'), true, 'Middle-End rejects DD chunk shaping');
+	assert.notEqual(ddDelay.validate('performance', '2ms'), true, 'Middle-End rejects DD delay shaping');
 	assert.equal(ddChunk.validate('performance', '0'), true);
 	assert.equal(ddDelay.validate('performance', '0s'), true);
 

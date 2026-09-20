@@ -728,6 +728,13 @@ function makeConfigMap() {
 		_('Keep disabled unless you intentionally use Telegram Middle-End transport. Existing direct DC routing remains the default.')
 	);
 	o.default = '0';
+	o.validate = function (section_id, value) {
+		const chunk = Number(uci.get('telego', 'performance', 'dd_downlink_chunk') || '0');
+		const delay = uci.get('telego', 'performance', 'dd_downlink_delay') || '0s';
+		return String(value) === '1' && (chunk > 0 || delay !== '0s')
+			? _('Disable DD Downlink Shaping before enabling Middle-End.')
+			: true;
+	};
 
 	o = s.option(form.Value, 'proxy_tag', _('Proxy Tag'));
 	o.depends('enabled', '1');

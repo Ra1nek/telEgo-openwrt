@@ -988,3 +988,10 @@ msgstr "Используйте 0s или положительную целую �
 
 msgid "DD Downlink Delay requires a non-zero DD Downlink Chunk."
 msgstr "Для ненулевой задержки DD требуется ненулевой размер блока DD."
+
+
+msgid "Disable DD Downlink Shaping before enabling Middle-End."
+msgstr "Перед включением Middle-End отключите DD Downlink Shaping."
+
+msgid "DD Downlink Shaping is unavailable while Middle-End is enabled."
+msgstr "DD Downlink Shaping недоступен, пока включён Middle-End."

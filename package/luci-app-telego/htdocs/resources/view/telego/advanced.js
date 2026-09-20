@@ -308,6 +308,8 @@ return view.extend({
 			const number = Number(value);
 			if (!(value === '0' || (Number.isInteger(number) && number >= 256 && number <= 65536)))
 				return _('Use 0 or a value from 256 to 65536 bytes.');
+			if (middleEndEnabled && number > 0)
+				return _('DD Downlink Shaping is unavailable while Middle-End is enabled.');
 
 			const delay = siblingFormValue(this, 'dd_downlink_delay', section_id, '0s');
 			const delayUs = parseDDDownlinkDelayUs(delay);
@@ -325,6 +327,8 @@ return view.extend({
 			const delayUs = parseDDDownlinkDelayUs(value);
 			if (delayUs == null)
 				return _('Use 0s or a positive integer duration no greater than 1s, such as 500us, 2ms, or 1s.');
+			if (middleEndEnabled && delayUs > 0)
+				return _('DD Downlink Shaping is unavailable while Middle-End is enabled.');
 
 			const chunk = Number(siblingFormValue(this, 'dd_downlink_chunk', section_id, '0'));
 			if (delayUs > 0 && chunk === 0)
