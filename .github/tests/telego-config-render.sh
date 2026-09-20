@@ -152,7 +152,7 @@ DIRECT_ENABLED=0
 generate_config
 awk '/^\[tls-fronting\]$/{on=1;next} /^\[/{on=0} on' "$RUNTIME_CONFIG" >"$tmp/tls-disabled"
 grep -Fqx 'enabled = false' "$tmp/tls-disabled"
-[ "$(wc -l < "$tmp/tls-disabled")" -eq 1 ]
+! grep -Eq '^(mask-host|mask-port|cert-host|cert-port|fake-cert-size|mask-sni-safelist|splice-host|splice-port|splice-proxy-protocol|splice-idle-timeout|enable-drs|enable-split-tls)[[:space:]]*=' "$tmp/tls-disabled"
 
 # Native Shared-Port cannot operate without TLS fronting.
 SHARED_ENABLED=1
