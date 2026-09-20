@@ -148,10 +148,10 @@ async function check(initialStatus, ingressMode = 'disabled') {
 		assert.equal(root.querySelector('#telego-status-pid').textContent, '42');
 		if (initialStatus.metrics_available) {
 			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Running');
-			assert.equal(root.querySelector('#telego-status-web-sessions').textContent, '2');
-			assert.equal(root.querySelector('#telego-status-web-streams').textContent, '5');
-			assert.equal(root.querySelector('#telego-status-me-links').textContent, '4');
-			assert.equal(root.querySelector('#telego-status-me-artifact').textContent, 'Applied');
+			assert.equal(root.querySelector('#telego-status-web-sessions').textContent, initialStatus.web_enabled ? '2' : '—');
+			assert.equal(root.querySelector('#telego-status-web-streams').textContent, initialStatus.web_enabled ? '5' : '—');
+			assert.equal(root.querySelector('#telego-status-me-links').textContent, initialStatus.middleend_enabled ? '4' : '—');
+			assert.equal(root.querySelector('#telego-status-me-artifact').textContent, initialStatus.middleend_enabled ? 'Applied' : 'Disabled');
 			assert.equal(root.querySelector('#telego-status-error').textContent, '');
 		} else {
 			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Error');
