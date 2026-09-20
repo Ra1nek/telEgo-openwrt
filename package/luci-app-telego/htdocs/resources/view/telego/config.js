@@ -669,7 +669,8 @@ function makeConfigMap() {
 	o = s.option(form.Button, '_links', _('Links'));
 	o.inputtitle = _('Links');
 	o.inputstyle = 'apply';
-	o.onclick = function (section_id) {
+	o.editable = true;
+	o.onclick = function (ev, section_id) {
 		showProxyLinks(section_id);
 	};
 

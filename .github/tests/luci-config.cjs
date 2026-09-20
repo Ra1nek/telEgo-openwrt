@@ -110,8 +110,10 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 
 	const links = options.find(o => o.section === 'secret' && o.name === '_links');
 	assert.ok(links, 'missing per-user link generator');
-	links.onclick('user1');
+	assert.equal(links.editable, true, 'link generator button must render inline in the users grid');
+	links.onclick({ type: 'click' }, 'user1');
 	assert.ok(modal, 'link generator opens a modal');
+	assert.equal(modal.attrs.title, 'Connection Links — aiser', 'button event must not be mistaken for the UCI section id');
 
 	const ddSecretOutput = modal.querySelector('#telego-proxy-dd-secret');
 	const ddLinkOutput = modal.querySelector('#telego-proxy-dd-link');
