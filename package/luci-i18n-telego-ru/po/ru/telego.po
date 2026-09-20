@@ -1117,3 +1117,42 @@ msgstr "Настраивайте каждый сервис telEgo в его со
 
 msgid "Global runtime tuning and diagnostics remain here. Feature-specific advanced controls are now available in the Advanced tab of each service."
 msgstr "Здесь остаются глобальные параметры работы сервиса и диагностики. Расширенные параметры отдельных функций теперь находятся на вкладке «Расширенные» соответствующего сервиса."
+
+msgid "Use a profile as a safe starting point, then adjust individual controls when needed. Applying a profile only changes this form; Save & Apply is still required."
+msgstr "Используйте профиль как безопасную отправную точку, а при необходимости настройте отдельные параметры вручную. Применение профиля изменяет только поля формы; затем всё равно требуется «Сохранить и применить»."
+
+msgid "Performance Profile"
+msgstr "Профиль производительности"
+
+msgid "Profiles stage known combinations of the supported performance controls. Manual changes are preserved and are shown as Custom."
+msgstr "Профили подставляют известные сочетания поддерживаемых параметров производительности. Ручные изменения сохраняются и отображаются как «Пользовательский»."
+
+msgid "Default"
+msgstr "По умолчанию"
+
+msgid "Mobile DPI"
+msgstr "Мобильный DPI"
+
+msgid "iOS Recovery"
+msgstr "Восстановление iOS"
+
+msgid "Custom"
+msgstr "Пользовательский"
+
+msgid "Mobile DPI profile is unavailable while Middle-End is enabled."
+msgstr "Профиль «Мобильный DPI» недоступен, пока включён Middle-End."
+
+msgid "Current profile:"
+msgstr "Текущий профиль:"
+
+msgid "Package defaults: automatic event loops, IPv4 preference, no DD shaping and no silence recovery timer."
+msgstr "Настройки пакета по умолчанию: автоматическое число циклов событий, предпочтение IPv4, без DD shaping и без таймера восстановления при молчании клиента."
+
+msgid "For restrictive mobile networks: DD downlink chunk 1200 bytes with 2ms pacing. Requires Middle-End to be disabled."
+msgstr "Для мобильных сетей с фильтрацией: блок DD вниз 1200 байт и pacing 2ms. Требует отключённого Middle-End."
+
+msgid "For diagnosing the iOS Updating stall: default transport settings with Client Silence Close set to 10s."
+msgstr "Для диагностики зависания iOS на «Updating»: стандартные параметры транспорта и Client Silence Close = 10s."
+
+msgid "Profiles do not add a new runtime setting. They only stage values in the existing Performance fields below."
+msgstr "Профили не добавляют новый runtime-параметр. Они только подставляют значения в существующие поля «Производительность» ниже."

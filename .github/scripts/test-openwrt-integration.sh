@@ -97,6 +97,7 @@ bash .github/tests/patched-go-format.sh
 bash .github/tests/service-definition.sh
 "${NODE:-node}" .github/tests/luci-app-shell.cjs
 "${NODE:-node}" .github/tests/luci-config.cjs
+"${NODE:-node}" .github/tests/luci-advanced.cjs
 "${NODE:-node}" .github/tests/luci-ingress.cjs
 "${NODE:-node}" .github/tests/luci-nginx-files.cjs
 python3 .github/tests/test_installer.py

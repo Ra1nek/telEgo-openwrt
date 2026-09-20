@@ -792,3 +792,101 @@ P5.3 PROFESSIONAL USERS GRID
 		width: 100%;
 	}
 }
+
+
+/* ==========================================================================
+P5.5 PERFORMANCE PROFILES
+=========================================================================== */
+.telego-performance-profile-picker {
+	display: flex;
+	flex-direction: column;
+	gap: var(--telego-spacing-md);
+}
+
+.telego-performance-profile-summary {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--telego-spacing-sm);
+	align-items: center;
+	color: var(--telego-text-secondary);
+}
+
+#telego-performance-profile-state {
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
+	padding: 2px var(--telego-spacing-sm);
+	border: 1px solid var(--telego-border-color);
+	border-radius: 999px;
+	color: var(--telego-text-primary);
+	font-weight: 600;
+}
+
+.telego-performance-profile-grid {
+	display: grid;
+	grid-template-columns: repeat(3, minmax(0, 1fr));
+	gap: var(--telego-spacing-sm);
+}
+
+.telego-performance-profile {
+	display: flex;
+	min-width: 0;
+	min-height: 92px;
+	flex-direction: column;
+	gap: var(--telego-spacing-xs);
+	align-items: flex-start;
+	box-sizing: border-box;
+	padding: var(--telego-spacing-md);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-lg);
+	background: var(--telego-bg-primary);
+	color: var(--telego-text-primary);
+	font: inherit;
+	text-align: left;
+	cursor: pointer;
+}
+
+.telego-performance-profile:hover:not(:disabled) {
+	background: var(--telego-bg-hover);
+}
+
+.telego-performance-profile.active,
+.telego-performance-profile[aria-pressed="true"] {
+	border-color: var(--telego-primary-color);
+}
+
+.telego-performance-profile strong {
+	color: var(--telego-primary-color);
+}
+
+.telego-performance-profile span {
+	color: var(--telego-text-secondary);
+	font-size: .9em;
+	line-height: 1.35;
+}
+
+.telego-performance-profile:disabled {
+	opacity: .5;
+	cursor: not-allowed;
+}
+
+.telego-performance-profile:focus-visible {
+	outline: 2px solid var(--telego-primary-color);
+	outline-offset: 2px;
+}
+
+.telego-performance-profile-note {
+	margin: 0;
+	color: var(--telego-text-secondary);
+	font-size: .9em;
+}
+
+@media screen and (max-width: 760px) {
+	.telego-performance-profile-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.telego-performance-profile {
+		min-height: 0;
+	}
+}
