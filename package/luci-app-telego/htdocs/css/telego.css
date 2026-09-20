@@ -441,3 +441,200 @@ P5 UNIFIED APPLICATION SHELL
 		width: 100%;
 	}
 }
+
+
+/* ==========================================================================
+P5.2 CONNECTION MODAL
+=========================================================================== */
+.telego-connection-modal {
+	width: min(640px, calc(100vw - 48px));
+	max-width: 100%;
+	box-sizing: border-box;
+}
+
+.telego-connection-endpoint-grid {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) minmax(8rem, .32fr);
+	gap: var(--telego-spacing-md);
+	margin: var(--telego-spacing-md) 0;
+}
+
+.telego-connection-endpoint-grid label > span,
+.telego-connection-output > label {
+	display: block;
+	margin-bottom: var(--telego-spacing-xs);
+	font-weight: 600;
+}
+
+.telego-connection-endpoint-grid input {
+	width: 100%;
+	box-sizing: border-box;
+}
+
+.telego-connection-mode-tabs {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: var(--telego-spacing-xs);
+	margin: var(--telego-spacing-lg) 0 var(--telego-spacing-md);
+	padding: var(--telego-spacing-xs);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-lg);
+	background: var(--telego-bg-secondary);
+}
+
+.telego-connection-mode-tab {
+	min-height: 38px;
+	border: 0;
+	border-radius: var(--telego-radius-md);
+	background: transparent;
+	color: var(--telego-text-primary);
+	font: inherit;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+.telego-connection-mode-tab.active,
+.telego-connection-mode-tab[aria-selected="true"] {
+	background: var(--telego-bg-primary);
+	color: var(--telego-primary-color);
+	box-shadow: 0 1px 3px rgba(0, 0, 0, .15);
+}
+
+.telego-connection-mode-tab:disabled {
+	opacity: .45;
+	cursor: not-allowed;
+}
+
+.telego-connection-mode-tab:focus-visible {
+	outline: 2px solid var(--telego-primary-color);
+	outline-offset: 2px;
+}
+
+.telego-connection-layout {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 220px;
+	gap: var(--telego-spacing-lg);
+	align-items: start;
+}
+
+.telego-connection-details {
+	min-width: 0;
+}
+
+.telego-connection-summary {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: var(--telego-spacing-xs) var(--telego-spacing-md);
+	margin: var(--telego-spacing-md) 0;
+}
+
+.telego-connection-summary dt {
+	font-weight: 600;
+	color: var(--telego-text-secondary);
+}
+
+.telego-connection-summary dd {
+	min-width: 0;
+	margin: 0;
+	overflow-wrap: anywhere;
+	font-family: monospace;
+}
+
+.telego-connection-output {
+	margin: 0 0 var(--telego-spacing-md);
+}
+
+.telego-connection-output-row {
+	display: flex;
+	gap: var(--telego-spacing-sm);
+	align-items: center;
+}
+
+.telego-connection-output-input {
+	width: 100%;
+	min-width: 0;
+	box-sizing: border-box;
+	font-family: monospace;
+}
+
+.telego-connection-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--telego-spacing-sm);
+	margin-top: var(--telego-spacing-md);
+}
+
+.telego-connection-open.disabled,
+.telego-connection-open[aria-disabled="true"] {
+	opacity: .5;
+	pointer-events: none;
+}
+
+.telego-connection-qr-card {
+	margin: 0;
+	padding: var(--telego-spacing-md);
+	border: 1px solid var(--telego-border-light);
+	border-radius: var(--telego-radius-lg);
+	background: var(--telego-bg-secondary);
+	text-align: center;
+}
+
+.telego-connection-qr {
+	display: flex;
+	min-height: 188px;
+	align-items: center;
+	justify-content: center;
+	padding: var(--telego-spacing-sm);
+	border-radius: var(--telego-radius-md);
+	background: #fff;
+	color: #333;
+	font-size: .9em;
+}
+
+.telego-connection-qr svg {
+	display: block;
+	width: 100%;
+	max-width: 196px;
+	height: auto;
+}
+
+.telego-connection-qr-caption {
+	margin: var(--telego-spacing-sm) 0 0;
+	color: var(--telego-text-secondary);
+	font-size: .85em;
+	line-height: 1.35;
+}
+
+.telego-connection-footer {
+	display: flex;
+	justify-content: flex-end;
+	margin-top: var(--telego-spacing-lg);
+}
+
+@media screen and (max-width: 640px) {
+	.telego-connection-modal {
+		width: 100%;
+	}
+
+	.telego-connection-endpoint-grid,
+	.telego-connection-layout {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.telego-connection-output-row {
+		align-items: stretch;
+		flex-direction: column;
+	}
+
+	.telego-connection-output-row .btn,
+	.telego-connection-open {
+		width: 100%;
+		box-sizing: border-box;
+		text-align: center;
+	}
+
+	.telego-connection-qr-card {
+		max-width: 260px;
+		margin: 0 auto;
+	}
+}

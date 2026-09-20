@@ -8,10 +8,12 @@ class Element {
 		this.value = attrs.value || '';
 		this.disabled = attrs.disabled != null;
 		this.textContent = typeof children === 'string' ? children : '';
+		this.innerHTML = '';
 		this.classList = { add() {}, remove() {} };
 	}
 	addEventListener(name, handler) { this.attrs[name] = handler; }
 	setAttribute(name, value) { this.attrs[name] = value; }
+	removeAttribute(name) { delete this.attrs[name]; }
 	dispatchEvent() {}
 	querySelector(selector) {
 		if (selector === this.tag || selector === '#' + this.attrs.id) return this;
@@ -28,6 +30,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	let poll;
 	let modal;
 	let reply = initialStatus;
+	const qrPayloads = [];
 	class Map {
 		section(kind, section) {
 			return {
@@ -96,13 +99,19 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		location: { hash: '' },
 		history: { replaceState: (state, title, hash) => { windowObject.location.hash = hash; } }
 	};
-	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'appShell', 'window', 'document',
+	const uqr = {
+		renderSVG: (value, options) => {
+			qrPayloads.push({ value, options });
+			return '<svg data-test="telego-qr"></svg>';
+		}
+	};
+	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'uqr', 'appShell', 'window', 'document',
 		fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8'))(
 		form, { declare: () => () => reply ? Promise.resolve(reply) : Promise.reject(new Error('rpcd unavailable')) },
 		ui, uci, { extend: x => x },
 		(tag, attrs, children) => new Element(tag, attrs, children), x => x,
 		{ resolveDefault: (p, fallback) => p.catch(() => fallback), Poll: { add: fn => { poll = fn; } } },
-		appShell, windowObject, { querySelector: () => null }
+		uqr, appShell, windowObject, { querySelector: () => null }
 	);
 	await view.load();
 	const root = await view.render();
@@ -148,25 +157,45 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	const ddLinkOutput = modal.querySelector('#telego-proxy-dd-link');
 	const eeSecretOutput = modal.querySelector('#telego-proxy-ee-secret');
 	const eeLinkOutput = modal.querySelector('#telego-proxy-ee-link');
+	const ddQr = modal.querySelector('#telego-proxy-dd-qr');
+	const eeQr = modal.querySelector('#telego-proxy-ee-qr');
+	const ddOpen = modal.querySelector('#telego-proxy-dd-open');
+	const eeOpen = modal.querySelector('#telego-proxy-ee-open');
+	assert.ok(modal.querySelector('#telego-proxy-session-note'), 'modal explains that endpoint edits are session-only');
 	assert.equal(ddSecretOutput.value, 'dd0123456789abcdef0123456789abcdef');
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=dd0123456789abcdef0123456789abcdef');
+	assert.equal(ddOpen.attrs.href, ddLinkOutput.value);
+	assert.equal(ddOpen.attrs['aria-disabled'], 'false');
+	assert.equal(ddQr.attrs['data-state'], 'ready');
+	assert.ok(qrPayloads.some(call => call.value === ddLinkOutput.value), 'DD QR payload is the complete Telegram link');
+	assert.equal(qrPayloads.find(call => call.value === ddLinkOutput.value).options.ecLevel, 'M');
 	if (tlsFrontingEnabled === '1') {
 		assert.equal(modal.querySelector('#telego-proxy-tab-ee').disabled, false, 'EE tab must remain clickable when TLS Fronting is enabled');
 		assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
 		assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
+		assert.equal(eeOpen.attrs.href, eeLinkOutput.value);
+		assert.equal(eeOpen.attrs['aria-disabled'], 'false');
+		assert.equal(eeQr.attrs['data-state'], 'ready');
+		assert.ok(qrPayloads.some(call => call.value === eeLinkOutput.value), 'EE QR payload is the complete Telegram link');
 	} else {
 		assert.equal(eeSecretOutput.value, '');
 		assert.equal(eeLinkOutput.value, '');
 		assert.equal(modal.querySelector('#telego-proxy-tab-ee').disabled, true);
+		assert.equal(eeOpen.attrs['aria-disabled'], 'true');
+		assert.equal(eeQr.attrs['data-state'], 'empty');
 	}
 
 	const ddPanel = modal.querySelector('#telego-proxy-panel-dd');
 	const eePanel = modal.querySelector('#telego-proxy-panel-ee');
 	assert.equal(ddPanel.hidden, false);
 	assert.equal(eePanel.hidden, true);
+	assert.equal(modal.querySelector('#telego-proxy-tab-dd').attrs['aria-selected'], 'true');
+	assert.equal(modal.querySelector('#telego-proxy-tab-ee').attrs['aria-selected'], 'false');
 	modal.querySelector('#telego-proxy-tab-ee').attrs.click();
 	assert.equal(ddPanel.hidden, tlsFrontingEnabled === '1' ? true : false);
 	assert.equal(eePanel.hidden, tlsFrontingEnabled === '1' ? false : true);
+	assert.equal(modal.querySelector('#telego-proxy-tab-dd').attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'false' : 'true');
+	assert.equal(modal.querySelector('#telego-proxy-tab-ee').attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'true' : 'false');
 
 	const serverInput = modal.querySelector('#telego-proxy-public-server');
 	const portInput = modal.querySelector('#telego-proxy-public-port');
@@ -174,6 +203,8 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	portInput.value = '443';
 	serverInput.attrs.input();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=203.0.113.10&port=443&secret=dd0123456789abcdef0123456789abcdef');
+	assert.equal(ddOpen.attrs.href, ddLinkOutput.value, 'Open Telegram follows session-only endpoint edits');
+	assert.ok(qrPayloads.some(call => call.value === ddLinkOutput.value), 'QR refreshes after session-only endpoint edit');
 
 	serverInput.value = '2001:db8::1';
 	serverInput.attrs.input();
@@ -192,6 +223,8 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		serverInput.attrs.input();
 		assert.equal(ddLinkOutput.value, '', 'invalid public server must not generate a DD link: ' + invalidServer);
 		assert.equal(modal.querySelector('#telego-proxy-endpoint-error').hidden, false);
+		assert.equal(ddOpen.attrs['aria-disabled'], 'true', 'invalid endpoint disables Open Telegram');
+		assert.equal(ddQr.attrs['data-state'], 'empty', 'invalid endpoint clears the QR payload');
 	}
 
 	const tlsEnabled = options.find(o => o.section === 'tls_fronting' && o.name === 'enabled');
@@ -322,5 +355,9 @@ const healthyStatus = {
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	await check(healthyStatus, 'disabled', '0');
 	await check(healthyStatus, 'disabled', '1', '1200', '5ms');
-	console.log('LuCI configuration tests passed');
+	const connectionCss = fs.readFileSync('package/luci-app-telego/htdocs/css/telego.css', 'utf8');
+assert.match(connectionCss, /\.telego-connection-layout\s*\{/);
+assert.match(connectionCss, /@media screen and \(max-width: 640px\)/);
+assert.match(connectionCss, /\.telego-connection-qr svg/);
+console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

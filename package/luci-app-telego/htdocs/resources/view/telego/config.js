@@ -4,6 +4,7 @@
 'require rpc';
 'require ui';
 'require uci';
+'require uqr';
 'require view';
 'require view.telego.app-shell as appShell';
 
@@ -128,16 +129,16 @@ function copyText(value) {
 	});
 }
 
-function proxyOutputField(label, id) {
+function proxyOutputField(label, id, copyLabel) {
 	const input = E('input', {
 		'id': id,
 		'type': 'text',
-		'class': 'cbi-input-text',
+		'class': 'cbi-input-text telego-connection-output-input',
 		'readonly': 'readonly',
-		'spellcheck': 'false',
-		'style': 'width:100%;font-family:monospace'
+		'spellcheck': 'false'
 	});
 	const button = E('button', {
+		'id': id + '-copy',
 		'type': 'button',
 		'class': 'btn cbi-button cbi-button-action',
 		'click': function () {
@@ -154,16 +155,107 @@ function proxyOutputField(label, id) {
 				);
 			});
 		}
-	}, _('Copy'));
+	}, copyLabel || _('Copy'));
 
 	return {
 		input: input,
 		button: button,
-		node: E('div', { 'style': 'margin:0 0 1rem' }, [
-			E('label', { 'style': 'display:block;font-weight:600;margin-bottom:.35rem' }, label),
-			E('div', { 'style': 'display:flex;gap:.5rem;align-items:center' }, [input, button])
+		node: E('div', { 'class': 'telego-connection-output' }, [
+			E('label', { 'for': id }, label),
+			E('div', { 'class': 'telego-connection-output-row' }, [input, button])
 		])
 	};
+}
+
+function proxySummaryRow(label, id, value) {
+	return [
+		E('dt', {}, label),
+		E('dd', { 'id': id }, value || _('—'))
+	];
+}
+
+function proxyOpenLink(id) {
+	return E('a', {
+		'id': id,
+		'class': 'btn cbi-button cbi-button-positive telego-connection-open disabled',
+		'href': '#',
+		'aria-disabled': 'true',
+		'click': function (event) {
+			if (this.getAttribute('aria-disabled') === 'true' && event && event.preventDefault)
+				event.preventDefault();
+		}
+	}, _('Open Telegram'));
+}
+
+function setProxyOpenLink(node, value) {
+	if (value) {
+		node.setAttribute('href', value);
+		node.setAttribute('aria-disabled', 'false');
+		node.classList.remove('disabled');
+	}
+	else {
+		node.setAttribute('href', '#');
+		node.setAttribute('aria-disabled', 'true');
+		node.classList.add('disabled');
+	}
+}
+
+function renderProxyQr(node, link) {
+	node.innerHTML = '';
+	node.textContent = '';
+
+	if (!link) {
+		node.setAttribute('data-state', 'empty');
+		node.textContent = _('Enter a valid public server and port to generate the QR code.');
+		return;
+	}
+
+	try {
+		node.innerHTML = uqr.renderSVG(link, {
+			pixelSize: 4,
+			margin: 2,
+			ecLevel: 'M',
+			whiteColor: 'white',
+			blackColor: 'black'
+		});
+		node.setAttribute('data-state', 'ready');
+	}
+	catch (e) {
+		node.setAttribute('data-state', 'error');
+		node.textContent = _('QR code could not be generated.');
+	}
+}
+
+function proxyQrCard(id) {
+	const qr = E('div', {
+		'id': id,
+		'class': 'telego-connection-qr',
+		'role': 'img',
+		'aria-label': _('QR code for Telegram link'),
+		'data-state': 'empty'
+	}, _('Enter a valid public server and port to generate the QR code.'));
+
+	return {
+		qr: qr,
+		node: E('aside', { 'class': 'telego-connection-qr-card' }, [
+			qr,
+			E('p', { 'class': 'telego-connection-qr-caption' },
+				_('The QR code contains the complete Telegram link shown here.'))
+		])
+	};
+}
+
+function displayProxyEndpoint(server, port) {
+	try {
+		const normalized = normalizePublicServer(server);
+		const value = String(port || '').trim();
+		if (!/^[0-9]+$/.test(value) || Number(value) < 1 || Number(value) > 65535)
+			return _('—');
+		return normalized.includes(':') ? '[' + normalized + ']:' + value : normalized + ':' + value;
+	}
+	catch (e) {
+		return _('—');
+	}
 }
 
 function showProxyLinks(sectionId) {
@@ -181,7 +273,8 @@ function showProxyLinks(sectionId) {
 		'class': 'cbi-input-text',
 		'value': publicHost,
 		'placeholder': 'proxy.example.com',
-		'style': 'width:100%'
+		'autocomplete': 'off',
+		'spellcheck': 'false'
 	});
 	const portInput = E('input', {
 		'id': 'telego-proxy-public-port',
@@ -190,7 +283,7 @@ function showProxyLinks(sectionId) {
 		'value': publicPort,
 		'min': '1',
 		'max': '65535',
-		'style': 'width:100%'
+		'inputmode': 'numeric'
 	});
 
 	const endpointError = E('div', {
@@ -212,26 +305,63 @@ function showProxyLinks(sectionId) {
 		'role': 'alert'
 	});
 
-	const ddSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-dd-secret');
-	const ddLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-dd-link');
-	const eeSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-ee-secret');
-	const eeLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-ee-link');
+	const ddSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-dd-secret', _('Copy secret'));
+	const ddLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-dd-link', _('Copy link'));
+	const eeSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-ee-secret', _('Copy secret'));
+	const eeLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-ee-link', _('Copy link'));
+	const ddOpen = proxyOpenLink('telego-proxy-dd-open');
+	const eeOpen = proxyOpenLink('telego-proxy-ee-open');
+	const ddQr = proxyQrCard('telego-proxy-dd-qr');
+	const eeQr = proxyQrCard('telego-proxy-ee-qr');
 
-	const ddPanel = E('div', { 'id': 'telego-proxy-panel-dd' }, [
-		E('p', {}, _('Raw Obfuscated2. The generated secret is dd + the saved 32-hex base secret.')),
-		ddError,
-		ddSecret.node,
-		ddLink.node
+	const ddSummary = [];
+	ddSummary.push.apply(ddSummary, proxySummaryRow(_('Username'), 'telego-proxy-dd-user', username));
+	ddSummary.push.apply(ddSummary, proxySummaryRow(_('Connection mode'), 'telego-proxy-dd-mode', _('DD / Raw')));
+	ddSummary.push.apply(ddSummary, proxySummaryRow(_('Server endpoint'), 'telego-proxy-dd-endpoint', _('—')));
+
+	const eeSummary = [];
+	eeSummary.push.apply(eeSummary, proxySummaryRow(_('Username'), 'telego-proxy-ee-user', username));
+	eeSummary.push.apply(eeSummary, proxySummaryRow(_('Connection mode'), 'telego-proxy-ee-mode', _('EE / FakeTLS')));
+	eeSummary.push.apply(eeSummary, proxySummaryRow(_('Server endpoint'), 'telego-proxy-ee-endpoint', _('—')));
+	eeSummary.push.apply(eeSummary, proxySummaryRow(_('Mask Domain'), 'telego-proxy-ee-mask-host', maskHost || _('—')));
+
+	const ddPanel = E('section', {
+		'id': 'telego-proxy-panel-dd',
+		'class': 'telego-connection-panel',
+		'role': 'tabpanel',
+		'aria-labelledby': 'telego-proxy-tab-dd'
+	}, [
+		E('div', { 'class': 'telego-connection-layout' }, [
+			E('div', { 'class': 'telego-connection-details' }, [
+				E('p', {}, _('Raw Obfuscated2. The generated secret is dd + the saved 32-hex base secret.')),
+				E('dl', { 'class': 'telego-connection-summary' }, ddSummary),
+				ddError,
+				ddSecret.node,
+				ddLink.node,
+				E('div', { 'class': 'telego-connection-actions' }, [ddOpen])
+			]),
+			ddQr.node
+		])
 	]);
-	const eePanel = E('div', { 'id': 'telego-proxy-panel-ee', 'hidden': true }, [
-		E('p', {}, _('FakeTLS + Obfuscated2. The EE secret uses the saved TLS Fronting mask domain.')),
-		E('p', {}, [
-			E('strong', {}, _('Mask Domain') + ': '),
-			E('span', { 'id': 'telego-proxy-ee-mask-host' }, [maskHost || _('—')])
-		]),
-		eeError,
-		eeSecret.node,
-		eeLink.node
+
+	const eePanel = E('section', {
+		'id': 'telego-proxy-panel-ee',
+		'class': 'telego-connection-panel',
+		'role': 'tabpanel',
+		'aria-labelledby': 'telego-proxy-tab-ee',
+		'hidden': true
+	}, [
+		E('div', { 'class': 'telego-connection-layout' }, [
+			E('div', { 'class': 'telego-connection-details' }, [
+				E('p', {}, _('FakeTLS + Obfuscated2. The EE secret uses the saved TLS Fronting mask domain.')),
+				E('dl', { 'class': 'telego-connection-summary' }, eeSummary),
+				eeError,
+				eeSecret.node,
+				eeLink.node,
+				E('div', { 'class': 'telego-connection-actions' }, [eeOpen])
+			]),
+			eeQr.node
+		])
 	]);
 
 	let ddTab;
@@ -240,10 +370,13 @@ function showProxyLinks(sectionId) {
 		const dd = mode === 'dd';
 		ddPanel.hidden = !dd;
 		eePanel.hidden = dd;
+		ddTab.setAttribute('aria-selected', dd ? 'true' : 'false');
+		eeTab.setAttribute('aria-selected', dd ? 'false' : 'true');
 		if (dd) {
 			ddTab.classList.add('active');
 			eeTab.classList.remove('active');
-		} else {
+		}
+		else {
 			eeTab.classList.add('active');
 			ddTab.classList.remove('active');
 		}
@@ -252,13 +385,19 @@ function showProxyLinks(sectionId) {
 	ddTab = E('button', {
 		'id': 'telego-proxy-tab-dd',
 		'type': 'button',
-		'class': 'btn cbi-button active',
+		'class': 'telego-connection-mode-tab active',
+		'role': 'tab',
+		'aria-selected': 'true',
+		'aria-controls': 'telego-proxy-panel-dd',
 		'click': function () { selectTab('dd'); }
 	}, _('DD / Raw'));
 	eeTab = E('button', {
 		'id': 'telego-proxy-tab-ee',
 		'type': 'button',
-		'class': 'btn cbi-button',
+		'class': 'telego-connection-mode-tab',
+		'role': 'tab',
+		'aria-selected': 'false',
+		'aria-controls': 'telego-proxy-panel-ee',
 		'disabled': tlsFrontingEnabled ? null : 'disabled',
 		'title': tlsFrontingEnabled ? '' : _('Enable TLS Fronting to generate EE / FakeTLS links.'),
 		'click': function () {
@@ -275,7 +414,9 @@ function showProxyLinks(sectionId) {
 	function refresh() {
 		const server = serverInput.value;
 		const port = portInput.value;
+		const endpoint = displayProxyEndpoint(server, port);
 		let endpointFailure = null;
+
 		try {
 			buildTelegramProxyLink(server, port, 'test');
 		}
@@ -284,12 +425,22 @@ function showProxyLinks(sectionId) {
 		}
 		setError(endpointError, endpointFailure);
 
+		const ddEndpointNode = ddPanel.querySelector('#telego-proxy-dd-endpoint');
+		const eeEndpointNode = eePanel.querySelector('#telego-proxy-ee-endpoint');
+		if (ddEndpointNode)
+			ddEndpointNode.textContent = endpoint;
+		if (eeEndpointNode)
+			eeEndpointNode.textContent = endpoint;
+
 		try {
 			const secret = buildDDSecret(baseSecret);
+			const link = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
 			ddSecret.input.value = secret;
-			ddLink.input.value = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
+			ddLink.input.value = link;
 			ddSecret.button.disabled = false;
-			ddLink.button.disabled = !!endpointFailure;
+			ddLink.button.disabled = !link;
+			setProxyOpenLink(ddOpen, link);
+			renderProxyQr(ddQr.qr, link);
 			setError(ddError, null);
 		}
 		catch (e) {
@@ -297,6 +448,8 @@ function showProxyLinks(sectionId) {
 			ddLink.input.value = '';
 			ddSecret.button.disabled = true;
 			ddLink.button.disabled = true;
+			setProxyOpenLink(ddOpen, '');
+			renderProxyQr(ddQr.qr, '');
 			setError(ddError, e);
 		}
 
@@ -305,15 +458,21 @@ function showProxyLinks(sectionId) {
 			eeLink.input.value = '';
 			eeSecret.button.disabled = true;
 			eeLink.button.disabled = true;
+			setProxyOpenLink(eeOpen, '');
+			renderProxyQr(eeQr.qr, '');
 			setError(eeError, new Error(_('TLS Fronting is disabled. EE / FakeTLS links are unavailable.')));
 			return;
 		}
+
 		try {
 			const secret = buildEESecret(baseSecret, maskHost);
+			const link = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
 			eeSecret.input.value = secret;
-			eeLink.input.value = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
+			eeLink.input.value = link;
 			eeSecret.button.disabled = false;
-			eeLink.button.disabled = !!endpointFailure;
+			eeLink.button.disabled = !link;
+			setProxyOpenLink(eeOpen, link);
+			renderProxyQr(eeQr.qr, link);
 			setError(eeError, null);
 		}
 		catch (e) {
@@ -321,6 +480,8 @@ function showProxyLinks(sectionId) {
 			eeLink.input.value = '';
 			eeSecret.button.disabled = true;
 			eeLink.button.disabled = true;
+			setProxyOpenLink(eeOpen, '');
+			renderProxyQr(eeQr.qr, '');
 			setError(eeError, e);
 		}
 	}
@@ -329,27 +490,37 @@ function showProxyLinks(sectionId) {
 	portInput.addEventListener('input', refresh);
 
 	ui.showModal([_('Connection Links') + ' — ' + username], [
-		E('p', {}, _('Links are generated locally in your browser. This dialog does not change telEgo runtime settings.')),
-		E('div', { 'style': 'display:grid;grid-template-columns:minmax(0,1fr) minmax(8rem,.35fr);gap:.75rem;margin-bottom:1rem' }, [
-			E('label', {}, [
-				E('span', { 'style': 'display:block;font-weight:600;margin-bottom:.35rem' }, _('Public Server')),
-				serverInput
+		E('div', { 'class': 'telego-connection-modal' }, [
+			E('p', {}, _('Links are generated locally in your browser. This dialog does not change telEgo runtime settings.')),
+			E('div', {
+				'id': 'telego-proxy-session-note',
+				'class': 'alert-message notice'
+			}, _('Public Server and Public Port are loaded from saved settings. Changes here apply only to this connection dialog and are not saved.')),
+			E('div', { 'class': 'telego-connection-endpoint-grid' }, [
+				E('label', {}, [
+					E('span', {}, _('Public Server')),
+					serverInput
+				]),
+				E('label', {}, [
+					E('span', {}, _('Public Port')),
+					portInput
+				])
 			]),
-			E('label', {}, [
-				E('span', { 'style': 'display:block;font-weight:600;margin-bottom:.35rem' }, _('Public Port')),
-				portInput
+			endpointError,
+			E('div', {
+				'class': 'telego-connection-mode-tabs',
+				'role': 'tablist',
+				'aria-label': _('Connection mode')
+			}, [ddTab, eeTab]),
+			ddPanel,
+			eePanel,
+			E('div', { 'class': 'telego-connection-footer' }, [
+				E('button', {
+					'type': 'button',
+					'class': 'btn cbi-button',
+					'click': ui.hideModal
+				}, _('Close'))
 			])
-		]),
-		endpointError,
-		E('div', { 'class': 'telego-tabs', 'style': 'margin:1rem 0' }, [ddTab, eeTab]),
-		ddPanel,
-		eePanel,
-		E('div', { 'class': 'right' }, [
-			E('button', {
-				'type': 'button',
-				'class': 'btn cbi-button',
-				'click': ui.hideModal
-			}, _('Close'))
 		])
 	]);
 

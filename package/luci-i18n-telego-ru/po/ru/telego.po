@@ -1027,3 +1027,30 @@ msgstr "Показать"
 
 msgid "Hide"
 msgstr "Скрыть"
+
+msgid "Copy link"
+msgstr "Копировать ссылку"
+
+msgid "Open Telegram"
+msgstr "Открыть Telegram"
+
+msgid "QR code for Telegram link"
+msgstr "QR-код ссылки Telegram"
+
+msgid "Enter a valid public server and port to generate the QR code."
+msgstr "Укажите корректные публичный сервер и порт, чтобы создать QR-код."
+
+msgid "QR code could not be generated."
+msgstr "Не удалось создать QR-код."
+
+msgid "The QR code contains the complete Telegram link shown here."
+msgstr "QR-код содержит полную ссылку Telegram, показанную здесь."
+
+msgid "Connection mode"
+msgstr "Режим подключения"
+
+msgid "Server endpoint"
+msgstr "Адрес сервера"
+
+msgid "Public Server and Public Port are loaded from saved settings. Changes here apply only to this connection dialog and are not saved."
+msgstr "Публичный сервер и порт загружаются из сохранённых настроек. Изменения в этом окне действуют только для текущей ссылки подключения и не сохраняются."

@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.5
-PKG_RELEASE:=18
+PKG_RELEASE:=19
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -12,7 +12,7 @@ define Package/luci-app-telego
   CATEGORY:=LuCI
   SUBMENU:=3. Applications
   TITLE:=LuCI Web Interface for telEgo
-  DEPENDS:=+luci-base +telego-pkg +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus +uclient-fetch
+  DEPENDS:=+luci-base +luci-lib-uqr +telego-pkg +rpcd-mod-ucode +ucode-mod-fs +ucode-mod-uci +ucode-mod-ubus +uclient-fetch
   EXTRA_DEPENDS:=telego-pkg (>=0.6.5-r7)
   PKGARCH:=all
 endef

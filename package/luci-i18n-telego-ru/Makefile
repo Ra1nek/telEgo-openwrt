@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-i18n-telego-ru
 PKG_VERSION:=0.6.5
-PKG_RELEASE:=13
+PKG_RELEASE:=14
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -15,7 +15,7 @@ define Package/luci-i18n-telego-ru
   SUBMENU:=3. Applications
   TITLE:=Russian translation for luci-app-telego
   DEPENDS:=+luci-app-telego
-  EXTRA_DEPENDS:=luci-app-telego (>=0.6.5-r17)
+  EXTRA_DEPENDS:=luci-app-telego (>=0.6.5-r19)
   HIDDEN:=1
   DEFAULT:=LUCI_LANG_ru||(ALL&&m)
   PKGARCH:=all
