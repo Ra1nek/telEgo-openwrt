@@ -6,7 +6,7 @@ class Element {
 		this.tag = tag; this.attrs = attrs; this.style = {}; this.hidden = attrs.hidden === true;
 		this.children = Array.isArray(children) ? children : [children];
 		this.value = attrs.value || '';
-		this.disabled = attrs.disabled === true;
+		this.disabled = attrs.disabled != null;
 		this.textContent = typeof children === 'string' ? children : '';
 		this.classList = { add() {}, remove() {} };
 	}
@@ -122,6 +122,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(ddSecretOutput.value, 'dd0123456789abcdef0123456789abcdef');
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=dd0123456789abcdef0123456789abcdef');
 	if (tlsFrontingEnabled === '1') {
+		assert.equal(modal.querySelector('#telego-proxy-tab-ee').disabled, false, 'EE tab must remain clickable when TLS Fronting is enabled');
 		assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
 		assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
 	} else {

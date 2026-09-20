@@ -224,7 +224,7 @@ function showProxyLinks(sectionId) {
 		'id': 'telego-proxy-tab-ee',
 		'type': 'button',
 		'class': 'btn cbi-button',
-		'disabled': !tlsFrontingEnabled,
+		'disabled': tlsFrontingEnabled ? null : 'disabled',
 		'title': tlsFrontingEnabled ? '' : _('Enable TLS Fronting to generate EE / FakeTLS links.'),
 		'click': function () {
 			if (tlsFrontingEnabled)
