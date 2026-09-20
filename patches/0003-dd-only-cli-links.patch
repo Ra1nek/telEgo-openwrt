@@ -1,7 +1,7 @@
 diff --git a/cmd/telego/main.go b/cmd/telego/main.go
 --- a/cmd/telego/main.go
 +++ b/cmd/telego/main.go
-@@ -330,6 +330,22 @@
+@@ -330,6 +330,21 @@
  	}()
  }
  
@@ -11,9 +11,8 @@ diff --git a/cmd/telego/main.go b/cmd/telego/main.go
 +}
 +
 +func buildTelegramProxyLinks(server, port string, secret gproxy.Secret) telegramProxyLinks {
-+	ddSecret := config.BuildDDSecret(secret.Key)
 +	links := telegramProxyLinks{
-+		DD: fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", server, port, ddSecret),
++		DD: fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", server, port, config.BuildDDSecret(secret.Key)),
 +	}
 +	if secret.RawHex != "" {
 +		links.EE = fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", server, port, secret.RawHex)
@@ -24,12 +23,16 @@ diff --git a/cmd/telego/main.go b/cmd/telego/main.go
  // printTelegramLinks detects public IP via STUN and prints Telegram proxy links for all secrets.
  func printTelegramLinks(secrets []gproxy.Secret, bindAddr string) error {
  	// Get public IP via STUN
-@@ -345,18 +361,16 @@
+@@ -345,14 +360,12 @@
  	}
  
  	for _, s := range secrets {
 +		links := buildTelegramProxyLinks(publicIP, port, s)
-+		event := log.Info().
++		if links.EE != "" {
++			fmt.Fprintf(os.Stdout, "name=%s\nee_link=%s\ndd_link=%s\n", s.Name, links.EE, links.DD)
++		} else {
++			fmt.Fprintf(os.Stdout, "name=%s\nmode=dd-only\ndd_link=%s\n", s.Name, links.DD)
++		}
 -		// ee link (FakeTLS) - uses full secret with hostname
 -		eeLink := fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", publicIP, port, s.RawHex)
 -
@@ -37,18 +40,7 @@ diff --git a/cmd/telego/main.go b/cmd/telego/main.go
 -		ddSecret := config.BuildDDSecret(s.Key)
 -		ddLink := fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", publicIP, port, ddSecret)
 -
--		log.Info().
- 			Str("name", s.Name).
-+			Str("dd_link", links.DD)
-+		if links.EE != "" {
-+			event = event.Str("ee_link", links.EE)
-+		} else {
-+			event = event.Str("mode", "dd-only")
-+		}
-+		event.Msg("Telegram proxy links")
--			Str("ee_link", eeLink).
--			Str("dd_link", ddLink).
--			Msg("Telegram proxy links")
+-		fmt.Fprintf(os.Stdout, "name=%s\nee_link=%s\ndd_link=%s\n", s.Name, eeLink, ddLink)
  	}
  
  	return nil

@@ -14,10 +14,13 @@ TELEGO_GROUP=telego
 toml_quote() {
 	local value="$1"
 
-	case "$value" in
-		*'
-'*) echo 'telego: newline is not allowed in TOML string values' >&2; return 1 ;;
-	esac
+	# grep treats LF as a record separator rather than a character, so detect
+	# embedded newlines by line count first. Command substitution already strips
+	# trailing LF from UCI output; any remaining LF is therefore embedded data.
+	if [ "$(printf '%s' "$value" | wc -l)" -ne 0 ]; then
+		echo 'telego: newline is not allowed in TOML string values' >&2
+		return 1
+	fi
 	if printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]'; then
 		echo 'telego: control characters are not allowed in TOML string values' >&2
 		return 1
