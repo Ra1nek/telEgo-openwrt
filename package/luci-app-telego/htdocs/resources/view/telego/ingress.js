@@ -74,7 +74,7 @@ function managedWebContractError() {
 	const webHostname = uci.get('telego', 'web_proxy', 'hostname') || '';
 
 	if (!serviceEnabled || !webEnabled || webBind !== '127.0.0.1:8080' || !webHostname || !hasTrustedLoopback())
-		return _('Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration first.');
+		return _('Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration / Advanced Settings first.');
 
 	return null;
 }

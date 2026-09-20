@@ -36,8 +36,10 @@ jobs:
           --max-warnings=0
           package/luci-app-telego/htdocs/resources/view/telego/*.js
 
-      - name: Run LuCI behavior smoke test
-        run: node .github/tests/luci-config.cjs
+      - name: Run LuCI behavior smoke tests
+        run: |
+          node .github/tests/luci-config.cjs
+          node .github/tests/luci-advanced.cjs
 
       - name: Validate OpenWrt Makefiles
         run: python3 .github/scripts/check-openwrt-makefiles.py

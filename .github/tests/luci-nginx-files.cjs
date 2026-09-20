@@ -10,6 +10,12 @@ const nginxMakefile = fs.readFileSync('package/nginx-telego/Makefile', 'utf8');
 const rpc = fs.readFileSync('package/luci-app-telego/root/usr/share/rpcd/ucode/telego-nginx', 'utf8');
 const editor = fs.readFileSync('package/nginx-telego/files/usr/libexec/nginx-telego-editor', 'utf8');
 
+const advancedPage = menu['admin/services/telego/advanced'];
+assert.ok(advancedPage);
+assert.equal(advancedPage.action.type, 'view');
+assert.equal(advancedPage.action.path, 'telego/advanced');
+assert.equal(advancedPage.order, 15);
+
 const page = menu['admin/services/telego/nginx-files'];
 assert.ok(page);
 assert.equal(page.action.type, 'view');
@@ -19,8 +25,8 @@ assert.equal(page.depends.fs['/usr/libexec/nginx-telego-editor'], 'executable');
 assert.equal(page.depends.fs['/usr/share/nginx-telego/ownership.tsv'], 'file');
 assert.deepEqual(acl.read.ubus['telego.nginx'], ['inventory', 'managed_content', 'foreign_content', 'foreign_revision', 'platform_status', 'platform_preflight', 'firewall_status', 'firewall_preflight', 'certificate_status', 'certificate_preflight']);
 assert.deepEqual(acl.write.ubus['telego.nginx'], ['quarantine', 'restore', 'delete_active', 'delete_quarantined', 'replace_active', 'create_foreign', 'rename_active', 'repair']);
-assert.match(makefile, /PKG_RELEASE:=7/);
-assert.match(i18nMakefile, /PKG_RELEASE:=5/);
+assert.match(makefile, /PKG_RELEASE:=8/);
+assert.match(i18nMakefile, /PKG_RELEASE:=6/);
 assert.match(nginxMakefile, /PKG_RELEASE:=8/);
 assert.match(nginxMakefile, /nginx-telego-editor/);
 assert.match(nginxMakefile, /nginx-telego-firewall/);

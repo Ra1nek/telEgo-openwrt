@@ -97,22 +97,11 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(hostname.rmempty, false);
 	assert.equal(hostname.retain, true);
 
-	const certHost = options.find(o => o.section === 'tls_fronting' && o.name === 'cert_host');
-	const certPort = options.find(o => o.section === 'tls_fronting' && o.name === 'cert_port');
-	const spliceHost = options.find(o => o.section === 'tls_fronting' && o.name === 'splice_host');
-	const splicePort = options.find(o => o.section === 'tls_fronting' && o.name === 'splice_port');
-	if (ingressMode === 'cloudflare' || ingressMode === 'direct_https') {
-		assert.equal(certHost, undefined, 'External TLS WEB mode must not expose local certificate host');
-		assert.equal(certPort, undefined, 'External TLS WEB mode must not expose local certificate port');
-		assert.equal(spliceHost, undefined, 'External TLS WEB mode must not expose local splice host');
-		assert.equal(splicePort, undefined, 'External TLS WEB mode must not expose local splice port');
-	} else {
-		assert.equal(certHost.datatype, 'host', 'certificate source accepts loopback IP or hostname');
-		assert.equal(spliceHost.datatype, 'host', 'splice target accepts loopback IP or hostname');
-	}
+	for (const name of ['public_host', 'public_port'])
+		assert.ok(options.find(o => o.section === 'general' && o.name === name), 'missing basic general option ' + name);
 
-	for (const name of ['public_host', 'public_port', 'proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
-		assert.ok(options.find(o => o.section === 'general' && o.name === name), 'missing general option ' + name);
+	for (const name of ['proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
+		assert.equal(options.find(o => o.section === 'general' && o.name === name), undefined, 'advanced general option leaked into Configuration: ' + name);
 
 	const publicHost = options.find(o => o.section === 'general' && o.name === 'public_host');
 	const publicPort = options.find(o => o.section === 'general' && o.name === 'public_port');
@@ -162,52 +151,26 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		? assert.notEqual(tlsEnabled.validate(null, '0'), true)
 		: assert.equal(tlsEnabled.validate(null, '0'), true);
 
-	for (const name of ['mask_host', 'mask_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls']) {
+	for (const name of ['mask_host', 'mask_port']) {
 		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
-		assert.deepEqual(option.dependency, ['enabled', '1'], 'TLS option visibility must follow enabled: ' + name);
+		assert.deepEqual(option.dependency, ['enabled', '1'], 'basic TLS option visibility must follow enabled: ' + name);
 	}
+	for (const name of ['cert_host', 'cert_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_host', 'splice_port', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls'])
+		assert.equal(options.find(o => o.section === 'tls_fronting' && o.name === name), undefined, 'advanced TLS option leaked into Configuration: ' + name);
 
-	const fakeCertSize = options.find(o => o.section === 'tls_fronting' && o.name === 'fake_cert_size');
-	assert.equal(fakeCertSize.validate(null, '0'), true);
-	assert.equal(fakeCertSize.validate(null, '256'), true);
-	assert.equal(fakeCertSize.validate(null, '16384'), true);
-	assert.notEqual(fakeCertSize.validate(null, '255'), true);
-	assert.notEqual(fakeCertSize.validate(null, '16385'), true);
-
-	assert.ok(options.find(o => o.section === 'web_proxy' && o.name === 'backend'));
-	assert.ok(options.find(o => o.section === 'web_proxy' && o.name === 'num_event_loops'));
+	for (const name of ['trusted_proxy_cidrs', 'backend', 'num_event_loops'])
+		assert.equal(options.find(o => o.section === 'web_proxy' && o.name === name), undefined, 'advanced WEB option leaked into Configuration: ' + name);
 
 	const proxyTag = options.find(o => o.section === 'middle_end' && o.name === 'proxy_tag');
 	assert.equal(proxyTag.validate(null, ''), true);
 	assert.equal(proxyTag.validate(null, '0123456789abcdef0123456789abcdef'), true);
 	assert.notEqual(proxyTag.validate(null, 'not-a-tag'), true);
+	for (const name of ['socks5', 'socks5_username', 'socks5_password', 'artifact_proxy', 'nat_ip', 'max_connections', 'queue_budget_mb'])
+		assert.equal(options.find(o => o.section === 'middle_end' && o.name === name), undefined, 'advanced Middle-End option leaked into Configuration: ' + name);
 
-	const maxConnections = options.find(o => o.section === 'middle_end' && o.name === 'max_connections');
-	assert.equal(maxConnections.validate(null, '0'), true);
-	assert.equal(maxConnections.validate(null, '1'), true);
-	assert.equal(maxConnections.validate(null, '10000'), true);
-	assert.notEqual(maxConnections.validate(null, '10001'), true);
-
-	const queueBudget = options.find(o => o.section === 'middle_end' && o.name === 'queue_budget_mb');
-	assert.equal(queueBudget.validate(null, '0'), true);
-	assert.equal(queueBudget.validate(null, '2'), true);
-	assert.equal(queueBudget.validate(null, '32'), true);
-	assert.notEqual(queueBudget.validate(null, '1'), true);
-	assert.notEqual(queueBudget.validate(null, '33'), true);
-
-	const ddChunk = options.find(o => o.section === 'performance' && o.name === 'dd_downlink_chunk');
-	assert.equal(ddChunk.validate(null, '0'), true);
-	assert.equal(ddChunk.validate(null, '1200'), true);
-	assert.equal(ddChunk.validate(null, '65536'), true);
-	assert.notEqual(ddChunk.validate(null, '255'), true);
-	assert.notEqual(ddChunk.validate(null, '65537'), true);
-
-	const ddDelay = options.find(o => o.section === 'performance' && o.name === 'dd_downlink_delay');
-	assert.equal(ddDelay.validate(null, '0s'), true);
-	assert.equal(ddDelay.validate(null, '500us'), true);
-	assert.equal(ddDelay.validate(null, '2ms'), true);
-	assert.notEqual(ddDelay.validate(null, '-1ms'), true);
-	assert.notEqual(ddDelay.validate(null, '2.5ms'), true);
+	assert.equal(options.find(o => o.section === 'performance'), undefined, 'Performance section belongs on Advanced Settings');
+	assert.equal(options.find(o => o.section === 'upstream'), undefined, 'Upstream section belongs on Advanced Settings');
+	assert.equal(options.find(o => o.section === 'metrics'), undefined, 'Metrics section belongs on Advanced Settings');
 
 	const webGroup = root.querySelector('#telego-status-group-web');
 	const middleEndGroup = root.querySelector('#telego-status-group-middleend');

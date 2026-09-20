@@ -537,16 +537,10 @@ function updateStatusError(errorText, root) {
 
 function makeConfigMap() {
 	const sharedWeb = uci.get('nginx_telego', 'shared', 'enabled') === '1';
-	const externalTlsWeb =
-		!sharedWeb &&
-		(
-			uci.get('nginx_telego', 'cloudflare', 'enabled') === '1' ||
-			uci.get('nginx_telego', 'direct_https', 'enabled') === '1'
-		);
 	const m = new form.Map(
 		'telego',
 		_('telEgo Configuration'),
-		_('Configure MTProxy, TLS fronting, WEB Proxy, Middle-End and runtime limits.')
+		_('Configure the core telEgo services. Rare transport and runtime controls are available on the Advanced Settings page.')
 	);
 
 	let s = m.section(form.TypedSection, 'general', _('MTProxy'));
@@ -592,41 +586,6 @@ function makeConfigMap() {
 	o.value('error', _('Error'));
 	o.default = 'info';
 
-	o = s.option(
-		form.Flag,
-		'proxy_protocol',
-		_('Accept Incoming PROXY Protocol'),
-		_('Enable only when a trusted TCP proxy is directly in front of the public MTProxy listener.')
-	);
-	o.default = '0';
-
-	o = s.option(form.Value, 'max_connections_per_ip', _('Max Connections per IP'));
-	o.datatype = 'uinteger';
-	o.default = '100';
-	o.description = _('0 disables this connection-flood limit.');
-
-	o = s.option(form.Value, 'max_ips_per_user', _('Max IPs per User'));
-	o.datatype = 'uinteger';
-	o.default = '10';
-	o.description = _('0 disables per-secret IP limiting.');
-
-	o = s.option(form.Value, 'ip_block_timeout', _('IP Block Timeout'));
-	o.datatype = 'string';
-	o.default = '5m';
-
-	o = s.option(form.Value, 'handshake_timeout', _('Handshake Timeout'));
-	o.datatype = 'string';
-	o.default = '5s';
-
-	o = s.option(
-		form.Value,
-		'clock_sync_url',
-		_('Clock Sync URL'),
-		_('Optional HTTP(S) URL whose Date header corrects startup clock skew for FakeTLS validation.')
-	);
-	o.datatype = 'string';
-	o.rmempty = true;
-
 	s = m.section(form.TypedSection, 'tls_fronting', _('TLS Fronting'));
 	s.anonymous = true;
 	s.addremove = false;
@@ -658,88 +617,6 @@ function makeConfigMap() {
 	o = s.option(form.Value, 'mask_port', _('Mask Port'));
 	o.datatype = 'port';
 	o.default = '443';
-	o.depends('enabled', '1');
-
-	if (!externalTlsWeb) {
-		o = s.option(
-			form.Value,
-			'cert_host',
-			_('Certificate Host'),
-			_('Optional certificate source. Native shared-port Nginx on this router uses 127.0.0.1.')
-		);
-		o.datatype = 'host';
-		o.rmempty = true;
-		o.depends('enabled', '1');
-
-		o = s.option(
-			form.Value,
-			'cert_port',
-			_('Certificate Port'),
-			_('Native shared-port Nginx uses port 8444 for certificate collection.')
-		);
-		o.datatype = 'port';
-		o.rmempty = true;
-		o.default = '';
-		o.depends('enabled', '1');
-	}
-
-	o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
-	o.datatype = 'uinteger';
-	o.default = '0';
-	o.depends('enabled', '1');
-	o.description = _('0 selects automatic matching; an explicit override must be from 256 to 16384 bytes.');
-	o.validate = function (section_id, value) {
-		const number = Number(value);
-		return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 16384)
-			? true
-			: _('Use 0 for automatic mode or a value from 256 to 16384.');
-	};
-
-	o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
-	o.datatype = 'hostname';
-	o.depends('enabled', '1');
-
-	if (!externalTlsWeb) {
-		o = s.option(
-			form.Value,
-			'splice_host',
-			_('Fallback Host'),
-			_('Where unrecognized TLS is spliced. Native shared-port Nginx on this router uses 127.0.0.1.')
-		);
-		o.datatype = 'host';
-		o.rmempty = true;
-		o.depends('enabled', '1');
-
-		o = s.option(
-			form.Value,
-			'splice_port',
-			_('Fallback Port'),
-			_('Native shared-port Nginx uses port 8443 and PROXY protocol v2.')
-		);
-		o.datatype = 'port';
-		o.rmempty = true;
-		o.default = '';
-		o.depends('enabled', '1');
-	}
-
-	o = s.option(form.ListValue, 'splice_proxy_protocol', _('Fallback PROXY Protocol'));
-	o.value('0', _('Disabled'));
-	o.value('1', _('PROXY Protocol v1'));
-	o.value('2', _('PROXY Protocol v2'));
-	o.default = '0';
-	o.depends('enabled', '1');
-
-	o = s.option(form.Value, 'splice_idle_timeout', _('Fallback Idle Timeout'));
-	o.datatype = 'string';
-	o.default = '30s';
-	o.depends('enabled', '1');
-
-	o = s.option(form.Flag, 'enable_drs', _('Enable DRS'));
-	o.default = '1';
-	o.depends('enabled', '1');
-
-	o = s.option(form.Flag, 'enable_split_tls', _('Enable Split TLS'));
-	o.default = '1';
 	o.depends('enabled', '1');
 
 	/* Dynamic users. */
@@ -836,36 +713,6 @@ function makeConfigMap() {
 	o.datatype = 'hostname';
 	o.rmempty = false;
 
-	o = s.option(
-		form.DynamicList,
-		'trusted_proxy_cidrs',
-		_('Trusted Proxy CIDRs'),
-		_('Only these proxy addresses may supply forwarded client addresses.')
-	);
-	o.depends('enabled', '1');
-	o.datatype = 'cidr';
-	o.default = ['127.0.0.1/32'];
-
-	o = s.option(
-		form.Value,
-		'backend',
-		_('Compatibility Backend'),
-		_('Optional local TCP or Unix backend. Leave empty to use the faster shared MTProxy core directly.')
-	);
-	o.depends('enabled', '1');
-	o.datatype = 'string';
-	o.rmempty = true;
-
-	o = s.option(
-		form.Value,
-		'num_event_loops',
-		_('WEB Event Loops'),
-		_('0 selects the automatic gnet event-loop count.')
-	);
-	o.depends('enabled', '1');
-	o.datatype = 'uinteger';
-	o.default = '0';
-
 	/* Middle-End. */
 	s = m.section(form.TypedSection, 'middle_end', _('Telegram Middle-End'));
 	s.anonymous = true;
@@ -889,136 +736,6 @@ function makeConfigMap() {
 			? true
 			: _('Proxy Tag must be empty or contain exactly 32 hexadecimal characters.');
 	};
-
-	o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'));
-	o.depends('enabled', '1');
-	o.datatype = 'string';
-	o.rmempty = true;
-
-	o = s.option(form.Value, 'socks5_username', _('SOCKS5 Username'));
-	o.depends('enabled', '1');
-	o.datatype = 'string';
-	o.rmempty = true;
-
-	o = s.option(form.Value, 'socks5_password', _('SOCKS5 Password'));
-	o.depends('enabled', '1');
-	o.password = true;
-	o.datatype = 'string';
-	o.rmempty = true;
-
-	o = s.option(form.Value, 'artifact_proxy', _('Artifact Proxy'));
-	o.depends('enabled', '1');
-	o.datatype = 'string';
-	o.rmempty = true;
-
-	o = s.option(form.Value, 'nat_ip', _('STUN NAT IP'));
-	o.depends('enabled', '1');
-	o.datatype = 'ipaddr';
-	o.rmempty = true;
-
-	o = s.option(form.Value, 'max_connections', _('Middle-End Max Connections'));
-	o.depends('enabled', '1');
-	o.datatype = 'uinteger';
-	o.default = '0';
-	o.description = _('0 uses the upstream default of 10000; an override may only reduce it.');
-	o.validate = function (section_id, value) {
-		const number = Number(value);
-		return value === '0' || (Number.isInteger(number) && number >= 1 && number <= 10000)
-			? true
-			: _('Use 0 or a value from 1 to 10000.');
-	};
-
-	o = s.option(form.Value, 'queue_budget_mb', _('Middle-End Queue Budget (MB)'));
-	o.depends('enabled', '1');
-	o.datatype = 'uinteger';
-	o.default = '0';
-	o.description = _('0 keeps upstream defaults: about 32 MiB request/input and 66 MiB shared response/output on 64-bit; 2 to 32 sets N MiB request/input and 2xN MiB shared response/output.');
-	o.validate = function (section_id, value) {
-		const number = Number(value);
-		return value === '0' || (Number.isInteger(number) && number >= 2 && number <= 32)
-			? true
-			: _('Use 0 or a value from 2 to 32.');
-	};
-
-	/* Performance, upstream and metrics are advanced runtime controls. */
-	s = m.section(form.TypedSection, 'performance', _('Performance'));
-	s.anonymous = true;
-	s.addremove = false;
-
-	o = s.option(form.Value, 'tcp_buffer_kb', _('TCP Buffer (KB)'));
-	o.datatype = 'uinteger';
-	o.default = '128';
-
-	o = s.option(form.Value, 'num_event_loops', _('Event Loops'));
-	o.datatype = 'uinteger';
-	o.default = '0';
-
-	o = s.option(form.ListValue, 'prefer_ip', _('IP Preference'));
-	o.value('prefer-ipv4', _('Prefer IPv4'));
-	o.value('prefer-ipv6', _('Prefer IPv6'));
-	o.value('only-ipv4', _('IPv4 only'));
-	o.value('only-ipv6', _('IPv6 only'));
-	o.default = 'prefer-ipv4';
-
-	o = s.option(form.Value, 'idle_timeout', _('Idle Timeout'));
-	o.datatype = 'string';
-	o.default = '5m';
-
-	o = s.option(form.Value, 'max_write_buffer_mb', _('Max Write Buffer (MB)'));
-	o.datatype = 'uinteger';
-	o.default = '0';
-
-	o = s.option(form.Value, 'dd_downlink_chunk', _('DD Downlink Chunk (bytes)'));
-	o.datatype = 'uinteger';
-	o.default = '0';
-	o.description = _('0 keeps the upstream raw-DD batching. For restrictive mobile networks, start with 1200 bytes together with a small DD downlink delay.');
-	o.validate = function (section_id, value) {
-		const number = Number(value);
-		return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 65536)
-			? true
-			: _('Use 0 or a value from 256 to 65536 bytes.');
-	};
-
-	o = s.option(form.Value, 'dd_downlink_delay', _('DD Downlink Delay'));
-	o.datatype = 'string';
-	o.default = '0s';
-	o.description = _('Paces raw-DD proxy-to-client writes without blocking the event loop. 0s disables pacing; start with 2ms when testing mobile DPI degradation.');
-	o.validate = function (section_id, value) {
-		return /^(?:0s|[1-9][0-9]*(?:us|ms|s))$/.test(value)
-			? true
-			: _('Use 0s or a positive integer duration such as 500us, 2ms, or 1s.');
-	};
-
-	o = s.option(form.Value, 'client_silence_close', _('Client Silence Close'));
-	o.datatype = 'string';
-	o.default = '0s';
-	o.description = _('0 disables this recovery timer; upstream suggests roughly 10–15s only when diagnosing the iOS Updating stall.');
-
-	s = m.section(form.TypedSection, 'upstream', _('Upstream'));
-	s.anonymous = true;
-	s.addremove = false;
-	o = s.option(
-		form.Value,
-		'socks5',
-		_('SOCKS5 Proxy'),
-		_('Optional SOCKS5 route for Telegram DC connections. Leave empty for direct routing.')
-	);
-	o.datatype = 'string';
-	o.rmempty = true;
-
-	s = m.section(form.TypedSection, 'metrics', _('Metrics'));
-	s.anonymous = true;
-	s.addremove = false;
-	o = s.option(form.Value, 'bind_to', _('Metrics Address'));
-	o.datatype = 'string';
-	o.default = '127.0.0.1:9090';
-	o.description = _('Keep metrics on a literal loopback address.');
-	o = s.option(form.Value, 'path', _('Metrics Path'));
-	o.datatype = 'string';
-	o.default = '/metrics';
-	o = s.option(form.Flag, 'diagnostics', _('Enable Diagnostics'));
-	o.description = _('Private runtime diagnostics require a literal loopback metrics address.');
-	o.default = '0';
 
 	return m.render();
 }

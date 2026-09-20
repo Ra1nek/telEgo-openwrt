@@ -8,7 +8,9 @@
       "recurse": true
     },
     "depends": {
-      "acl": ["luci-app-telego"]
+      "acl": [
+        "luci-app-telego"
+      ]
     }
   },
   "admin/services/telego/configuration": {
@@ -19,7 +21,9 @@
       "path": "telego/config"
     },
     "depends": {
-      "acl": ["luci-app-telego"]
+      "acl": [
+        "luci-app-telego"
+      ]
     }
   },
   "admin/services/telego/ingress": {
@@ -30,7 +34,9 @@
       "path": "telego/ingress"
     },
     "depends": {
-      "acl": ["luci-app-telego"],
+      "acl": [
+        "luci-app-telego"
+      ],
       "fs": {
         "/etc/config/nginx_telego": "file",
         "/usr/libexec/nginx-telego-reconcile": "executable",
@@ -47,12 +53,27 @@
       "path": "telego/nginx-files"
     },
     "depends": {
-      "acl": ["luci-app-telego"],
+      "acl": [
+        "luci-app-telego"
+      ],
       "fs": {
         "/usr/libexec/nginx-telego-admin": "executable",
         "/usr/libexec/nginx-telego-editor": "executable",
         "/usr/share/nginx-telego/ownership.tsv": "file"
       }
+    }
+  },
+  "admin/services/telego/advanced": {
+    "title": "Advanced Settings",
+    "order": 15,
+    "action": {
+      "type": "view",
+      "path": "telego/advanced"
+    },
+    "depends": {
+      "acl": [
+        "luci-app-telego"
+      ]
     }
   }
 }

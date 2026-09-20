@@ -773,8 +773,8 @@ msgid "Direct HTTPS dedicates TCP/443 to WEB/Nginx on both LAN and WAN. LuCI/uht
 msgstr "Direct HTTPS выделяет TCP/443 для WEB/Nginx и в LAN, и в WAN. LuCI/uhttpd использует настроенный порт управления; MTProxy должен использовать другой публичный порт."
 
 
-msgid "Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration first."
-msgstr "Managed WEB ingress требует включённые telEgo и WEB Proxy, bind 127.0.0.1:8080, WEB hostname и доверенный 127.0.0.1/32. Сначала исправьте настройки в «Службы → telEgo → Конфигурация»."
+msgid "Managed WEB ingress requires enabled telEgo and WEB Proxy, bind 127.0.0.1:8080, a WEB hostname, and trusted 127.0.0.1/32. Fix Services → telEgo → Configuration / Advanced Settings first."
+msgstr "Managed WEB ingress требует включённые telEgo и WEB Proxy, bind 127.0.0.1:8080, WEB hostname и доверенный 127.0.0.1/32. Исправьте базовые параметры в «Конфигурация», а доверенные proxy CIDR — в «Расширенные настройки»."
 
 
 msgid "LuCI HTTPS Management Port"
@@ -947,3 +947,34 @@ msgstr "TLS-фронтинг выключен. Ссылки EE / FakeTLS нед�
 
 msgid "Native Shared-Port requires TLS Fronting. Enable it in Services → telEgo → Configuration first."
 msgstr "Native Shared-Port требует TLS-фронтинг. Сначала включите его в Службы → telEgo → Конфигурация."
+
+
+msgid "Configure the core telEgo services. Rare transport and runtime controls are available on the Advanced Settings page."
+msgstr "Настройте основные службы telEgo. Редкие параметры транспорта и runtime вынесены на страницу «Расширенные настройки»."
+
+msgid "Advanced Settings"
+msgstr "Расширенные настройки"
+
+msgid "Rare transport, security and runtime controls. Defaults are recommended unless you are diagnosing a specific problem or using an advanced ingress topology."
+msgstr "Редкие параметры транспорта, безопасности и runtime. Оставляйте значения по умолчанию, если не диагностируете конкретную проблему и не используете расширенную схему входа."
+
+msgid "MTProxy Advanced"
+msgstr "MTProxy — расширенные настройки"
+
+msgid "TLS Fronting Advanced"
+msgstr "TLS-фронтинг — расширенные настройки"
+
+msgid "TLS Fronting is disabled. Enable it on the Configuration page to edit EE / FakeTLS advanced settings."
+msgstr "TLS-фронтинг выключен. Включите его на странице «Конфигурация», чтобы изменить расширенные параметры EE / FakeTLS."
+
+msgid "WEB Proxy Advanced"
+msgstr "WEB Proxy — расширенные настройки"
+
+msgid "WEB Proxy is disabled. Enable it on the Configuration page to edit advanced WEB transport settings."
+msgstr "WEB Proxy выключен. Включите его на странице «Конфигурация», чтобы изменить расширенные параметры WEB-транспорта."
+
+msgid "Middle-End Advanced"
+msgstr "Middle-End — расширенные настройки"
+
+msgid "Middle-End is disabled. Enable it on the Configuration page to edit advanced Middle-End transport settings."
+msgstr "Middle-End выключен. Включите его на странице «Конфигурация», чтобы изменить расширенные параметры транспорта Middle-End."
