@@ -613,11 +613,13 @@ function makeConfigMap() {
 	o.default = 'www.google.com';
 	o.rmempty = false;
 	o.depends('enabled', '1');
+	o.retain = true;
 
 	o = s.option(form.Value, 'mask_port', _('Mask Port'));
 	o.datatype = 'port';
 	o.default = '443';
 	o.depends('enabled', '1');
+	o.retain = true;
 
 	/* Dynamic users. */
 	s = m.section(form.GridSection, 'secret', _('Users'));
@@ -729,6 +731,7 @@ function makeConfigMap() {
 
 	o = s.option(form.Value, 'proxy_tag', _('Proxy Tag'));
 	o.depends('enabled', '1');
+	o.retain = true;
 	o.datatype = 'string';
 	o.rmempty = true;
 	o.description = _('Optional registered Telegram proxy tag: exactly 32 hexadecimal characters.');

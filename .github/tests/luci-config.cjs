@@ -157,6 +157,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	for (const name of ['mask_host', 'mask_port']) {
 		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
 		assert.deepEqual(option.dependency, ['enabled', '1'], 'basic TLS option visibility must follow enabled: ' + name);
+		assert.equal(option.retain, true, 'hidden TLS value must survive disabled Save & Apply: ' + name);
 	}
 	for (const name of ['cert_host', 'cert_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_host', 'splice_port', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls'])
 		assert.equal(options.find(o => o.section === 'tls_fronting' && o.name === name), undefined, 'advanced TLS option leaked into Configuration: ' + name);
@@ -165,6 +166,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		assert.equal(options.find(o => o.section === 'web_proxy' && o.name === name), undefined, 'advanced WEB option leaked into Configuration: ' + name);
 
 	const proxyTag = options.find(o => o.section === 'middle_end' && o.name === 'proxy_tag');
+	assert.equal(proxyTag.retain, true, 'hidden Middle-End proxy tag must survive disabled Save & Apply');
 	assert.equal(proxyTag.validate(null, ''), true);
 	assert.equal(proxyTag.validate(null, '0123456789abcdef0123456789abcdef'), true);
 	assert.notEqual(proxyTag.validate(null, 'not-a-tag'), true);
