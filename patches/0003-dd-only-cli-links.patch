@@ -1,0 +1,96 @@
+diff --git a/cmd/telego/main.go b/cmd/telego/main.go
+--- a/cmd/telego/main.go
++++ b/cmd/telego/main.go
+@@ -330,6 +330,22 @@
+ 	}()
+ }
+ 
++type telegramProxyLinks struct {
++	DD string
++	EE string
++}
++
++func buildTelegramProxyLinks(server, port string, secret gproxy.Secret) telegramProxyLinks {
++	ddSecret := config.BuildDDSecret(secret.Key)
++	links := telegramProxyLinks{
++		DD: fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", server, port, ddSecret),
++	}
++	if secret.RawHex != "" {
++		links.EE = fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", server, port, secret.RawHex)
++	}
++	return links
++}
++
+ // printTelegramLinks detects public IP via STUN and prints Telegram proxy links for all secrets.
+ func printTelegramLinks(secrets []gproxy.Secret, bindAddr string) error {
+ 	// Get public IP via STUN
+@@ -345,18 +361,16 @@
+ 	}
+ 
+ 	for _, s := range secrets {
++		links := buildTelegramProxyLinks(publicIP, port, s)
++		event := log.Info().
+-		// ee link (FakeTLS) - uses full secret with hostname
+-		eeLink := fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", publicIP, port, s.RawHex)
+-
+-		// dd link (raw) - uses dd prefix + key only (no hostname)
+-		ddSecret := config.BuildDDSecret(s.Key)
+-		ddLink := fmt.Sprintf("tg://proxy?server=%s&port=%s&secret=%s", publicIP, port, ddSecret)
+-
+-		log.Info().
+ 			Str("name", s.Name).
++			Str("dd_link", links.DD)
++		if links.EE != "" {
++			event = event.Str("ee_link", links.EE)
++		} else {
++			event = event.Str("mode", "dd-only")
++		}
++		event.Msg("Telegram proxy links")
+-			Str("ee_link", eeLink).
+-			Str("dd_link", ddLink).
+-			Msg("Telegram proxy links")
+ 	}
+ 
+ 	return nil
+diff --git a/cmd/telego/openwrt_dd_only_links_test.go b/cmd/telego/openwrt_dd_only_links_test.go
+new file mode 100644
+--- /dev/null
++++ b/cmd/telego/openwrt_dd_only_links_test.go
+@@ -0,0 +1,37 @@
++package main
++
++import (
++	"strings"
++	"testing"
++
++	"github.com/scratch-net/telego/pkg/gproxy"
++)
++
++func TestOpenWrtDDOnlyTelegramLinksOmitEE(t *testing.T) {
++	secret := gproxy.Secret{
++		Name: "test",
++		Key:  []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef},
++	}
++	links := buildTelegramProxyLinks("203.0.113.10", "2443", secret)
++	if links.EE != "" {
++		t.Fatalf("DD-only config produced EE link %q", links.EE)
++	}
++	if !strings.Contains(links.DD, "secret=dd0123456789abcdef0123456789abcdef") {
++		t.Fatalf("unexpected DD link %q", links.DD)
++	}
++}
++
++func TestOpenWrtTLSFrontingTelegramLinksIncludeEE(t *testing.T) {
++	secret := gproxy.Secret{
++		Name:   "test",
++		Key:    []byte{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef},
++		RawHex: "ee0123456789abcdef0123456789abcdef79612e7275",
++	}
++	links := buildTelegramProxyLinks("203.0.113.10", "2443", secret)
++	if links.EE == "" || !strings.Contains(links.EE, "secret="+secret.RawHex) {
++		t.Fatalf("TLS-fronting config did not produce EE link: %q", links.EE)
++	}
++	if links.DD == "" {
++		t.Fatal("TLS-fronting config lost DD link")
++	}
++}
