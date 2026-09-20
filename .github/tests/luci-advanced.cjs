@@ -154,8 +154,13 @@ function option(options, section, name) {
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
 	assert.notEqual(ddChunk.validate('performance', '1200'), true, 'Middle-End rejects DD chunk shaping');
 	assert.notEqual(ddDelay.validate('performance', '2ms'), true, 'Middle-End rejects DD delay shaping');
-	assert.equal(ddChunk.validate('performance', '0'), true);
-	assert.equal(ddDelay.validate('performance', '0s'), true);
+
+	result = await renderAdvanced({ middleEnd: '1', formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } } });
+	options = result.options;
+	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
+	ddDelay = option(options, 'performance', 'dd_downlink_delay');
+	assert.equal(ddChunk.validate('performance', '0'), true, 'Middle-End permits disabled DD shaping');
+	assert.equal(ddDelay.validate('performance', '0s'), true, 'Middle-End permits disabled DD pacing');
 
 	result = await renderAdvanced({ ingress: 'direct_https' });
 	options = result.options;
