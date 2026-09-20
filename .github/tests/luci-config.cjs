@@ -262,7 +262,11 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		await poll();
 		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running', 'status recovers after RPC returns');
 		assert.equal(root.querySelector('#telego-status-pid').textContent, '42', 'fresh PID returns after RPC recovery');
-		assert.equal(root.querySelector('#telego-status-error').textContent, '', 'RPC recovery clears stale error');
+		assert.equal(
+			root.querySelector('#telego-status-error').textContent,
+			initialStatus.metrics_available ? '' : 'Metrics: Error (' + String(initialStatus.metrics_error || 'unavailable') + ')',
+			'RPC recovery restores the current metrics state instead of stale RPC data'
+		);
 
 		reply = { ...initialStatus, web_enabled: false, middleend_enabled: false };
 		await poll();
