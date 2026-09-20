@@ -55,7 +55,10 @@ uci_bool() {
 
 write_toml_string() {
 	local quoted
-	quoted="$(toml_quote "$2")" || return 1
+	if ! quoted="$(toml_quote "$2")"; then
+		TOML_RENDER_FAILED=1
+		return 0
+	fi
 	printf '%s = "%s"\n' "$1" "$quoted"
 }
 
@@ -64,7 +67,8 @@ write_toml_int() {
 	case "$value" in
 		''|*[!0-9]*)
 			echo "telego: invalid integer for TOML key $1" >&2
-			return 1
+			TOML_RENDER_FAILED=1
+			return 0
 			;;
 	esac
 	printf '%s = %s\n' "$1" "$value"
@@ -77,7 +81,10 @@ write_toml_bool() {
 emit_toml_list_item() {
 	local value="$1" quoted
 	[ -n "$value" ] || return 0
-	quoted="$(toml_quote "$value")" || return 1
+	if ! quoted="$(toml_quote "$value")"; then
+		TOML_RENDER_FAILED=1
+		return 0
+	fi
 	[ -n "$LIST_FIRST" ] && printf ', '
 	printf '"%s"' "$quoted"
 	LIST_FIRST=1
@@ -92,19 +99,30 @@ emit_secret() {
 
 	case "$secret" in
 		????????????????????????????????) ;;
-		*) echo "telego: invalid secret in UCI section $section" >&2; return 1 ;;
+		*)
+			echo "telego: invalid secret in UCI section $section" >&2
+			TOML_RENDER_FAILED=1
+			return 0
+			;;
 	esac
 
 	case "$secret" in
 		*[!0123456789abcdefABCDEF]*)
 			echo "telego: secret in UCI section $section is not hexadecimal" >&2
-			return 1
+			TOML_RENDER_FAILED=1
+			return 0
 			;;
 	esac
 
 	local quoted_name quoted_secret
-	quoted_name="$(toml_quote "$name")" || return 1
-	quoted_secret="$(toml_quote "$secret")" || return 1
+	if ! quoted_name="$(toml_quote "$name")"; then
+		TOML_RENDER_FAILED=1
+		return 0
+	fi
+	if ! quoted_secret="$(toml_quote "$secret")"; then
+		TOML_RENDER_FAILED=1
+		return 0
+	fi
 	printf '"%s" = "%s"\n' "$quoted_name" "$quoted_secret"
 }
 
@@ -143,7 +161,8 @@ managed_web_profile() {
 }
 
 generate_config() {
-	local tmp="${RUNTIME_CONFIG}.$$" value profile external_tls_web=0
+	local tmp="${RUNTIME_CONFIG}.$" value profile external_tls_web=0
+	TOML_RENDER_FAILED=0
 
 	mkdir -p /var/etc || return 1
 	umask 077
@@ -254,6 +273,11 @@ generate_config() {
 		rm -f "$tmp"
 		return 1
 	}
+
+	if [ "$TOML_RENDER_FAILED" -ne 0 ]; then
+		rm -f "$tmp"
+		return 1
+	fi
 
 	chown "$TELEGO_USER:$TELEGO_GROUP" "$tmp" || {
 		rm -f "$tmp"
