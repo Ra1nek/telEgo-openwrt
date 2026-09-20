@@ -5,10 +5,115 @@ set -eu
 
 ETC_ROOT=${TELEGO_ETC_ROOT:-/etc}
 BACKUP_ROOT=${TELEGO_PACKAGE_BACKUP_ROOT:-$ETC_ROOT/telego-backups/package-owned}
+UCI_BIN=${TELEGO_UCI_BIN:-uci}
+UCI_CONFIG_DIR=${TELEGO_UCI_CONFIG_DIR:-$ETC_ROOT/config}
 
 fail() {
     echo "telego-package-reconcile: $*" >&2
     exit 1
+}
+
+uci_telego() {
+    "$UCI_BIN" -c "$UCI_CONFIG_DIR" "$@"
+}
+
+ensure_uci_section() {
+    section=$1
+    type=$2
+    body=$3
+
+    if uci_telego -q get "telego.$section" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    {
+        printf 'set telego.%s=%s\n' "$section" "$type"
+        printf '%s\n' "$body"
+    } | uci_telego -q batch ||
+        fail "unable to create missing UCI section telego.$section"
+
+    UCI_MIGRATED=1
+    echo "telego-package-reconcile: created missing UCI section telego.$section" >&2
+}
+
+migrate_missing_uci_sections() {
+    [ -f "$UCI_CONFIG_DIR/telego" ] || return 0
+    command -v "$UCI_BIN" >/dev/null 2>&1 || return 0
+
+    UCI_MIGRATED=0
+
+    ensure_uci_section general general "
+set telego.general.enabled='0'
+set telego.general.bind_to='0.0.0.0:443'
+set telego.general.log_level='info'
+set telego.general.proxy_protocol='0'
+set telego.general.max_connections_per_ip='100'
+set telego.general.max_ips_per_user='10'
+set telego.general.ip_block_timeout='5m'
+set telego.general.handshake_timeout='5s'
+set telego.general.clock_sync_url=''
+"
+
+    ensure_uci_section tls_fronting tls_fronting "
+set telego.tls_fronting.enabled='1'
+set telego.tls_fronting.mask_host='www.google.com'
+set telego.tls_fronting.mask_port='443'
+set telego.tls_fronting.cert_host=''
+set telego.tls_fronting.cert_port=''
+set telego.tls_fronting.fake_cert_size='0'
+set telego.tls_fronting.splice_host=''
+set telego.tls_fronting.splice_port=''
+set telego.tls_fronting.splice_proxy_protocol='0'
+set telego.tls_fronting.splice_idle_timeout='30s'
+set telego.tls_fronting.enable_drs='1'
+set telego.tls_fronting.enable_split_tls='1'
+"
+
+    ensure_uci_section web_proxy web_proxy "
+set telego.web_proxy.enabled='0'
+set telego.web_proxy.carrier='https-lanes'
+set telego.web_proxy.bind_to='127.0.0.1:8080'
+set telego.web_proxy.hostname=''
+set telego.web_proxy.backend=''
+set telego.web_proxy.num_event_loops='0'
+add_list telego.web_proxy.trusted_proxy_cidrs='127.0.0.1/32'
+"
+
+    ensure_uci_section middle_end middle_end "
+set telego.middle_end.enabled='0'
+set telego.middle_end.proxy_tag=''
+set telego.middle_end.socks5=''
+set telego.middle_end.socks5_username=''
+set telego.middle_end.socks5_password=''
+set telego.middle_end.artifact_proxy=''
+set telego.middle_end.nat_ip=''
+set telego.middle_end.max_connections='0'
+set telego.middle_end.queue_budget_mb='0'
+"
+
+    ensure_uci_section performance performance "
+set telego.performance.tcp_buffer_kb='128'
+set telego.performance.num_event_loops='0'
+set telego.performance.prefer_ip='prefer-ipv4'
+set telego.performance.idle_timeout='5m'
+set telego.performance.max_write_buffer_mb='0'
+set telego.performance.dd_downlink_chunk='0'
+set telego.performance.dd_downlink_delay='0s'
+set telego.performance.client_silence_close='0s'
+"
+
+    ensure_uci_section upstream upstream "
+set telego.upstream.socks5=''
+"
+
+    ensure_uci_section metrics metrics "
+set telego.metrics.bind_to='127.0.0.1:9090'
+set telego.metrics.path='/metrics'
+set telego.metrics.diagnostics='0'
+"
+
+    [ "$UCI_MIGRATED" -eq 0 ] || uci_telego -q commit telego ||
+        fail 'unable to commit migrated telEgo UCI sections'
 }
 
 promote_apk_new() {
@@ -47,3 +152,4 @@ promote_apk_new() {
 promote_apk_new "$ETC_ROOT/init.d/telego" 0755
 promote_apk_new "$ETC_ROOT/capabilities/telego.json" 0644
 promote_apk_new "$ETC_ROOT/init.d/nginx-telego" 0755
+migrate_missing_uci_sections
