@@ -43,6 +43,9 @@ diff --git a/pkg/config/config.go b/pkg/config/config.go
 +	if ddDelay < 0 {
 +		return gproxy.Config{}, errors.New("dd-downlink-delay cannot be negative")
 +	}
++	if ddDelay > time.Second {
++		return gproxy.Config{}, errors.New("dd-downlink-delay cannot exceed 1s")
++	}
 +	if ddDelay > 0 && c.Performance.DDDownlinkChunk == 0 {
 +		return gproxy.Config{}, errors.New("dd-downlink-delay requires a non-zero dd-downlink-chunk")
 +	}
@@ -200,5 +203,19 @@ new file mode 100644
 +	}
 +	if _, err := cfg.ToGProxyConfig(); err == nil {
 +		t.Fatal("expected DD downlink delay without chunk to be rejected")
++	}
++}
++
++func TestOpenWrtDDDownlinkDelayBound(t *testing.T) {
++	cfg := Config{
++		Secrets:     map[string]string{"test": "0123456789abcdef0123456789abcdef"},
++		TLSFronting: TLSFrontingConfig{MaskHost: "example.com"},
++		Performance: PerformanceConfig{
++			DDDownlinkChunk: 1200,
++			DDDownlinkDelay: Duration(time.Second + time.Nanosecond),
++		},
++	}
++	if _, err := cfg.ToGProxyConfig(); err == nil {
++		t.Fatal("expected DD downlink delay above 1s to be rejected")
 +	}
 +}

@@ -978,3 +978,13 @@ msgstr "Middle-End — расширенные настройки"
 
 msgid "Middle-End is disabled. Enable it on the Configuration page to edit advanced Middle-End transport settings."
 msgstr "Middle-End выключен. Включите его на странице «Конфигурация», чтобы изменить расширенные параметры транспорта Middle-End."
+
+
+msgid "Set DD Downlink Delay to 0s before setting DD Downlink Chunk to 0."
+msgstr "Перед установкой размера блока DD в 0 установите задержку DD в 0s."
+
+msgid "Use 0s or a positive integer duration no greater than 1s, such as 500us, 2ms, or 1s."
+msgstr "Используйте 0s или положительную целую длительность не более 1s, например 500us, 2ms или 1s."
+
+msgid "DD Downlink Delay requires a non-zero DD Downlink Chunk."
+msgstr "Для ненулевой задержки DD требуется ненулевой размер блока DD."

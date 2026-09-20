@@ -4,10 +4,41 @@
 'require uci';
 'require view';
 
+const maxDDDownlinkDelayUs = 1000000;
+
 function featureNote(section, text) {
 	const o = section.option(form.DummyValue, '_feature_note', _('Status'));
 	o.cfgvalue = function () { return text; };
 	return o;
+}
+
+function parseDDDownlinkDelayUs(value) {
+	value = String(value || '');
+	if (value === '0s')
+		return 0;
+
+	const match = /^([1-9][0-9]*)(us|ms|s)$/.exec(value);
+	if (!match)
+		return null;
+
+	const number = Number(match[1]);
+	if (!Number.isSafeInteger(number))
+		return null;
+
+	const multiplier = match[2] === 'us' ? 1 : (match[2] === 'ms' ? 1000 : 1000000);
+	const microseconds = number * multiplier;
+	return Number.isSafeInteger(microseconds) && microseconds <= maxDDDownlinkDelayUs
+		? microseconds
+		: null;
+}
+
+function siblingFormValue(option, name, sectionId, fallback) {
+	const sibling = L.toArray(option.map.lookupOption(name, sectionId))[0];
+	if (!sibling)
+		return fallback;
+
+	const value = sibling.formvalue(sectionId);
+	return value == null || value === '' ? fallback : value;
 }
 
 return view.extend({
@@ -275,9 +306,15 @@ return view.extend({
 		o.description = _('0 keeps the upstream raw-DD batching. For restrictive mobile networks, start with 1200 bytes together with a small DD downlink delay.');
 		o.validate = function (section_id, value) {
 			const number = Number(value);
-			return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 65536)
-				? true
-				: _('Use 0 or a value from 256 to 65536 bytes.');
+			if (!(value === '0' || (Number.isInteger(number) && number >= 256 && number <= 65536)))
+				return _('Use 0 or a value from 256 to 65536 bytes.');
+
+			const delay = siblingFormValue(this, 'dd_downlink_delay', section_id, '0s');
+			const delayUs = parseDDDownlinkDelayUs(delay);
+			if (number === 0 && delayUs != null && delayUs > 0)
+				return _('Set DD Downlink Delay to 0s before setting DD Downlink Chunk to 0.');
+
+			return true;
 		};
 
 		o = s.option(form.Value, 'dd_downlink_delay', _('DD Downlink Delay'));
@@ -285,9 +322,15 @@ return view.extend({
 		o.default = '0s';
 		o.description = _('Paces raw-DD proxy-to-client writes without blocking the event loop. 0s disables pacing; start with 2ms when testing mobile DPI degradation.');
 		o.validate = function (section_id, value) {
-			return /^(?:0s|[1-9][0-9]*(?:us|ms|s))$/.test(value)
-				? true
-				: _('Use 0s or a positive integer duration such as 500us, 2ms, or 1s.');
+			const delayUs = parseDDDownlinkDelayUs(value);
+			if (delayUs == null)
+				return _('Use 0s or a positive integer duration no greater than 1s, such as 500us, 2ms, or 1s.');
+
+			const chunk = Number(siblingFormValue(this, 'dd_downlink_chunk', section_id, '0'));
+			if (delayUs > 0 && chunk === 0)
+				return _('DD Downlink Delay requires a non-zero DD Downlink Chunk.');
+
+			return true;
 		};
 
 		o = s.option(form.Value, 'client_silence_close', _('Client Silence Close'));

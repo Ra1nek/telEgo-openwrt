@@ -4,15 +4,24 @@ const fs = require('node:fs');
 async function renderAdvanced(state = {}) {
 	const options = [];
 	const sections = [];
+	const formValues = state.formValues || {};
 	class Map {
+		lookupOption(name, section) {
+			return options.filter(option => option.name === name && option.section === section);
+		}
 		section(kind, section, title) {
 			sections.push({ section, title });
+			const map = this;
 			return {
 				section,
 				option(type, name) {
 					const option = {
-						section, name, type, values: [],
-						value(value, label) { this.values.push([value, label]); }
+						section, name, type, values: [], map,
+						value(value, label) { this.values.push([value, label]); },
+						formvalue(sectionId) {
+							const values = formValues[sectionId] || formValues[section] || {};
+							return Object.prototype.hasOwnProperty.call(values, name) ? values[name] : this.default;
+						}
 					};
 					options.push(option);
 					return option;
@@ -104,19 +113,35 @@ function option(options, section, name) {
 	for (const name of ['bind_to', 'path', 'diagnostics'])
 		assert.ok(option(options, 'metrics', name), 'missing Metrics option ' + name);
 
-	const ddChunk = option(options, 'performance', 'dd_downlink_chunk');
-	assert.equal(ddChunk.validate(null, '0'), true);
-	assert.equal(ddChunk.validate(null, '1200'), true);
-	assert.equal(ddChunk.validate(null, '65536'), true);
-	assert.notEqual(ddChunk.validate(null, '255'), true);
-	assert.notEqual(ddChunk.validate(null, '65537'), true);
+	let ddChunk = option(options, 'performance', 'dd_downlink_chunk');
+	let ddDelay = option(options, 'performance', 'dd_downlink_delay');
+	assert.equal(ddChunk.validate('performance', '0'), true);
+	assert.equal(ddChunk.validate('performance', '1200'), true);
+	assert.equal(ddChunk.validate('performance', '65536'), true);
+	assert.notEqual(ddChunk.validate('performance', '255'), true);
+	assert.notEqual(ddChunk.validate('performance', '65537'), true);
+	assert.equal(ddDelay.validate('performance', '0s'), true);
+	assert.notEqual(ddDelay.validate('performance', '500us'), true);
+	assert.notEqual(ddDelay.validate('performance', '2ms'), true);
+	assert.notEqual(ddDelay.validate('performance', '-1ms'), true);
+	assert.notEqual(ddDelay.validate('performance', '2.5ms'), true);
+	assert.notEqual(ddDelay.validate('performance', '2s'), true);
+	assert.notEqual(ddDelay.validate('performance', '999999999999999999999999ms'), true);
 
-	const ddDelay = option(options, 'performance', 'dd_downlink_delay');
-	assert.equal(ddDelay.validate(null, '0s'), true);
-	assert.equal(ddDelay.validate(null, '500us'), true);
-	assert.equal(ddDelay.validate(null, '2ms'), true);
-	assert.notEqual(ddDelay.validate(null, '-1ms'), true);
-	assert.notEqual(ddDelay.validate(null, '2.5ms'), true);
+	result = await renderAdvanced({ formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } } });
+	options = result.options;
+	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
+	ddDelay = option(options, 'performance', 'dd_downlink_delay');
+	assert.equal(ddDelay.validate('performance', '2ms'), true);
+	assert.equal(ddDelay.validate('performance', '1s'), true);
+	assert.notEqual(ddChunk.validate('performance', '0'), true);
+
+	result = await renderAdvanced({ formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } } });
+	options = result.options;
+	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
+	ddDelay = option(options, 'performance', 'dd_downlink_delay');
+	assert.equal(ddChunk.validate('performance', '0'), true);
+	assert.equal(ddDelay.validate('performance', '0s'), true);
 
 	result = await renderAdvanced({ ingress: 'direct_https' });
 	options = result.options;
