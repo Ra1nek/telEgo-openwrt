@@ -84,17 +84,30 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		hideModal: () => {},
 		addNotification: () => {}
 	};
-	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'document',
+	const appShell = {
+		wrap: (active, content, options) => {
+			const root = new Element('div', { 'data-telego-section': active }, content);
+			root.shellOptions = options || {};
+			return root;
+		},
+		activate: (root, active) => { root.attrs['data-telego-section'] = active; }
+	};
+	const windowObject = {
+		location: { hash: '' },
+		history: { replaceState: (state, title, hash) => { windowObject.location.hash = hash; } }
+	};
+	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'appShell', 'window', 'document',
 		fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8'))(
 		form, { declare: () => () => reply ? Promise.resolve(reply) : Promise.reject(new Error('rpcd unavailable')) },
 		ui, uci, { extend: x => x },
 		(tag, attrs, children) => new Element(tag, attrs, children), x => x,
 		{ resolveDefault: (p, fallback) => p.catch(() => fallback), Poll: { add: fn => { poll = fn; } } },
-		{ querySelector: () => null }
+		appShell, windowObject, { querySelector: () => null }
 	);
 	await view.load();
 	const root = await view.render();
 	assert.ok(root.querySelector('#telego-config-pane'), 'configuration renders even without rpcd');
+	assert.equal(root.attrs['data-telego-section'], 'overview', 'unified shell opens on Overview by default');
 
 	const hostname = options.find(o => o.section === 'web_proxy' && o.name === 'hostname');
 	assert.deepEqual(hostname.dependency, ['enabled', '1']);

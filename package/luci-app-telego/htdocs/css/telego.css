@@ -345,3 +345,99 @@ PRINT STYLES
 		page-break-inside: avoid;
 	}
 }
+
+/* ==========================================================================
+P5 UNIFIED APPLICATION SHELL
+=========================================================================== */
+.telego-app {
+	max-width: 1180px;
+	margin: 0 auto;
+	min-width: 0;
+}
+
+.telego-app-header {
+	margin-bottom: var(--telego-spacing-md);
+}
+
+.telego-app-header h1 {
+	margin: 0;
+	font-size: 1.8em;
+	font-weight: 600;
+	color: var(--telego-primary-color);
+}
+
+.telego-app-tabs,
+.telego-app-subtabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--telego-spacing-sm);
+	align-items: center;
+	margin: 0 0 var(--telego-spacing-lg);
+	padding-bottom: var(--telego-spacing-sm);
+	border-bottom: 1px solid var(--telego-border-light);
+}
+
+.telego-app-tab,
+.telego-app-subtab {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	box-sizing: border-box;
+	min-height: 36px;
+	padding: var(--telego-spacing-sm) var(--telego-spacing-md);
+	border: 1px solid var(--telego-border-color);
+	border-radius: var(--telego-radius-md);
+	background: var(--telego-bg-primary);
+	color: var(--telego-text-primary);
+	font: inherit;
+	line-height: 1.2;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.telego-app-tab:hover,
+.telego-app-subtab:hover {
+	background: var(--telego-bg-hover);
+	text-decoration: none;
+}
+
+.telego-app-tab.active,
+.telego-app-tab[aria-selected="true"],
+.telego-app-subtab.active {
+	border-color: var(--telego-primary-color);
+	color: var(--telego-primary-color);
+	font-weight: 600;
+}
+
+.telego-app-tab:focus-visible,
+.telego-app-subtab:focus-visible {
+	outline: 2px solid var(--telego-primary-color);
+	outline-offset: 2px;
+}
+
+.telego-app-subtabs {
+	margin-top: calc(-1 * var(--telego-spacing-sm));
+	margin-bottom: var(--telego-spacing-md);
+	border-bottom: 0;
+}
+
+.telego-app-subtab {
+	min-height: 32px;
+	padding: var(--telego-spacing-xs) var(--telego-spacing-sm);
+	font-size: .92em;
+}
+
+.telego-app-content {
+	min-width: 0;
+}
+
+@media screen and (max-width: 640px) {
+	.telego-app-tabs {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+
+	.telego-app-tab {
+		width: 100%;
+	}
+}

@@ -9,6 +9,12 @@ msgstr ""
 msgid "telEgo"
 msgstr "telEgo"
 
+msgid "Overview"
+msgstr "Обзор"
+
+msgid "Diagnostics"
+msgstr "Диагностика"
+
 msgid "0 B"
 msgstr "0 Б"
 

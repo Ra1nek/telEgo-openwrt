@@ -161,9 +161,10 @@ global.L = {
 };
 global.E = (tag, attrs, children) => ({ tag, attrs: attrs || {}, children });
 
-const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
+const appShell = { wrap: (active, content) => content };
+const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell',
 	fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ingress.js', 'utf8'))(
-	form, rpc, ui, uci, { extend: x => x }, x => x
+	form, rpc, ui, uci, { extend: x => x }, x => x, appShell
 );
 
 (async () => {

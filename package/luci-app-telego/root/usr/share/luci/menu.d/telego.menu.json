@@ -14,7 +14,7 @@
     }
   },
   "admin/services/telego/configuration": {
-    "title": "Configuration",
+    "title": "Overview",
     "order": 10,
     "action": {
       "type": "view",
@@ -27,7 +27,6 @@
     }
   },
   "admin/services/telego/ingress": {
-    "title": "WEB Ingress",
     "order": 20,
     "action": {
       "type": "view",
@@ -46,7 +45,6 @@
     }
   },
   "admin/services/telego/nginx-files": {
-    "title": "Nginx Files",
     "order": 30,
     "action": {
       "type": "view",
@@ -64,7 +62,6 @@
     }
   },
   "admin/services/telego/advanced": {
-    "title": "Advanced Settings",
     "order": 15,
     "action": {
       "type": "view",

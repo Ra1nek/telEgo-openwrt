@@ -95,6 +95,7 @@ sh .github/tests/telego-config-render.sh
 sh .github/tests/package-reconcile.sh
 bash .github/tests/patched-go-format.sh
 bash .github/tests/service-definition.sh
+"${NODE:-node}" .github/tests/luci-app-shell.cjs
 "${NODE:-node}" .github/tests/luci-config.cjs
 "${NODE:-node}" .github/tests/luci-ingress.cjs
 "${NODE:-node}" .github/tests/luci-nginx-files.cjs

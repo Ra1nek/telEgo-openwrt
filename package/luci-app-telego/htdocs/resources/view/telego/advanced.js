@@ -3,6 +3,7 @@
 'require form';
 'require uci';
 'require view';
+'require view.telego.app-shell as appShell';
 
 const maxDDDownlinkDelayUs = 1000000;
 
@@ -364,6 +365,10 @@ return view.extend({
 		o.description = _('Private runtime diagnostics require a literal loopback metrics address.');
 		o.default = '0';
 
-		return m.render();
+		return m.render().then(function (node) {
+			return appShell.wrap('diagnostics', node, {
+				secondary: appShell.diagnosticsNav('advanced')
+			});
+		});
 	}
 });

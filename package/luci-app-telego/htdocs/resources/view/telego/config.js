@@ -5,6 +5,7 @@
 'require ui';
 'require uci';
 'require view';
+'require view.telego.app-shell as appShell';
 
 const callTelegoStatus = rpc.declare({
 	object: 'telego',
@@ -850,40 +851,33 @@ return view.extend({
 			}, configNode);
 
 			const statusPane = E('section', {
-				'id': 'telego-status-pane',
-				'style': 'display:none'
+				'id': 'telego-status-pane'
 			}, statusNode);
 
-			const configTab = E('button', {
-				'type': 'button',
-				'class': 'btn cbi-button active',
-				'click': function () {
-					configPane.style.display = '';
-					statusPane.style.display = 'none';
-					configTab.classList.add('active');
-					statusTab.classList.remove('active');
-				}
-			}, _('Configuration'));
+			const initialSection =
+				window.location && window.location.hash === '#mtproxy'
+					? 'mtproxy'
+					: 'overview';
+			let root;
 
-			const statusTab = E('button', {
-				'type': 'button',
-				'class': 'btn cbi-button',
-				'click': function () {
-					configPane.style.display = 'none';
-					statusPane.style.display = '';
-					statusTab.classList.add('active');
-					configTab.classList.remove('active');
-				}
-			}, _('Status'));
+			function selectSection(section, updateUrl) {
+				const mtproxy = section === 'mtproxy';
+				configPane.style.display = mtproxy ? '' : 'none';
+				statusPane.style.display = mtproxy ? 'none' : '';
 
-			const root = E('div', { 'class': 'telego-view' }, [
-				E('div', { 'class': 'telego-tabs' }, [
-					configTab,
-					statusTab
-				]),
-				configPane,
-				statusPane
-			]);
+				if (updateUrl && window.history && window.history.replaceState)
+					window.history.replaceState(null, '', mtproxy ? '#mtproxy' : '#overview');
+
+				if (root)
+					appShell.activate(root, section);
+			}
+
+			root = appShell.wrap(initialSection, [statusPane, configPane], {
+				onSelect: function (section) {
+					selectSection(section, true);
+				}
+			});
+			selectSection(initialSection, false);
 
 			L.Poll.add(function () {
 				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {

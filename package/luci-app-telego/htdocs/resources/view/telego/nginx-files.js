@@ -3,6 +3,7 @@
 'require rpc';
 'require ui';
 'require view';
+'require view.telego.app-shell as appShell';
 
 const callInventory = rpc.declare({ object: 'telego.nginx', method: 'inventory', expect: { '': {} } });
 const callManagedContent = rpc.declare({ object: 'telego.nginx', method: 'managed_content', params: [ 'role', 'side' ], expect: { '': {} } });
@@ -93,7 +94,10 @@ return view.extend({
 				})
 			]), container
 		]);
-		this.renderInventory(container, initial, refresh); return root;
+		this.renderInventory(container, initial, refresh);
+		return appShell.wrap('diagnostics', root, {
+			secondary: appShell.diagnosticsNav('nginx-files')
+		});
 	},
 	renderInventory: function (container, result, refresh) {
 		container.innerHTML = '';

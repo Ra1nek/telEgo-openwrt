@@ -5,6 +5,7 @@
 'require ui';
 'require uci';
 'require view';
+'require view.telego.app-shell as appShell';
 
 const callPlatformStatus = rpc.declare({
 	object: 'telego.nginx',
@@ -719,6 +720,8 @@ return view.extend({
 		o.cfgvalue = sharedContractText;
 		o.description = _('Required values are public TCP/443, certificate source 127.0.0.1:8444, fallback 127.0.0.1:8443 and PROXY Protocol v2. nginx-telego refuses to apply the managed Nginx state if this contract is not satisfied.');
 
-		return m.render();
+		return m.render().then(function (node) {
+			return appShell.wrap('web', node);
+		});
 	}
 });
