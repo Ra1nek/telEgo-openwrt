@@ -104,16 +104,11 @@ jobs:
         run: python3 .github/scripts/check-luci-i18n.py
 
       - name: Verify Go source
-        working-directory: telego-src
         shell: bash
         run: |
           set -euo pipefail
-          unformatted="$(gofmt -l ./cmd/telego/main.go)"
-          if [ -n "$unformatted" ]; then
-            echo "::error::OpenWrt-patched Go source is not gofmt-clean:"
-            printf '%s\n' "$unformatted"
-            exit 1
-          fi
+          bash .github/scripts/check-patched-go.sh
+          cd telego-src
           go vet ./...
           go test ./...
 
