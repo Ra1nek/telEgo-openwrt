@@ -1,6 +1,17 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+function nodeList(items) {
+	const list = { length: items.length };
+	for (let i = 0; i < items.length; i++)
+		list[i] = items[i];
+	list[Symbol.iterator] = function* () {
+		for (let i = 0; i < this.length; i++)
+			yield this[i];
+	};
+	return list;
+}
+
 class Element {
 	constructor(tag, attrs = {}, children = []) {
 		this.tag = tag;
@@ -25,7 +36,7 @@ class Element {
 		if (match) out.push(this);
 		for (const child of this.children)
 			if (child && child.querySelectorAll) out.push(...child.querySelectorAll(selector));
-		return out;
+		return nodeList(out);
 	}
 }
 
@@ -33,7 +44,15 @@ const source = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/te
 const L = {
 	url: path => '/cgi-bin/luci/' + path,
 	resource: path => '/luci-static/resources/' + path,
-	toArray: value => value == null ? [] : (Array.isArray(value) ? value : [value])
+	// Match LuCI.toArray(): generic objects such as NodeList are wrapped,
+	// not expanded. The shell must therefore not use L.toArray(NodeList).
+	toArray: value => {
+		if (value == null) return [];
+		if (Array.isArray(value)) return value;
+		if (typeof value === 'object') return [value];
+		const text = String(value).trim();
+		return text ? text.split(/\s+/) : [];
+	}
 };
 function BaseClass() {}
 BaseClass.extend = function (properties) {
@@ -58,7 +77,8 @@ const root = shell.wrap('overview', content, { onSelect: id => { selected = id; 
 const tabs = root.querySelectorAll('.telego-app-tab');
 
 assert.equal(tabs.length, 4);
-assert.deepEqual(tabs.map(tab => tab.children[0]), ['Overview', 'MTProxy', 'WEB Ingress', 'Diagnostics']);
+assert.equal(Array.isArray(tabs), false, 'querySelectorAll test double must behave like a NodeList, not an Array');
+assert.deepEqual(Array.from(tabs, tab => tab.children[0]), ['Overview', 'MTProxy', 'WEB Ingress', 'Diagnostics']);
 assert.equal(tabs[0].tag, 'button');
 assert.equal(tabs[1].tag, 'button');
 assert.equal(tabs[2].tag, 'a');

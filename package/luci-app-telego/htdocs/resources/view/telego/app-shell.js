@@ -47,11 +47,14 @@ function activate(root, active) {
 		return;
 
 	root.setAttribute('data-telego-section', active);
-	L.toArray(root.querySelectorAll('.telego-app-tab')).forEach(function (tab) {
+	const tabs = root.querySelectorAll('.telego-app-tab');
+
+	for (let i = 0; i < tabs.length; i++) {
+		const tab = tabs[i];
 		const selected = tab.getAttribute('data-telego-section') === active;
 		tab.classList.toggle('active', selected);
 		tab.setAttribute('aria-selected', selected ? 'true' : 'false');
-	});
+	}
 }
 
 function DiagnosticsNav(active) {
