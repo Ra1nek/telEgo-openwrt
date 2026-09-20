@@ -12,8 +12,18 @@ TELEGO_USER=telego
 TELEGO_GROUP=telego
 
 toml_quote() {
-	printf '%s' "$1" |
-		sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e 's/	/\\t/g'
+	local value="$1"
+
+	case "$value" in
+		*'
+'*) echo 'telego: newline is not allowed in TOML string values' >&2; return 1 ;;
+	esac
+	if printf '%s' "$value" | LC_ALL=C grep -q '[[:cntrl:]]'; then
+		echo 'telego: control characters are not allowed in TOML string values' >&2
+		return 1
+	fi
+
+	printf '%s' "$value" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
 }
 
 uci_get_package_default() {
@@ -41,13 +51,18 @@ uci_bool() {
 }
 
 write_toml_string() {
-	printf '%s = "%s"\n' "$1" "$(toml_quote "$2")"
+	local quoted
+	quoted="$(toml_quote "$2")" || return 1
+	printf '%s = "%s"\n' "$1" "$quoted"
 }
 
 write_toml_int() {
 	local value="$2"
 	case "$value" in
-		''|*[!0-9-]*) value=0 ;;
+		''|*[!0-9]*)
+			echo "telego: invalid integer for TOML key $1" >&2
+			return 1
+			;;
 	esac
 	printf '%s = %s\n' "$1" "$value"
 }
@@ -57,10 +72,11 @@ write_toml_bool() {
 }
 
 emit_toml_list_item() {
-	local value="$1"
+	local value="$1" quoted
 	[ -n "$value" ] || return 0
+	quoted="$(toml_quote "$value")" || return 1
 	[ -n "$LIST_FIRST" ] && printf ', '
-	printf '"%s"' "$(toml_quote "$value")"
+	printf '"%s"' "$quoted"
 	LIST_FIRST=1
 }
 
@@ -83,9 +99,10 @@ emit_secret() {
 			;;
 	esac
 
-	printf '"%s" = "%s"\n' \
-		"$(toml_quote "$name")" \
-		"$(toml_quote "$secret")"
+	local quoted_name quoted_secret
+	quoted_name="$(toml_quote "$name")" || return 1
+	quoted_secret="$(toml_quote "$secret")" || return 1
+	printf '"%s" = "%s"\n' "$quoted_name" "$quoted_secret"
 }
 
 ensure_service_account() {

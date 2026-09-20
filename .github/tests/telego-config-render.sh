@@ -10,6 +10,9 @@ CF_ENABLED=0
 SHARED_ENABLED=0
 DIRECT_ENABLED=0
 TLS_ENABLED=1
+MASK_HOST=proxy.example.com
+MAX_CONNECTIONS_PER_IP=100
+ME_PASSWORD=me-pass
 
 # generate_config() uses OpenWrt helpers plus the uci CLI. Provide a focused
 # fixture instead of parsing TOML by inspection in this test.
@@ -45,14 +48,14 @@ uci() {
 		telego.general.bind_to) printf '%s\n' '0.0.0.0:443' ;;
 		telego.general.log_level) printf '%s\n' 'info' ;;
 		telego.general.proxy_protocol) printf '%s\n' '0' ;;
-		telego.general.max_connections_per_ip) printf '%s\n' '100' ;;
+		telego.general.max_connections_per_ip) printf '%s\n' "$MAX_CONNECTIONS_PER_IP" ;;
 		telego.general.max_ips_per_user) printf '%s\n' '10' ;;
 		telego.general.ip_block_timeout) printf '%s\n' '5m' ;;
 		telego.general.handshake_timeout) printf '%s\n' '5s' ;;
 		telego.general.clock_sync_url) printf '%s\n' 'https://time.example.net' ;;
 
 		telego.tls_fronting.enabled) printf '%s\n' "$TLS_ENABLED" ;;
-		telego.tls_fronting.mask_host) printf '%s\n' 'proxy.example.com' ;;
+		telego.tls_fronting.mask_host) printf '%s\n' "$MASK_HOST" ;;
 		telego.tls_fronting.mask_port) printf '%s\n' '443' ;;
 		telego.tls_fronting.cert_host) printf '%s\n' '127.0.0.1' ;;
 		telego.tls_fronting.cert_port) printf '%s\n' '8444' ;;
@@ -88,7 +91,7 @@ uci() {
 		telego.middle_end.proxy_tag) printf '%s\n' '0123456789abcdef0123456789abcdef' ;;
 		telego.middle_end.socks5) printf '%s\n' '127.0.0.1:1080' ;;
 		telego.middle_end.socks5_username) printf '%s\n' 'me-user' ;;
-		telego.middle_end.socks5_password) printf '%s\n' 'me-pass' ;;
+		telego.middle_end.socks5_password) printf '%s\n' "$ME_PASSWORD" ;;
 		telego.middle_end.artifact_proxy) printf '%s\n' 'http://127.0.0.1:3128' ;;
 		telego.middle_end.nat_ip) printf '%s\n' '203.0.113.10' ;;
 		telego.middle_end.max_connections) printf '%s\n' '5000' ;;
@@ -191,5 +194,38 @@ DIRECT_ENABLED=0
 SHARED_ENABLED=1
 generate_config
 assert_shared_tls_runtime
+
+# TOML string values must never allow literal control characters to corrupt the
+# generated file. Failed generations are atomic and keep the previous runtime.
+baseline_hash="$(sha256sum "$RUNTIME_CONFIG" | awk '{print $1}')"
+SHARED_ENABLED=0
+
+MASK_HOST='proxy.example.com
+injected'
+if generate_config >/dev/null 2>&1; then
+	echo 'newline-containing TOML string unexpectedly rendered' >&2
+	exit 1
+fi
+[ "$(sha256sum "$RUNTIME_CONFIG" | awk '{print $1}')" = "$baseline_hash" ]
+MASK_HOST=proxy.example.com
+
+ME_PASSWORD="$(printf 'bad\tpassword')"
+if generate_config >/dev/null 2>&1; then
+	echo 'control-character TOML string unexpectedly rendered' >&2
+	exit 1
+fi
+[ "$(sha256sum "$RUNTIME_CONFIG" | awk '{print $1}')" = "$baseline_hash" ]
+ME_PASSWORD='quote"and\slash'
+generate_config
+grep -Fqx 'socks5-password = "quote\"and\\slash"' "$RUNTIME_CONFIG"
+
+baseline_hash="$(sha256sum "$RUNTIME_CONFIG" | awk '{print $1}')"
+MAX_CONNECTIONS_PER_IP='12oops'
+if generate_config >/dev/null 2>&1; then
+	echo 'invalid TOML integer unexpectedly rendered' >&2
+	exit 1
+fi
+[ "$(sha256sum "$RUNTIME_CONFIG" | awk '{print $1}')" = "$baseline_hash" ]
+MAX_CONNECTIONS_PER_IP=100
 
 echo 'telEgo UCI to TOML render tests passed'
