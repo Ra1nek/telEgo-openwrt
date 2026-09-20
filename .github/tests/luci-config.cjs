@@ -11,16 +11,16 @@ class Element {
 		this.innerHTML = '';
 		this.classList = {
 			add: (...names) => {
-				const set = new Set(String(this.attrs.class || '').split(/\\s+/).filter(Boolean));
+				const set = new Set(String(this.attrs.class || '').split(/\s+/).filter(Boolean));
 				for (const name of names) set.add(name);
 				this.attrs.class = Array.from(set).join(' ');
 			},
 			remove: (...names) => {
-				const set = new Set(String(this.attrs.class || '').split(/\\s+/).filter(Boolean));
+				const set = new Set(String(this.attrs.class || '').split(/\s+/).filter(Boolean));
 				for (const name of names) set.delete(name);
 				this.attrs.class = Array.from(set).join(' ');
 			},
-			contains: name => String(this.attrs.class || '').split(/\\s+/).includes(name)
+			contains: name => String(this.attrs.class || '').split(/\s+/).includes(name)
 		};
 		for (const child of this.children)
 			if (child instanceof Element) child.parentNode = this;
@@ -57,7 +57,7 @@ class Element {
 	removeAttribute(name) { delete this.attrs[name]; }
 	dispatchEvent() {}
 	querySelector(selector) {
-		const classes = String(this.attrs.class || '').split(/\\s+/).filter(Boolean);
+		const classes = String(this.attrs.class || '').split(/\s+/).filter(Boolean);
 		if (selector === this.tag || selector === '#' + this.attrs.id || (selector.startsWith('.') && classes.includes(selector.slice(1)))) return this;
 		for (const child of this.children) {
 			const found = child?.querySelector?.(selector);
@@ -235,6 +235,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(configuredBadge.attrs['data-state'], 'configured');
 	assert.equal(configuredBadge.children[0], 'Configured');
 	assert.equal(missingBadge.attrs['data-state'], 'missing');
+	assert.equal(missingBadge.children[0], 'Not configured');
 	assert.equal(invalidBadge.attrs['data-state'], 'invalid');
 	assert.ok(!JSON.stringify(configuredBadge).includes('0123456789abcdef0123456789abcdef'), 'users grid must never render the secret itself');
 	assert.equal(options.find(o => o.section === 'secret' && o.name === '_links'), undefined, 'Connect belongs in row actions, not a table data column');

@@ -1021,7 +1021,7 @@ function makeConfigMap() {
 
 		if (!secret) {
 			state = 'missing';
-			label = _('Missing');
+			label = _('Not configured');
 		}
 		else if (/^[0-9a-fA-F]{32}$/.test(secret)) {
 			state = 'configured';

@@ -1091,8 +1091,8 @@ msgstr "Открыть ссылки подключения"
 msgid "Secret"
 msgstr "Секрет"
 
-msgid "Missing"
-msgstr "Не задан"
+msgid "Not configured"
+msgstr "Не настроен"
 
 msgid "Configured"
 msgstr "Настроен"
