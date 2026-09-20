@@ -133,7 +133,7 @@ function option(options, section, name) {
 	assert.notEqual(ddDelay.validate('performance', '2s'), true);
 	assert.notEqual(ddDelay.validate('performance', '999999999999999999999999ms'), true);
 
-	result = await renderAdvanced({ formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } } });
+	result = await renderAdvanced({ middleEnd: '0', formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } } });
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
@@ -141,7 +141,7 @@ function option(options, section, name) {
 	assert.equal(ddDelay.validate('performance', '1s'), true);
 	assert.notEqual(ddChunk.validate('performance', '0'), true);
 
-	result = await renderAdvanced({ formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } } });
+	result = await renderAdvanced({ middleEnd: '0', formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } } });
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
