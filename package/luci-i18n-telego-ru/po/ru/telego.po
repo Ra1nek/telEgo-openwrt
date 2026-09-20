@@ -995,3 +995,13 @@ msgstr "Перед включением Middle-End отключите DD Downlin
 
 msgid "DD Downlink Shaping is unavailable while Middle-End is enabled."
 msgstr "DD Downlink Shaping недоступен, пока включён Middle-End."
+
+
+msgid "Enter a hostname or IP address only, without a URL, path or spaces."
+msgstr "Укажите только имя хоста или IP-адрес — без URL, пути и пробелов."
+
+msgid "Enter a valid hostname or IP address."
+msgstr "Укажите корректное имя хоста или IP-адрес."
+
+msgid "Unavailable"
+msgstr "Недоступно"

@@ -52,12 +52,46 @@ function listenPort(bindTo) {
 	return match ? match[1] : '';
 }
 
-function buildTelegramProxyLink(server, port, secret) {
+function normalizePublicServer(server) {
 	server = String(server || '').trim();
-	port = String(port || '').trim();
-
 	if (!server)
 		throw new Error(_('Public server is required.'));
+	if (/[\\/?#@\s]/.test(server))
+		throw new Error(_('Enter a hostname or IP address only, without a URL, path or spaces.'));
+
+	let candidate = server;
+	let ipv6 = false;
+	if (candidate.startsWith('[') || candidate.endsWith(']')) {
+		if (!(candidate.startsWith('[') && candidate.endsWith(']')))
+			throw new Error(_('Enter a valid hostname or IP address.'));
+		candidate = candidate.slice(1, -1);
+		ipv6 = true;
+	}
+	else if (candidate.includes(':')) {
+		ipv6 = true;
+	}
+
+	try {
+		const parsed = new URL(ipv6 ? 'http://[' + candidate + ']/' : 'http://' + candidate + '/');
+		if (!parsed.hostname || parsed.username || parsed.password || parsed.port)
+			throw new Error();
+		if (ipv6) {
+			const hostname = parsed.hostname.replace(/^\[|\]$/g, '');
+			if (!hostname.includes(':'))
+				throw new Error();
+			return hostname.toLowerCase();
+		}
+		return parsed.hostname.toLowerCase();
+	}
+	catch (e) {
+		throw new Error(_('Enter a valid hostname or IP address.'));
+	}
+}
+
+function buildTelegramProxyLink(server, port, secret) {
+	server = normalizePublicServer(server);
+	port = String(port || '').trim();
+
 	if (!/^[0-9]+$/.test(port) || Number(port) < 1 || Number(port) > 65535)
 		throw new Error(_('Enter a valid public port.'));
 
@@ -192,7 +226,7 @@ function showProxyLinks(sectionId) {
 		E('p', {}, _('FakeTLS + Obfuscated2. The EE secret uses the saved TLS Fronting mask domain.')),
 		E('p', {}, [
 			E('strong', {}, _('Mask Domain') + ': '),
-			E('span', { 'id': 'telego-proxy-ee-mask-host' }, maskHost || _('—'))
+			E('span', { 'id': 'telego-proxy-ee-mask-host' }, [maskHost || _('—')])
 		]),
 		eeError,
 		eeSecret.node,
@@ -293,7 +327,7 @@ function showProxyLinks(sectionId) {
 	serverInput.addEventListener('input', refresh);
 	portInput.addEventListener('input', refresh);
 
-	ui.showModal(_('Connection Links') + ' — ' + username, [
+	ui.showModal([_('Connection Links') + ' — ' + username], [
 		E('p', {}, _('Links are generated locally in your browser. This dialog does not change telEgo runtime settings.')),
 		E('div', { 'style': 'display:grid;grid-template-columns:minmax(0,1fr) minmax(8rem,.35fr);gap:.75rem;margin-bottom:1rem' }, [
 			E('label', {}, [
@@ -530,7 +564,14 @@ function updateStatus(status, root) {
 }
 
 function updateStatusError(errorText, root) {
-	const node = (root || document).querySelector('#telego-status-error');
+	root = root || document;
+	updateStatus(null, root);
+
+	const state = root.querySelector('#telego-status-state');
+	if (state)
+		state.textContent = _('Unavailable');
+
+	const node = root.querySelector('#telego-status-error');
 	if (node)
 		node.textContent = errorText || _('Unable to read telEgo status.');
 }

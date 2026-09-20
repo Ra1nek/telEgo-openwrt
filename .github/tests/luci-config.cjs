@@ -115,7 +115,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(links.editable, true, 'link generator button must render inline in the users grid');
 	links.onclick({ type: 'click' }, 'user1');
 	assert.ok(modal, 'link generator opens a modal');
-	assert.equal(modal.attrs.title, 'Connection Links — aiser', 'button event must not be mistaken for the UCI section id');
+	assert.deepEqual(modal.attrs.title, ['Connection Links — aiser'], 'modal title uses a safe text-child array and the real UCI section id');
 
 	const ddSecretOutput = modal.querySelector('#telego-proxy-dd-secret');
 	const ddLinkOutput = modal.querySelector('#telego-proxy-dd-link');
@@ -147,6 +147,25 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	portInput.value = '443';
 	serverInput.attrs.input();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=203.0.113.10&port=443&secret=dd0123456789abcdef0123456789abcdef');
+
+	serverInput.value = '2001:db8::1';
+	serverInput.attrs.input();
+	assert.equal(ddLinkOutput.value, 'tg://proxy?server=2001%3Adb8%3A%3A1&port=443&secret=dd0123456789abcdef0123456789abcdef');
+
+	serverInput.value = '[2001:db8::1]';
+	serverInput.attrs.input();
+	assert.equal(ddLinkOutput.value, 'tg://proxy?server=2001%3Adb8%3A%3A1&port=443&secret=dd0123456789abcdef0123456789abcdef');
+
+	serverInput.value = 'пример.рф';
+	serverInput.attrs.input();
+	assert.equal(ddLinkOutput.value, 'tg://proxy?server=xn--e1afmkfd.xn--p1ai&port=443&secret=dd0123456789abcdef0123456789abcdef');
+
+	for (const invalidServer of ['https://proxy.example.com', 'proxy.example.com/path', 'bad host', 'user@proxy.example.com']) {
+		serverInput.value = invalidServer;
+		serverInput.attrs.input();
+		assert.equal(ddLinkOutput.value, '', 'invalid public server must not generate a DD link: ' + invalidServer);
+		assert.equal(modal.querySelector('#telego-proxy-endpoint-error').hidden, false);
+	}
 
 	const tlsEnabled = options.find(o => o.section === 'tls_fronting' && o.name === 'enabled');
 	assert.ok(tlsEnabled, 'TLS Fronting enable toggle exists');
@@ -216,6 +235,21 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(typeof poll, 'function');
 
 	if (initialStatus) {
+		reply = null;
+		await poll();
+		assert.equal(root.querySelector('#telego-status-state').textContent, 'Unavailable', 'RPC failure marks status unavailable');
+		assert.equal(root.querySelector('#telego-status-pid').textContent, '—', 'RPC failure clears stale PID');
+		assert.equal(root.querySelector('#telego-status-connections').textContent, '—', 'RPC failure clears stale counters');
+		assert.equal(webGroup.hidden, true, 'RPC failure hides stale WEB runtime state');
+		assert.equal(middleEndGroup.hidden, true, 'RPC failure hides stale Middle-End runtime state');
+		assert.equal(root.querySelector('#telego-status-error').textContent, 'Unable to read telEgo status.');
+
+		reply = initialStatus;
+		await poll();
+		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running', 'status recovers after RPC returns');
+		assert.equal(root.querySelector('#telego-status-pid').textContent, '42', 'fresh PID returns after RPC recovery');
+		assert.equal(root.querySelector('#telego-status-error').textContent, '', 'RPC recovery clears stale error');
+
 		reply = { ...initialStatus, web_enabled: false, middleend_enabled: false };
 		await poll();
 		assert.equal(webGroup.hidden, true, 'poll hides WEB runtime when it becomes disabled');
