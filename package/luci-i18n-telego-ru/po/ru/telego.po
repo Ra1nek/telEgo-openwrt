@@ -1054,3 +1054,48 @@ msgstr "Адрес сервера"
 
 msgid "Public Server and Public Port are loaded from saved settings. Changes here apply only to this connection dialog and are not saved."
 msgstr "Публичный сервер и порт загружаются из сохранённых настроек. Изменения в этом окне действуют только для текущей ссылки подключения и не сохраняются."
+
+msgid "Manage MTProxy users without exposing their secrets in the users table. Use Connect for client links and Edit to change credentials."
+msgstr "Управляйте пользователями MTProxy без отображения секретов в таблице. «Подключиться» открывает клиентские ссылки, «Изменить» — учётные данные."
+
+msgid "Add user"
+msgstr "Добавить пользователя"
+
+msgid "Actions"
+msgstr "Действия"
+
+msgid "Edit user"
+msgstr "Изменить пользователя"
+
+msgid "No users configured."
+msgstr "Пользователи не настроены."
+
+msgid "Add a user to create MTProxy credentials and connection links."
+msgstr "Добавьте пользователя, чтобы создать учётные данные MTProxy и ссылки подключения."
+
+msgid "Delete user"
+msgstr "Удалить пользователя"
+
+msgid "This user will be removed from the pending configuration. Use Save & Apply to apply the change."
+msgstr "Пользователь будет удалён из ожидающих изменений конфигурации. Нажмите «Сохранить и применить», чтобы применить изменение."
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Connect"
+msgstr "Подключиться"
+
+msgid "Open connection links"
+msgstr "Открыть ссылки подключения"
+
+msgid "Secret"
+msgstr "Секрет"
+
+msgid "Missing"
+msgstr "Не задан"
+
+msgid "Configured"
+msgstr "Настроен"
+
+msgid "Invalid"
+msgstr "Некорректен"

@@ -638,3 +638,157 @@ P5.2 CONNECTION MODAL
 		margin: 0 auto;
 	}
 }
+
+
+/* ==========================================================================
+P5.3 PROFESSIONAL USERS GRID
+=========================================================================== */
+#cbi-telego-secret {
+	margin-top: var(--telego-spacing-lg);
+}
+
+#cbi-telego-secret .cbi-section-descr {
+	max-width: 70rem;
+	margin-bottom: var(--telego-spacing-md);
+}
+
+#cbi-telego-secret .cbi-section-table {
+	width: 100%;
+	table-layout: auto;
+}
+
+#cbi-telego-secret .cbi-section-table-row > .td {
+	vertical-align: middle;
+}
+
+#cbi-telego-secret .cbi-section-actions > div {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--telego-spacing-xs);
+	align-items: center;
+	justify-content: flex-end;
+}
+
+#cbi-telego-secret .telego-user-connect,
+#cbi-telego-secret .telego-user-edit,
+#cbi-telego-secret .telego-user-delete {
+	white-space: nowrap;
+}
+
+.telego-user-secret-status {
+	display: inline-flex;
+	align-items: center;
+	min-height: 24px;
+	padding: 2px var(--telego-spacing-sm);
+	border: 1px solid var(--telego-border-color);
+	border-radius: 999px;
+	font-size: .86em;
+	font-weight: 600;
+	line-height: 1.2;
+}
+
+.telego-user-secret-status.is-configured {
+	border-color: var(--telego-success-color);
+	color: var(--telego-success-color);
+}
+
+.telego-user-secret-status.is-missing,
+.telego-user-secret-status.is-invalid {
+	border-color: var(--telego-warning-color);
+	color: var(--telego-warning-color);
+}
+
+#cbi-telego-secret .cbi-section-create {
+	display: flex;
+	justify-content: flex-start;
+	margin-top: var(--telego-spacing-md);
+}
+
+#cbi-telego-secret .cbi-section-create .cbi-button-add {
+	min-height: 36px;
+	padding-right: var(--telego-spacing-md);
+	padding-left: var(--telego-spacing-md);
+	font-weight: 600;
+}
+
+.telego-users-empty {
+	display: flex;
+	flex-direction: column;
+	gap: var(--telego-spacing-xs);
+	padding: var(--telego-spacing-lg);
+	border: 1px dashed var(--telego-border-color);
+	border-radius: var(--telego-radius-lg);
+	color: var(--telego-text-secondary);
+}
+
+.telego-users-empty strong {
+	color: var(--telego-text-primary);
+}
+
+@media screen and (max-width: 640px) {
+	#cbi-telego-secret .cbi-section-thead {
+		display: none;
+	}
+
+	#cbi-telego-secret .cbi-section-table,
+	#cbi-telego-secret .cbi-section-tbody {
+		display: block;
+		width: 100%;
+	}
+
+	#cbi-telego-secret .cbi-section-table-row:not(.placeholder) {
+		display: block;
+		box-sizing: border-box;
+		width: 100%;
+		margin-bottom: var(--telego-spacing-md);
+		padding: var(--telego-spacing-sm);
+		border: 1px solid var(--telego-border-color);
+		border-radius: var(--telego-radius-lg);
+		background: var(--telego-bg-primary);
+	}
+
+	#cbi-telego-secret .cbi-section-table-row:not(.placeholder) > .td {
+		display: grid;
+		grid-template-columns: minmax(7rem, .42fr) minmax(0, 1fr);
+		gap: var(--telego-spacing-sm);
+		box-sizing: border-box;
+		width: 100% !important;
+		padding: var(--telego-spacing-sm);
+		border: 0;
+		overflow-wrap: anywhere;
+	}
+
+	#cbi-telego-secret .cbi-section-table-row:not(.placeholder) > .td::before {
+		content: attr(data-title);
+		color: var(--telego-text-secondary);
+		font-weight: 600;
+	}
+
+	#cbi-telego-secret .cbi-section-table-row > .telego-user-actions-cell {
+		display: block;
+		padding-top: var(--telego-spacing-md);
+		border-top: 1px solid var(--telego-border-light);
+	}
+
+	#cbi-telego-secret .cbi-section-table-row > .telego-user-actions-cell::before {
+		display: none;
+		content: none;
+	}
+
+	#cbi-telego-secret .cbi-section-actions > div {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--telego-spacing-sm);
+	}
+
+	#cbi-telego-secret .cbi-section-actions .cbi-button {
+		box-sizing: border-box;
+		width: 100%;
+		margin: 0;
+		text-align: center;
+	}
+
+	#cbi-telego-secret .cbi-section-create .cbi-button-add {
+		width: 100%;
+	}
+}

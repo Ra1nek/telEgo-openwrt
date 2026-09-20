@@ -9,14 +9,56 @@ class Element {
 		this.disabled = attrs.disabled != null;
 		this.textContent = typeof children === 'string' ? children : '';
 		this.innerHTML = '';
-		this.classList = { add() {}, remove() {} };
+		this.classList = {
+			add: (...names) => {
+				const set = new Set(String(this.attrs.class || '').split(/\\s+/).filter(Boolean));
+				for (const name of names) set.add(name);
+				this.attrs.class = Array.from(set).join(' ');
+			},
+			remove: (...names) => {
+				const set = new Set(String(this.attrs.class || '').split(/\\s+/).filter(Boolean));
+				for (const name of names) set.delete(name);
+				this.attrs.class = Array.from(set).join(' ');
+			},
+			contains: name => String(this.attrs.class || '').split(/\\s+/).includes(name)
+		};
+		for (const child of this.children)
+			if (child instanceof Element) child.parentNode = this;
+	}
+	get lastElementChild() {
+		for (let i = this.children.length - 1; i >= 0; i--)
+			if (this.children[i] instanceof Element) return this.children[i];
+		return null;
+	}
+	appendChild(child) {
+		if (child instanceof Element) child.parentNode = this;
+		this.children.push(child);
+		return child;
+	}
+	insertBefore(child, reference) {
+		if (child instanceof Element) child.parentNode = this;
+		const index = reference ? this.children.indexOf(reference) : -1;
+		if (index < 0) this.children.push(child);
+		else this.children.splice(index, 0, child);
+		return child;
+	}
+	replaceChild(child, oldChild) {
+		const index = this.children.indexOf(oldChild);
+		if (index >= 0) {
+			if (child instanceof Element) child.parentNode = this;
+			oldChild.parentNode = null;
+			this.children[index] = child;
+		}
+		return oldChild;
 	}
 	addEventListener(name, handler) { this.attrs[name] = handler; }
 	setAttribute(name, value) { this.attrs[name] = value; }
+	getAttribute(name) { return this.attrs[name]; }
 	removeAttribute(name) { delete this.attrs[name]; }
 	dispatchEvent() {}
 	querySelector(selector) {
-		if (selector === this.tag || selector === '#' + this.attrs.id) return this;
+		const classes = String(this.attrs.class || '').split(/\\s+/).filter(Boolean);
+		if (selector === this.tag || selector === '#' + this.attrs.id || (selector.startsWith('.') && classes.includes(selector.slice(1)))) return this;
 		for (const child of this.children) {
 			const found = child?.querySelector?.(selector);
 			if (found) return found;
@@ -27,14 +69,18 @@ class Element {
 
 async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled = '1', ddChunkValue = '0', ddDelayValue = '0s') {
 	const options = [];
+	const sections = [];
+	let removedSection = null;
+	let removedContext = null;
 	let poll;
 	let modal;
 	let reply = initialStatus;
 	const qrPayloads = [];
 	class Map {
 		section(kind, section) {
-			return {
+			const instance = {
 				anonymous: false, addremove: true, sortable: false,
+				map: { readonly: false },
 				option(type, name) {
 					const option = {
 						section, name, value() {},
@@ -42,8 +88,20 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 					};
 					options.push(option);
 					return option;
+				},
+				super(method) {
+					if (method !== 'renderRowActions')
+						throw new Error('unexpected super call: ' + method);
+					const actionBox = new Element('div', {}, [
+						new Element('button', { 'class': 'cbi-button drag-handle' }, '☰'),
+						new Element('button', { 'class': 'btn cbi-button cbi-button-edit' }, 'Edit'),
+						new Element('button', { 'class': 'btn cbi-button cbi-button-remove' }, 'Delete')
+					]);
+					return new Element('td', { 'class': 'td cbi-section-actions' }, actionBox);
 				}
 			};
+			sections.push({ section, instance });
+			return instance;
 		}
 		render() { return Promise.resolve(new Element('form')); }
 	}
@@ -54,10 +112,16 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		ListValue: function() {},
 		DynamicList: function() {},
 		Button: function() {},
+		DummyValue: function() {},
 		GridSection: function() {},
 		TypedSection: function() {}
 	};
 	form.Value.prototype = { renderWidget() { return new Element('input'); } };
+	form.GridSection.prototype.handleRemove = function(section_id) {
+		removedSection = section_id;
+		removedContext = this;
+		return Promise.resolve();
+	};
 
 	const uci = {
 		load: async () => {},
@@ -72,6 +136,10 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			if (config === 'telego' && section === 'performance' && option === 'dd_downlink_delay') return ddDelayValue;
 			if (config === 'telego' && section === 'user1' && option === 'name') return 'aiser';
 			if (config === 'telego' && section === 'user1' && option === 'secret') return '0123456789abcdef0123456789abcdef';
+			if (config === 'telego' && section === 'new-user' && option === 'name') return '';
+			if (config === 'telego' && section === 'new-user' && option === 'secret') return '';
+			if (config === 'telego' && section === 'bad-user' && option === 'name') return 'broken';
+			if (config === 'telego' && section === 'bad-user' && option === 'secret') return 'bad';
 			if (config === 'nginx_telego' && section === 'cloudflare' && option === 'enabled')
 				return ingressMode === 'cloudflare' ? '1' : '0';
 			if (config === 'nginx_telego' && section === 'direct_https' && option === 'enabled')
@@ -85,7 +153,12 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	const ui = {
 		showModal: (title, children) => { modal = new Element('modal', { title }, children); },
 		hideModal: () => {},
-		addNotification: () => {}
+		addNotification: () => {},
+		createHandlerFn: (ctx, method, ...bound) => function(ev) {
+			return typeof method === 'function'
+				? method.apply(ctx, [...bound, ev])
+				: ctx[method](...bound, ev);
+		}
 	};
 	const appShell = {
 		wrap: (active, content, options) => {
@@ -146,12 +219,39 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	revealButton.attrs.click.call(revealButton);
 	assert.equal(secretInput.type, 'password', 'second reveal action masks the secret again');
 
-	const links = options.find(o => o.section === 'secret' && o.name === '_links');
-	assert.ok(links, 'missing per-user link generator');
-	assert.equal(links.editable, true, 'link generator button must render inline in the users grid');
-	links.onclick({ type: 'click' }, 'user1');
-	assert.ok(modal, 'link generator opens a modal');
-	assert.deepEqual(modal.attrs.title, ['Connection Links — aiser'], 'modal title uses a safe text-child array and the real UCI section id');
+	const users = sections.find(entry => entry.section === 'secret').instance;
+	assert.equal(users.addbtntitle, 'Add user');
+	assert.equal(users.actionstitle, 'Actions');
+	assert.equal(users.sortable, true, 'users remain reorderable');
+	assert.equal(users.modaltitle('user1'), 'Edit user — aiser');
+	assert.equal(users.modaltitle('new-user'), 'Add user');
+
+	const secretStatus = options.find(o => o.section === 'secret' && o.name === '_secret_status');
+	assert.ok(secretStatus, 'users grid exposes a non-sensitive secret status column');
+	assert.equal(secretStatus.modalonly, false);
+	const configuredBadge = secretStatus.textvalue('user1');
+	const missingBadge = secretStatus.textvalue('new-user');
+	const invalidBadge = secretStatus.textvalue('bad-user');
+	assert.equal(configuredBadge.attrs['data-state'], 'configured');
+	assert.equal(configuredBadge.children[0], 'Configured');
+	assert.equal(missingBadge.attrs['data-state'], 'missing');
+	assert.equal(invalidBadge.attrs['data-state'], 'invalid');
+	assert.ok(!JSON.stringify(configuredBadge).includes('0123456789abcdef0123456789abcdef'), 'users grid must never render the secret itself');
+	assert.equal(options.find(o => o.section === 'secret' && o.name === '_links'), undefined, 'Connect belongs in row actions, not a table data column');
+
+	const rowActions = users.renderRowActions('user1');
+	const connectButton = rowActions.querySelector('.telego-user-connect');
+	const editButton = rowActions.querySelector('.telego-user-edit');
+	const deleteButton = rowActions.querySelector('.telego-user-delete');
+	const reorderButton = rowActions.querySelector('.telego-user-reorder');
+	assert.ok(connectButton, 'users grid has a Connect action');
+	assert.ok(editButton, 'users grid keeps an Edit action');
+	assert.ok(deleteButton, 'users grid has a guarded Delete action');
+	assert.ok(reorderButton, 'users grid keeps the reorder handle');
+	assert.equal(editButton.attrs.title, 'Edit user');
+	connectButton.attrs.click({ preventDefault() {} });
+	assert.ok(modal, 'Connect opens the connection modal');
+	assert.deepEqual(modal.attrs.title, ['Connection Links — aiser'], 'connection modal uses the selected UCI section');
 
 	const ddSecretOutput = modal.querySelector('#telego-proxy-dd-secret');
 	const ddLinkOutput = modal.querySelector('#telego-proxy-dd-link');
@@ -226,6 +326,14 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		assert.equal(ddOpen.attrs['aria-disabled'], 'true', 'invalid endpoint disables Open Telegram');
 		assert.equal(ddQr.attrs['data-state'], 'empty', 'invalid endpoint clears the QR payload');
 	}
+
+	deleteButton.attrs.click({ preventDefault() {} });
+	assert.deepEqual(modal.attrs.title, ['Delete user — aiser'], 'Delete requires an explicit confirmation dialog');
+	const confirmDelete = modal.querySelector('#telego-user-delete-confirm');
+	assert.ok(confirmDelete, 'delete confirmation has an explicit destructive action');
+	await confirmDelete.attrs.click({ preventDefault() {} });
+	assert.equal(removedSection, 'user1', 'confirmed deletion targets the selected UCI section');
+	assert.equal(removedContext, users, 'confirmed deletion executes against the users GridSection, not a later form section');
 
 	const tlsEnabled = options.find(o => o.section === 'tls_fronting' && o.name === 'enabled');
 	assert.ok(tlsEnabled, 'TLS Fronting enable toggle exists');
@@ -359,5 +467,8 @@ const healthyStatus = {
 assert.match(connectionCss, /\.telego-connection-layout\s*\{/);
 assert.match(connectionCss, /@media screen and \(max-width: 640px\)/);
 assert.match(connectionCss, /\.telego-connection-qr svg/);
+assert.match(connectionCss, /#cbi-telego-secret \.cbi-section-actions > div/);
+assert.match(connectionCss, /\.telego-user-secret-status\.is-configured/);
+assert.match(connectionCss, /#cbi-telego-secret \.cbi-section-table-row:not\(\.placeholder\)/);
 console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

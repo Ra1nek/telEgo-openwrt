@@ -835,14 +835,107 @@ function makeConfigMap() {
 	o.retain = true;
 
 	/* Dynamic users. */
-	s = m.section(form.GridSection, 'secret', _('Users'));
+	s = m.section(
+		form.GridSection,
+		'secret',
+		_('Users'),
+		_('Manage MTProxy users without exposing their secrets in the users table. Use Connect for client links and Edit to change credentials.')
+	);
 	s.anonymous = true;
 	s.addremove = true;
 	s.sortable = true;
+	s.addbtntitle = _('Add user');
+	s.actionstitle = _('Actions');
+	s.modaltitle = function (section_id) {
+		const username = String(uci.get('telego', section_id, 'name') || '').trim();
+		return username
+			? _('Edit user') + ' — ' + username
+			: _('Add user');
+	};
+	s.renderSectionPlaceholder = function () {
+		return E('div', { 'class': 'telego-users-empty' }, [
+			E('strong', {}, _('No users configured.')),
+			E('span', {}, _('Add a user to create MTProxy credentials and connection links.'))
+		]);
+	};
+	s.confirmUserDelete = function (section_id, ev) {
+		if (ev && ev.preventDefault)
+			ev.preventDefault();
+
+		const usersSection = this;
+		const username = uci.get('telego', section_id, 'name') || section_id;
+		ui.showModal([_('Delete user') + ' — ' + username], [
+			E('p', {}, _('This user will be removed from the pending configuration. Use Save & Apply to apply the change.')),
+			E('div', { 'class': 'right' }, [
+				E('button', {
+					'type': 'button',
+					'class': 'btn cbi-button',
+					'click': ui.hideModal
+				}, _('Cancel')),
+				' ',
+				E('button', {
+					'id': 'telego-user-delete-confirm',
+					'type': 'button',
+					'class': 'btn cbi-button cbi-button-negative important',
+					'disabled': this.map.readonly || null,
+					'click': function (deleteEvent) {
+						ui.hideModal();
+						return form.GridSection.prototype.handleRemove.call(usersSection, section_id, deleteEvent);
+					}
+				}, _('Delete user'))
+			])
+		]);
+	};
+	s.renderRowActions = function (section_id) {
+		const td = this.super('renderRowActions', [section_id, _('Edit')]);
+		const actions = td.lastElementChild;
+		const edit = actions ? actions.querySelector('.cbi-button-edit') : null;
+		const remove = actions ? actions.querySelector('.cbi-button-remove') : null;
+		const drag = actions ? actions.querySelector('.drag-handle') : null;
+		const connect = E('button', {
+			'type': 'button',
+			'class': 'btn cbi-button cbi-button-positive telego-user-connect',
+			'title': _('Open connection links'),
+			'click': function (event) {
+				if (event && event.preventDefault)
+					event.preventDefault();
+				showProxyLinks(section_id);
+			}
+		}, _('Connect'));
+
+		td.classList.add('telego-user-actions-cell');
+		td.setAttribute('data-title', _('Actions'));
+
+		if (drag)
+			drag.classList.add('telego-user-reorder');
+
+		if (edit) {
+			edit.textContent = _('Edit');
+			edit.setAttribute('title', _('Edit user'));
+			edit.classList.add('telego-user-edit');
+		}
+
+		if (actions)
+			actions.insertBefore(connect, edit || remove || null);
+
+		if (remove && remove.parentNode) {
+			const confirmDelete = E('button', {
+				'type': 'button',
+				'class': 'btn cbi-button cbi-button-negative telego-user-delete',
+				'title': _('Delete user'),
+				'disabled': this.map.readonly || null,
+				'click': ui.createHandlerFn(this, 'confirmUserDelete', section_id)
+			}, _('Delete'));
+			remove.parentNode.replaceChild(confirmDelete, remove);
+		}
+
+		return td;
+	};
 
 	o = s.option(form.Value, 'name', _('Username'));
 	o.datatype = 'uciname';
 	o.rmempty = false;
+	o.width = '38%';
 
 	o = s.option(
 		form.Value,
@@ -918,12 +1011,31 @@ function makeConfigMap() {
 		]);
 	};
 
-	o = s.option(form.Button, '_links', _('Links'));
-	o.inputtitle = _('Links');
-	o.inputstyle = 'apply';
-	o.editable = true;
-	o.onclick = function (ev, section_id) {
-		showProxyLinks(section_id);
+	o = s.option(form.DummyValue, '_secret_status', _('Secret'));
+	o.modalonly = false;
+	o.width = '22%';
+	o.textvalue = function (section_id) {
+		const secret = String(uci.get('telego', section_id, 'secret') || '');
+		let state;
+		let label;
+
+		if (!secret) {
+			state = 'missing';
+			label = _('Missing');
+		}
+		else if (/^[0-9a-fA-F]{32}$/.test(secret)) {
+			state = 'configured';
+			label = _('Configured');
+		}
+		else {
+			state = 'invalid';
+			label = _('Invalid');
+		}
+
+		return E('span', {
+			'class': 'telego-user-secret-status is-' + state,
+			'data-state': state
+		}, label);
 	};
 
 	/* WEB Proxy. */
