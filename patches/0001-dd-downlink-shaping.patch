@@ -34,7 +34,7 @@ diff --git a/pkg/config/config.go b/pkg/config/config.go
 +	DDDownlinkChunk  int      `toml:"dd-downlink-chunk"`   // Raw DD proxy->client max write; 0 = upstream batch size
 +	DDDownlinkDelay  Duration `toml:"dd-downlink-delay"`   // Delay between raw DD proxy->client writes; 0 = no pacing
  	// ClientSilenceClose: close a relay whose server reply has gone unanswered by
-@@ -262,4 +262,16 @@
+@@ -262,4 +262,22 @@
  	cfg.ClientSilenceClose = c.Performance.ClientSilenceClose.Duration()
 +	if c.Performance.DDDownlinkChunk < 0 || c.Performance.DDDownlinkChunk > 64*1024 {
 +		return gproxy.Config{}, errors.New("dd-downlink-chunk must be between 0 and 65536 bytes")
@@ -315,7 +315,7 @@ diff --git a/pkg/config/openwrt_dd_shaping_test.go b/pkg/config/openwrt_dd_shapi
 new file mode 100644
 --- /dev/null
 +++ b/pkg/config/openwrt_dd_shaping_test.go
-@@ -0,0 +1,35 @@
+@@ -0,0 +1,61 @@
 +package config
 +
 +import (

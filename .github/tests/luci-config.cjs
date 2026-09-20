@@ -168,7 +168,10 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		assert.equal(options.find(o => o.section === 'web_proxy' && o.name === name), undefined, 'advanced WEB option leaked into Configuration: ' + name);
 
 	const middleEndEnabledOption = options.find(o => o.section === 'middle_end' && o.name === 'enabled');
-	ddChunkValue === '0' && ddDelayValue === '0s'\n\t\t? assert.equal(middleEndEnabledOption.validate(null, '1'), true)\n\t\t: assert.notEqual(middleEndEnabledOption.validate(null, '1'), true);
+	if (ddChunkValue === '0' && ddDelayValue === '0s')
+		assert.equal(middleEndEnabledOption.validate(null, '1'), true);
+	else
+		assert.notEqual(middleEndEnabledOption.validate(null, '1'), true);
 
 	const proxyTag = options.find(o => o.section === 'middle_end' && o.name === 'proxy_tag');
 	assert.equal(proxyTag.retain, true, 'hidden Middle-End proxy tag must survive disabled Save & Apply');
