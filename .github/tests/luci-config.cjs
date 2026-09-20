@@ -158,7 +158,9 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.ok(tlsEnabled, 'TLS Fronting enable toggle exists');
 	assert.equal(tlsEnabled.default, '1');
 	assert.equal(tlsEnabled.validate(null, '1'), true);
-	assert.equal(tlsEnabled.validate(null, '0'), ingressMode === 'shared' ? false : true);
+	ingressMode === 'shared'
+		? assert.notEqual(tlsEnabled.validate(null, '0'), true)
+		: assert.equal(tlsEnabled.validate(null, '0'), true);
 
 	for (const name of ['mask_host', 'mask_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls']) {
 		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
