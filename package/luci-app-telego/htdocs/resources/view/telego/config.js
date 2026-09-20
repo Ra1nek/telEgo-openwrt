@@ -688,15 +688,6 @@ return view.extend({
 			const configNode = data[0];
 			const statusNode = buildStatusView();
 
-			L.Poll.add(function () {
-				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
-					if (status)
-						updateStatus(status);
-					else
-						updateStatusError(_('Unable to read telEgo status.'));
-				});
-			}, 5);
-
 			const configPane = E('section', {
 				'id': 'telego-config-pane'
 			}, configNode);
@@ -736,6 +727,15 @@ return view.extend({
 				configPane,
 				statusPane
 			]);
+
+			L.Poll.add(function () {
+				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
+					if (status)
+						updateStatus(status, root);
+					else
+						updateStatusError(_('Unable to read telEgo status.'), root);
+				});
+			}, 5);
 
 			if (data[1])
 				updateStatus(data[1], root);
