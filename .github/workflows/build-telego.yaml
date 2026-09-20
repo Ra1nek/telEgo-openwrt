@@ -111,7 +111,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          unformatted="$(gofmt -l ./cmd/telego/main.go ./pkg/config/config.go ./pkg/config/openwrt_dd_shaping_test.go ./pkg/gproxy/server.go ./pkg/gproxy/handler.go ./pkg/gproxy/dc_events.go ./pkg/gproxy/openwrt_dd_shaping_test.go)"
+          unformatted="$(gofmt -l ./cmd/telego/main.go ./pkg/config/config.go ./pkg/config/openwrt_dd_shaping_test.go ./pkg/config/openwrt_tls_fronting_test.go ./pkg/gproxy/server.go ./pkg/gproxy/handler.go ./pkg/gproxy/dc_events.go ./pkg/gproxy/openwrt_dd_shaping_test.go ./pkg/gproxy/openwrt_tls_fronting_test.go)"
           if [ -n "$unformatted" ]; then
             echo "::error::OpenWrt-patched Go source is not gofmt-clean:"
             printf '%s\n' "$unformatted"

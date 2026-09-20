@@ -136,6 +136,10 @@ generate_config() {
 	case "$profile" in
 		cloudflare|direct_https) external_tls_web=1 ;;
 	esac
+	if [ "$profile" = shared ] && ! uci_package_bool telego tls_fronting enabled 1; then
+		echo 'telego: Native Shared-Port requires tls_fronting.enabled=1' >&2
+		return 1
+	fi
 
 	{
 		printf '%s\n\n' '# Generated from /etc/config/telego. Do not edit.'
@@ -152,32 +156,35 @@ generate_config() {
 		[ -n "$value" ] && write_toml_string 'clock-sync-url' "$value"
 
 		printf '\n%s\n' '[tls-fronting]'
-		write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
-		write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
-		if [ "$external_tls_web" -eq 0 ]; then
-			value="$(uci_get_default tls_fronting cert_host '')"
-			[ -n "$value" ] && write_toml_string 'cert-host' "$value"
-			value="$(uci_get_default tls_fronting cert_port '')"
-			[ -n "$value" ] && write_toml_int 'cert-port' "$value"
-		fi
-		value="$(uci_get_default tls_fronting fake_cert_size '0')"
-		[ "$value" != 0 ] && write_toml_int 'fake-cert-size' "$value"
+		write_toml_bool 'enabled' tls_fronting enabled 1
+		if uci_package_bool telego tls_fronting enabled 1; then
+			write_toml_string 'mask-host' "$(uci_get_default tls_fronting mask_host 'www.google.com')"
+			write_toml_int 'mask-port' "$(uci_get_default tls_fronting mask_port '443')"
+			if [ "$external_tls_web" -eq 0 ]; then
+				value="$(uci_get_default tls_fronting cert_host '')"
+				[ -n "$value" ] && write_toml_string 'cert-host' "$value"
+				value="$(uci_get_default tls_fronting cert_port '')"
+				[ -n "$value" ] && write_toml_int 'cert-port' "$value"
+			fi
+			value="$(uci_get_default tls_fronting fake_cert_size '0')"
+			[ "$value" != 0 ] && write_toml_int 'fake-cert-size' "$value"
 
-		printf 'mask-sni-safelist = ['
-		LIST_FIRST=
-		config_list_foreach tls_fronting mask_sni_safelist emit_toml_list_item
-		printf ']\n'
+			printf 'mask-sni-safelist = ['
+			LIST_FIRST=
+			config_list_foreach tls_fronting mask_sni_safelist emit_toml_list_item
+			printf ']\n'
 
-		if [ "$external_tls_web" -eq 0 ]; then
-			value="$(uci_get_default tls_fronting splice_host '')"
-			[ -n "$value" ] && write_toml_string 'splice-host' "$value"
-			value="$(uci_get_default tls_fronting splice_port '')"
-			[ -n "$value" ] && write_toml_int 'splice-port' "$value"
+			if [ "$external_tls_web" -eq 0 ]; then
+				value="$(uci_get_default tls_fronting splice_host '')"
+				[ -n "$value" ] && write_toml_string 'splice-host' "$value"
+				value="$(uci_get_default tls_fronting splice_port '')"
+				[ -n "$value" ] && write_toml_int 'splice-port' "$value"
+			fi
+			write_toml_int 'splice-proxy-protocol' "$(uci_get_default tls_fronting splice_proxy_protocol '0')"
+			write_toml_string 'splice-idle-timeout' "$(uci_get_default tls_fronting splice_idle_timeout '30s')"
+			write_toml_bool 'enable-drs' tls_fronting enable_drs 1
+			write_toml_bool 'enable-split-tls' tls_fronting enable_split_tls 1
 		fi
-		write_toml_int 'splice-proxy-protocol' "$(uci_get_default tls_fronting splice_proxy_protocol '0')"
-		write_toml_string 'splice-idle-timeout' "$(uci_get_default tls_fronting splice_idle_timeout '30s')"
-		write_toml_bool 'enable-drs' tls_fronting enable_drs 1
-		write_toml_bool 'enable-split-tls' tls_fronting enable_split_tls 1
 
 		printf '\n%s\n' '[performance]'
 		write_toml_int 'tcp-buffer-kb' "$(uci_get_default performance tcp_buffer_kb '128')"

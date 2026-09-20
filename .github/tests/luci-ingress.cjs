@@ -19,7 +19,7 @@ const store = {
 			trusted_proxy_cidrs: ['127.0.0.1/32']
 		},
 		tls_fronting: {
-			mask_host: 'web.example.com', cert_host: '127.0.0.1', cert_port: '8444',
+			enabled: '1', mask_host: 'web.example.com', cert_host: '127.0.0.1', cert_port: '8444',
 			splice_host: '127.0.0.1', splice_port: '8443', splice_proxy_protocol: '2'
 		}
 	}
@@ -189,6 +189,10 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_',
 	store.telego.web_proxy.enabled = '0';
 	assert.notEqual(mode.validate(null, 'cloudflare'), true, 'managed ingress rejects a broken telEgo WEB contract');
 	store.telego.web_proxy.enabled = '1';
+	store.telego.tls_fronting.enabled = '0';
+	assert.notEqual(mode.validate(null, 'shared'), true, 'Native Shared-Port rejects disabled TLS Fronting');
+	store.telego.tls_fronting.enabled = '1';
+	assert.equal(mode.validate(null, 'shared'), true, 'Native Shared-Port accepts enabled TLS Fronting');
 
 	store.nginx_telego.direct_https.enabled = '1';
 	assert.equal(mode.cfgvalue(), 'direct_https');

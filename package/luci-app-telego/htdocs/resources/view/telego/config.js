@@ -134,6 +134,7 @@ function proxyOutputField(label, id) {
 function showProxyLinks(sectionId) {
 	const username = uci.get('telego', sectionId, 'name') || sectionId;
 	const baseSecret = uci.get('telego', sectionId, 'secret') || '';
+	const tlsFrontingEnabled = uci.get('telego', 'tls_fronting', 'enabled') !== '0';
 	const maskHost = uci.get('telego', 'tls_fronting', 'mask_host') || '';
 	const bindTo = uci.get('telego', 'general', 'bind_to') || '';
 	const publicHost = uci.get('telego', 'general', 'public_host') || '';
@@ -223,7 +224,12 @@ function showProxyLinks(sectionId) {
 		'id': 'telego-proxy-tab-ee',
 		'type': 'button',
 		'class': 'btn cbi-button',
-		'click': function () { selectTab('ee'); }
+		'disabled': !tlsFrontingEnabled,
+		'title': tlsFrontingEnabled ? '' : _('Enable TLS Fronting to generate EE / FakeTLS links.'),
+		'click': function () {
+			if (tlsFrontingEnabled)
+				selectTab('ee');
+		}
 	}, _('EE / FakeTLS'));
 
 	function setError(node, error) {
@@ -259,6 +265,14 @@ function showProxyLinks(sectionId) {
 			setError(ddError, e);
 		}
 
+		if (!tlsFrontingEnabled) {
+			eeSecret.input.value = '';
+			eeLink.input.value = '';
+			eeSecret.button.disabled = true;
+			eeLink.button.disabled = true;
+			setError(eeError, new Error(_('TLS Fronting is disabled. EE / FakeTLS links are unavailable.')));
+			return;
+		}
 		try {
 			const secret = buildEESecret(baseSecret, maskHost);
 			eeSecret.input.value = secret;
@@ -618,6 +632,19 @@ function makeConfigMap() {
 	s.addremove = false;
 
 	o = s.option(
+		form.Flag,
+		'enabled',
+		_('Enable TLS Fronting'),
+		_('Enables EE / FakeTLS, certificate fingerprinting and TLS splice handling. DD / Raw continues to work when this is disabled.')
+	);
+	o.default = '1';
+	o.validate = function (section_id, value) {
+		return sharedWeb && String(value) !== '1'
+			? _('TLS Fronting is required while Native Shared-Port is enabled. Disable Native Shared-Port first.')
+			: true;
+	};
+
+	o = s.option(
 		form.Value,
 		'mask_host',
 		_('Mask Domain'),
@@ -625,10 +652,13 @@ function makeConfigMap() {
 	);
 	o.datatype = 'hostname';
 	o.default = 'www.google.com';
+	o.rmempty = false;
+	o.depends('enabled', '1');
 
 	o = s.option(form.Value, 'mask_port', _('Mask Port'));
 	o.datatype = 'port';
 	o.default = '443';
+	o.depends('enabled', '1');
 
 	if (!externalTlsWeb) {
 		o = s.option(
@@ -639,6 +669,7 @@ function makeConfigMap() {
 		);
 		o.datatype = 'host';
 		o.rmempty = true;
+		o.depends('enabled', '1');
 
 		o = s.option(
 			form.Value,
@@ -649,11 +680,13 @@ function makeConfigMap() {
 		o.datatype = 'port';
 		o.rmempty = true;
 		o.default = '';
+		o.depends('enabled', '1');
 	}
 
 	o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
 	o.datatype = 'uinteger';
 	o.default = '0';
+	o.depends('enabled', '1');
 	o.description = _('0 selects automatic matching; an explicit override must be from 256 to 16384 bytes.');
 	o.validate = function (section_id, value) {
 		const number = Number(value);
@@ -664,6 +697,7 @@ function makeConfigMap() {
 
 	o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
 	o.datatype = 'hostname';
+	o.depends('enabled', '1');
 
 	if (!externalTlsWeb) {
 		o = s.option(
@@ -674,6 +708,7 @@ function makeConfigMap() {
 		);
 		o.datatype = 'host';
 		o.rmempty = true;
+		o.depends('enabled', '1');
 
 		o = s.option(
 			form.Value,
@@ -684,6 +719,7 @@ function makeConfigMap() {
 		o.datatype = 'port';
 		o.rmempty = true;
 		o.default = '';
+		o.depends('enabled', '1');
 	}
 
 	o = s.option(form.ListValue, 'splice_proxy_protocol', _('Fallback PROXY Protocol'));
@@ -691,16 +727,20 @@ function makeConfigMap() {
 	o.value('1', _('PROXY Protocol v1'));
 	o.value('2', _('PROXY Protocol v2'));
 	o.default = '0';
+	o.depends('enabled', '1');
 
 	o = s.option(form.Value, 'splice_idle_timeout', _('Fallback Idle Timeout'));
 	o.datatype = 'string';
 	o.default = '30s';
+	o.depends('enabled', '1');
 
 	o = s.option(form.Flag, 'enable_drs', _('Enable DRS'));
 	o.default = '1';
+	o.depends('enabled', '1');
 
 	o = s.option(form.Flag, 'enable_split_tls', _('Enable Split TLS'));
 	o.default = '1';
+	o.depends('enabled', '1');
 
 	/* Dynamic users. */
 	s = m.section(form.GridSection, 'secret', _('Users'));

@@ -1,0 +1,200 @@
+diff --git a/pkg/config/config.go b/pkg/config/config.go
+--- a/pkg/config/config.go
++++ b/pkg/config/config.go
+@@ -53,6 +53,8 @@
+ 
+ // TLSFrontingConfig configures TLS fronting.
+ type TLSFrontingConfig struct {
++	// Enabled is a pointer so an absent key preserves the historical enabled behavior.
++	Enabled  *bool  `toml:"enabled"`
+ 	MaskHost string `toml:"mask-host"` // Domain to mimic (SNI validation, proxy links)
+ 	MaskPort int    `toml:"mask-port"` // Default port (default: 443)
+ 
+@@ -212,6 +214,8 @@
+ 		return gproxy.Config{}, err
+ 	}
+ 	cfg := gproxy.DefaultConfig()
++	tlsFrontingEnabled := c.TLSFronting.Enabled == nil || *c.TLSFronting.Enabled
++	cfg.DisableTLSFronting = !tlsFrontingEnabled
+ 
+ 	// Bind address: [general] takes precedence over top-level (backwards compat)
+ 	cfg.BindAddr = c.General.BindTo
+@@ -224,10 +228,10 @@
+ 		return gproxy.Config{}, errors.New("at least one secret is required")
+ 	}
+ 
++	// Host comes from mask-host. DD-only mode does not require any TLS mask.
++	host := strings.TrimSpace(c.TLSFronting.MaskHost)
++	if tlsFrontingEnabled && host == "" {
++		return gproxy.Config{}, errors.New("mask-host is required when TLS fronting is enabled")
+-	// Host comes from mask-host
+-	host := c.TLSFronting.MaskHost
+-	if host == "" {
+-		return gproxy.Config{}, errors.New("mask-host is required")
+ 	}
+ 
+ 	for _, name := range slices.Sorted(maps.Keys(c.Secrets)) {
+@@ -236,12 +240,15 @@
+ 		if err != nil {
+ 			return gproxy.Config{}, fmt.Errorf("invalid secret %q: %w", name, err)
+ 		}
++		secret := gproxy.Secret{
++			Name: name,
++			Key:  key,
++		}
++		if tlsFrontingEnabled {
++			secret.Host = host
++			secret.RawHex = BuildFullSecret(key, host)
++		}
++		cfg.Secrets = append(cfg.Secrets, secret)
+-		cfg.Secrets = append(cfg.Secrets, gproxy.Secret{
+-			Name:   name,
+-			Key:    key,
+-			Host:   host,
+-			RawHex: BuildFullSecret(key, host),
+-		})
+ 	}
+ 	cfg.Host = host
+ 
+@@ -288,6 +295,23 @@
+ 	if c.TLSFronting.EnableSplitTLS != nil {
+ 		cfg.EnableSplitTLS = *c.TLSFronting.EnableSplitTLS
+ 	}
++	if !tlsFrontingEnabled {
++		cfg.Host = ""
++		cfg.MaskHost = ""
++		cfg.MaskPort = 0
++		cfg.FetchRealCert = false
++		cfg.SpliceUnrecognized = false
++		cfg.CertHost = ""
++		cfg.CertPort = 0
++		cfg.FakeCertSize = 0
++		cfg.MaskSNISafelist = nil
++		cfg.SpliceHost = ""
++		cfg.SplicePort = 0
++		cfg.SpliceProxyProtocol = 0
++		cfg.SpliceIdleTimeout = 0
++		cfg.EnableDRS = false
++		cfg.EnableSplitTLS = false
++	}
+ 
+ 	// Performance
+ 	cfg.IdleTimeout = c.Performance.IdleTimeout.Duration()
+@@ -318,7 +342,9 @@
+ 	cfg.MaxConnectionsPerIP = c.General.MaxConnectionsPerIP
+ 	cfg.HandshakeTimeout = c.General.HandshakeTimeout.Duration()
+ 	cfg.MaxIPsPerUser = c.General.MaxIPsPerUser
++	if tlsFrontingEnabled {
++		cfg.ClockSyncURL = c.General.ClockSyncURL
++	}
+-	cfg.ClockSyncURL = c.General.ClockSyncURL
+ 	cfg.IPBlockTimeout = c.General.IPBlockTimeout.Duration()
+ 	if cfg.IPBlockTimeout == 0 {
+ 		cfg.IPBlockTimeout = 5 * time.Minute
+diff --git a/pkg/gproxy/server.go b/pkg/gproxy/server.go
+--- a/pkg/gproxy/server.go
++++ b/pkg/gproxy/server.go
+@@ -37,6 +37,9 @@
+ 	BindAddr string
+ 
+ 	// TLS Fronting
++	// DisableTLSFronting keeps the zero value backwards-compatible while allowing
++	// DD-only deployments to reject EE/TLS before any FakeTLS processing.
++	DisableTLSFronting bool
+ 	MaskHost           string // Domain to mimic (SNI validation, proxy links)
+ 	MaskPort           int    // Default port
+ 	FetchRealCert      bool
+diff --git a/pkg/gproxy/handshake.go b/pkg/gproxy/handshake.go
+--- a/pkg/gproxy/handshake.go
++++ b/pkg/gproxy/handshake.go
+@@ -26,6 +26,10 @@
+ 	if data[0] == faketls.RecordTypeHandshake {
+ 		version := binary.BigEndian.Uint16(data[1:3])
+ 		if version == faketls.VersionTLS10 || version == faketls.VersionTLS11 || version == faketls.VersionTLS12 {
++			if h.config.DisableTLSFronting {
++				h.logger.Debug("[#%d] ee mode rejected: TLS fronting disabled", ctx.id)
++				return gnet.Close
++			}
+ 			// TLS traffic -> ee mode
+ 			ctx.SetProtocolMode(ModeEE)
+ 			ctx.SetState(StateReadTLSHeader)
+diff --git a/pkg/config/openwrt_tls_fronting_test.go b/pkg/config/openwrt_tls_fronting_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/config/openwrt_tls_fronting_test.go
+@@ -0,0 +1,40 @@
++package config
++
++import "testing"
++
++func TestOpenWrtTLSFrontingDisabledAllowsDDOnlyWithoutMaskHost(t *testing.T) {
++	disabled := false
++	cfg := Config{
++		Secrets: map[string]string{
++			"test": "0123456789abcdef0123456789abcdef",
++		},
++		TLSFronting: TLSFrontingConfig{Enabled: &disabled},
++	}
++
++	got, err := cfg.ToGProxyConfig()
++	if err != nil {
++		t.Fatal(err)
++	}
++	if !got.DisableTLSFronting {
++		t.Fatal("TLS fronting was not disabled")
++	}
++	if got.MaskHost != "" || got.FetchRealCert || got.SpliceUnrecognized {
++		t.Fatalf("disabled TLS runtime leaked fronting state: host=%q fetch=%v splice=%v", got.MaskHost, got.FetchRealCert, got.SpliceUnrecognized)
++	}
++	if len(got.Secrets) != 1 || got.Secrets[0].RawHex != "" || got.Secrets[0].Host != "" {
++		t.Fatalf("disabled TLS runtime derived an EE secret: %#v", got.Secrets)
++	}
++}
++
++func TestOpenWrtTLSFrontingEnabledStillRequiresMaskHost(t *testing.T) {
++	enabled := true
++	cfg := Config{
++		Secrets: map[string]string{
++			"test": "0123456789abcdef0123456789abcdef",
++		},
++		TLSFronting: TLSFrontingConfig{Enabled: &enabled},
++	}
++	if _, err := cfg.ToGProxyConfig(); err == nil {
++		t.Fatal("enabled TLS fronting unexpectedly accepted an empty mask-host")
++	}
++}
+diff --git a/pkg/gproxy/openwrt_tls_fronting_test.go b/pkg/gproxy/openwrt_tls_fronting_test.go
+new file mode 100644
+--- /dev/null
++++ b/pkg/gproxy/openwrt_tls_fronting_test.go
+@@ -0,0 +1,30 @@
++package gproxy
++
++import (
++	"testing"
++
++	"github.com/panjf2000/gnet/v2"
++)
++
++func TestOpenWrtTLSFrontingDisabledRejectsEEButKeepsDDDetection(t *testing.T) {
++	handler := NewProxyHandler(&Config{DisableTLSFronting: true}, &testLogger{})
++
++	tlsConn := newTestMockGnetConn()
++	tlsCtx := NewConnContext()
++	tlsConn.SetContext(tlsCtx)
++	tlsConn.SetReadData([]byte{0x16, 0x03, 0x01, 0x00, 0x05})
++	if action := handler.handleDetectProtocol(tlsConn, tlsCtx); action != gnet.Close {
++		t.Fatalf("disabled TLS fronting action = %v, want Close", action)
++	}
++
++	ddConn := newTestMockGnetConn()
++	ddCtx := NewConnContext()
++	ddConn.SetContext(ddCtx)
++	ddConn.SetReadData([]byte{0x45, 0x12, 0x34, 0x56, 0x78})
++	if action := handler.handleDetectProtocol(ddConn, ddCtx); action != gnet.None {
++		t.Fatalf("DD detection action = %v, want None", action)
++	}
++	if got := ddCtx.ProtocolMode(); got != ModeDD {
++		t.Fatalf("protocol mode = %v, want ModeDD", got)
++	}
++}

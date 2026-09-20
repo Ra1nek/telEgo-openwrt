@@ -21,7 +21,7 @@ class Element {
 	}
 }
 
-async function check(initialStatus, ingressMode = 'disabled') {
+async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled = '1') {
 	const options = [];
 	let poll;
 	let modal;
@@ -61,6 +61,7 @@ async function check(initialStatus, ingressMode = 'disabled') {
 			if (config === 'telego' && section === 'general' && option === 'bind_to') return '0.0.0.0:2443';
 			if (config === 'telego' && section === 'general' && option === 'public_host') return 'proxy.example.com';
 			if (config === 'telego' && section === 'general' && option === 'public_port') return '';
+			if (config === 'telego' && section === 'tls_fronting' && option === 'enabled') return tlsFrontingEnabled;
 			if (config === 'telego' && section === 'tls_fronting' && option === 'mask_host') return 'ya.ru';
 			if (config === 'telego' && section === 'user1' && option === 'name') return 'aiser';
 			if (config === 'telego' && section === 'user1' && option === 'secret') return '0123456789abcdef0123456789abcdef';
@@ -129,16 +130,22 @@ async function check(initialStatus, ingressMode = 'disabled') {
 	const eeLinkOutput = modal.querySelector('#telego-proxy-ee-link');
 	assert.equal(ddSecretOutput.value, 'dd0123456789abcdef0123456789abcdef');
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=dd0123456789abcdef0123456789abcdef');
-	assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
-	assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
+	if (tlsFrontingEnabled === '1') {
+		assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
+		assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
+	} else {
+		assert.equal(eeSecretOutput.value, '');
+		assert.equal(eeLinkOutput.value, '');
+		assert.equal(modal.querySelector('#telego-proxy-tab-ee').disabled, true);
+	}
 
 	const ddPanel = modal.querySelector('#telego-proxy-panel-dd');
 	const eePanel = modal.querySelector('#telego-proxy-panel-ee');
 	assert.equal(ddPanel.hidden, false);
 	assert.equal(eePanel.hidden, true);
 	modal.querySelector('#telego-proxy-tab-ee').attrs.click();
-	assert.equal(ddPanel.hidden, true);
-	assert.equal(eePanel.hidden, false);
+	assert.equal(ddPanel.hidden, tlsFrontingEnabled === '1' ? true : false);
+	assert.equal(eePanel.hidden, tlsFrontingEnabled === '1' ? false : true);
 
 	const serverInput = modal.querySelector('#telego-proxy-public-server');
 	const portInput = modal.querySelector('#telego-proxy-public-port');
@@ -146,6 +153,17 @@ async function check(initialStatus, ingressMode = 'disabled') {
 	portInput.value = '443';
 	serverInput.attrs.input();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=203.0.113.10&port=443&secret=dd0123456789abcdef0123456789abcdef');
+
+	const tlsEnabled = options.find(o => o.section === 'tls_fronting' && o.name === 'enabled');
+	assert.ok(tlsEnabled, 'TLS Fronting enable toggle exists');
+	assert.equal(tlsEnabled.default, '1');
+	assert.equal(tlsEnabled.validate(null, '1'), true);
+	assert.equal(tlsEnabled.validate(null, '0'), ingressMode === 'shared' ? false : true);
+
+	for (const name of ['mask_host', 'mask_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls']) {
+		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
+		assert.deepEqual(option.dependency, ['enabled', '1'], 'TLS option visibility must follow enabled: ' + name);
+	}
 
 	const fakeCertSize = options.find(o => o.section === 'tls_fronting' && o.name === 'fake_cert_size');
 	assert.equal(fakeCertSize.validate(null, '0'), true);
@@ -259,5 +277,6 @@ const healthyStatus = {
 	await check({ ...healthyStatus, middleend_enabled: false });
 	await check({ ...healthyStatus, web_enabled: false, middleend_enabled: false });
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
+	await check(healthyStatus, 'disabled', '0');
 	console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

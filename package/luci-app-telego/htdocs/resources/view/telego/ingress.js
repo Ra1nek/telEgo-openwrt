@@ -58,6 +58,10 @@ function profileFlags() {
 	};
 }
 
+function tlsFrontingEnabled() {
+	return uci.get('telego', 'tls_fronting', 'enabled') !== '0';
+}
+
 function profileConflict() {
 	const flags = profileFlags();
 	return (flags.shared ? 1 : 0) + (flags.cloudflare ? 1 : 0) + (flags.direct_https ? 1 : 0) > 1;
@@ -353,6 +357,8 @@ return view.extend({
 				if (error)
 					return error;
 			}
+			if (value === 'shared' && !tlsFrontingEnabled())
+				return _('Native Shared-Port requires TLS Fronting. Enable it in Services → telEgo → Configuration first.');
 			return true;
 		};
 		o.write = function (sectionId, value) {

@@ -162,6 +162,6 @@ FAKETLS_TEST.write_text(test_text.replace(old_alpn_test, new_alpn_test, 1), enco
 
 
 # Apply maintained OpenWrt-only Go deltas after the small in-script compatibility fixes.
-PATCH = ROOT / "patches" / "0001-dd-downlink-shaping.patch"
-subprocess.run(["git", "apply", "--check", str(PATCH)], cwd=ROOT / "telego-src", check=True)
-subprocess.run(["git", "apply", str(PATCH)], cwd=ROOT / "telego-src", check=True)
+for patch in sorted((ROOT / "patches").glob("*.patch")):
+    subprocess.run(["git", "apply", "--check", str(patch)], cwd=ROOT / "telego-src", check=True)
+    subprocess.run(["git", "apply", str(patch)], cwd=ROOT / "telego-src", check=True)

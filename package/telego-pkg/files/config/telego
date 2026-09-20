@@ -10,6 +10,7 @@ config general 'general'
 	option clock_sync_url ''
 
 config tls_fronting 'tls_fronting'
+	option enabled '1'
 	option mask_host 'www.google.com'
 	option mask_port '443'
 	option cert_host ''

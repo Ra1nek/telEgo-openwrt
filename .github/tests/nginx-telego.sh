@@ -30,6 +30,7 @@ case "$2" in
   telego.web_proxy.hostname) printf '%s\n' "${FIX_WEB_HOSTNAME:-web.example.com}" ;;
   telego.web_proxy.bind_to) printf '%s\n' "${FIX_WEB_BIND:-127.0.0.1:8080}" ;;
   telego.web_proxy.trusted_proxy_cidrs) printf '%s\n' "${FIX_TRUSTED:-127.0.0.1/32}" ;;
+  telego.tls_fronting.enabled) printf '%s\n' "${FIX_TLS_ENABLED:-1}" ;;
   telego.tls_fronting.mask_host) printf '%s\n' "${FIX_MASK_HOST:-proxy.example.com}" ;;
   telego.tls_fronting.cert_host) printf '%s\n' "${FIX_CERT_HOST:-127.0.0.1}" ;;
   telego.tls_fronting.cert_port) printf '%s\n' "${FIX_CERT_PORT:-8444}" ;;
@@ -148,9 +149,15 @@ if "$RENDER" apply >"$work/contract.out" 2>&1; then exit 1; fi
 cmp "$work/before-contract" "$NGINX_TELEGO_INGRESS_OUTPUT"
 export FIX_WEB_HOSTNAME=web.example.com
 
-# Native shared-port uses the fixed private topology.
+# Native shared-port requires TLS Fronting and then uses the fixed private topology.
 export FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=0 FIX_SHARED_ENABLED=1 FIX_SHARED_HOSTNAME=proxy.example.com
-export FIX_WEB_HOSTNAME=proxy.example.com FIX_MASK_HOST=proxy.example.com
+export FIX_WEB_HOSTNAME=proxy.example.com FIX_MASK_HOST=proxy.example.com FIX_TLS_ENABLED=0
+if "$RENDER" apply >"$work/shared-tls-disabled.out" 2>&1; then
+  echo 'renderer unexpectedly accepted Native Shared-Port with TLS Fronting disabled' >&2
+  exit 1
+fi
+grep -q 'requires telego.tls_fronting.enabled=1' "$work/shared-tls-disabled.out"
+export FIX_TLS_ENABLED=1
 "$RENDER" apply
 grep -q 'listen 127.0.0.1:8443 ssl proxy_protocol;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 grep -q 'listen 127.0.0.1:8444 ssl;' "$NGINX_TELEGO_INGRESS_OUTPUT"

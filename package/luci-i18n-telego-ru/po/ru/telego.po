@@ -928,3 +928,22 @@ msgstr "Ссылки"
 
 msgid "Close"
 msgstr "Закрыть"
+
+
+msgid "Enable TLS Fronting"
+msgstr "Включить TLS-фронтинг"
+
+msgid "Enables EE / FakeTLS, certificate fingerprinting and TLS splice handling. DD / Raw continues to work when this is disabled."
+msgstr "Включает EE / FakeTLS, получение TLS-отпечатка сертификата и обработку TLS splice. DD / Raw продолжает работать, когда TLS-фронтинг выключен."
+
+msgid "TLS Fronting is required while Native Shared-Port is enabled. Disable Native Shared-Port first."
+msgstr "TLS-фронтинг обязателен при включённом Native Shared-Port. Сначала отключите Native Shared-Port."
+
+msgid "Enable TLS Fronting to generate EE / FakeTLS links."
+msgstr "Включите TLS-фронтинг для генерации ссылок EE / FakeTLS."
+
+msgid "TLS Fronting is disabled. EE / FakeTLS links are unavailable."
+msgstr "TLS-фронтинг выключен. Ссылки EE / FakeTLS недоступны."
+
+msgid "Native Shared-Port requires TLS Fronting. Enable it in Services → telEgo → Configuration first."
+msgstr "Native Shared-Port требует TLS-фронтинг. Сначала включите его в Службы → telEgo → Конфигурация."

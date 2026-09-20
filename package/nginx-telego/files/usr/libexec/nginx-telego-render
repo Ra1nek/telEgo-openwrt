@@ -205,6 +205,12 @@ validate_shared_contract() {
     hostname=$1
     validate_web_contract "$hostname" 'native shared-port ingress'
 
+    tls_enabled=$(uci_get telego tls_fronting enabled 1)
+    case "$tls_enabled" in
+        1|true|yes|on) ;;
+        *) fail 'native shared-port ingress requires telego.tls_fronting.enabled=1' ;;
+    esac
+
     public_bind=$(uci_get telego general bind_to '0.0.0.0:443')
     case "$public_bind" in
         *:443) ;;

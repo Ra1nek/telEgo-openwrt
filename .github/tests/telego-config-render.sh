@@ -9,6 +9,7 @@ RUNTIME_CONFIG="$tmp/telego.toml"
 CF_ENABLED=0
 SHARED_ENABLED=0
 DIRECT_ENABLED=0
+TLS_ENABLED=1
 
 # generate_config() uses OpenWrt helpers plus the uci CLI. Provide a focused
 # fixture instead of parsing TOML by inspection in this test.
@@ -50,6 +51,7 @@ uci() {
 		telego.general.handshake_timeout) printf '%s\n' '5s' ;;
 		telego.general.clock_sync_url) printf '%s\n' 'https://time.example.net' ;;
 
+		telego.tls_fronting.enabled) printf '%s\n' "$TLS_ENABLED" ;;
 		telego.tls_fronting.mask_host) printf '%s\n' 'proxy.example.com' ;;
 		telego.tls_fronting.mask_port) printf '%s\n' '443' ;;
 		telego.tls_fronting.cert_host) printf '%s\n' '127.0.0.1' ;;
@@ -117,6 +119,8 @@ assert_external_tls_runtime() {
 generate_config
 
 test -s "$RUNTIME_CONFIG"
+awk '/^\[tls-fronting\]$/{on=1;next} /^\[/{on=0} on' "$RUNTIME_CONFIG" >"$tmp/tls-enabled"
+grep -Fqx 'enabled = true' "$tmp/tls-enabled"
 assert_shared_tls_runtime
 grep -Fqx 'splice-proxy-protocol = 2' "$RUNTIME_CONFIG"
 grep -Fqx 'dd-downlink-chunk = 1200' "$RUNTIME_CONFIG"
@@ -138,6 +142,26 @@ grep -Fqx 'artifact-proxy = "http://127.0.0.1:3128"' "$tmp/middle-end"
 grep -Fqx 'nat-ip = "203.0.113.10"' "$tmp/middle-end"
 grep -Fqx 'max-connections = 5000' "$tmp/middle-end"
 grep -Fqx 'queue-budget-mb = 16' "$tmp/middle-end"
+
+# DD-only mode renders only the explicit TLS disable flag and does not activate
+# mask/certificate/splice settings.
+TLS_ENABLED=0
+SHARED_ENABLED=0
+CF_ENABLED=0
+DIRECT_ENABLED=0
+generate_config
+awk '/^\[tls-fronting\]$/{on=1;next} /^\[/{on=0} on' "$RUNTIME_CONFIG" >"$tmp/tls-disabled"
+grep -Fqx 'enabled = false' "$tmp/tls-disabled"
+[ "$(wc -l < "$tmp/tls-disabled")" -eq 1 ]
+
+# Native Shared-Port cannot operate without TLS fronting.
+SHARED_ENABLED=1
+if generate_config >/dev/null 2>&1; then
+	echo 'Native Shared-Port unexpectedly accepted disabled TLS fronting' >&2
+	exit 1
+fi
+TLS_ENABLED=1
+SHARED_ENABLED=0
 
 # Cloudflare owns public WEB TLS. Stale Native Shared-Port endpoints may remain
 # stored in UCI, but they must not enter the active telEgo runtime configuration.
