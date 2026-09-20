@@ -5,8 +5,12 @@ class Element {
 	constructor(tag, attrs = {}, children = []) {
 		this.tag = tag; this.attrs = attrs; this.style = {}; this.hidden = attrs.hidden === true;
 		this.children = Array.isArray(children) ? children : [children];
+		this.value = attrs.value || '';
+		this.disabled = attrs.disabled === true;
+		this.textContent = typeof children === 'string' ? children : '';
 		this.classList = { add() {}, remove() {} };
 	}
+	addEventListener(name, handler) { this.attrs[name] = handler; }
 	querySelector(selector) {
 		if (selector === '#' + this.attrs.id) return this;
 		for (const child of this.children) {
@@ -20,6 +24,7 @@ class Element {
 async function check(initialStatus, ingressMode = 'disabled') {
 	const options = [];
 	let poll;
+	let modal;
 	let reply = initialStatus;
 	class Map {
 		section(kind, section) {
@@ -43,6 +48,7 @@ async function check(initialStatus, ingressMode = 'disabled') {
 		Value: function() {},
 		ListValue: function() {},
 		DynamicList: function() {},
+		Button: function() {},
 		GridSection: function() {},
 		TypedSection: function() {}
 	};
@@ -51,6 +57,13 @@ async function check(initialStatus, ingressMode = 'disabled') {
 	const uci = {
 		load: async () => {},
 		get: (config, section, option) => {
+			if (config === 'telego' && section === 'general' && option === 'enabled') return '1';
+			if (config === 'telego' && section === 'general' && option === 'bind_to') return '0.0.0.0:2443';
+			if (config === 'telego' && section === 'general' && option === 'public_host') return 'proxy.example.com';
+			if (config === 'telego' && section === 'general' && option === 'public_port') return '';
+			if (config === 'telego' && section === 'tls_fronting' && option === 'mask_host') return 'ya.ru';
+			if (config === 'telego' && section === 'user1' && option === 'name') return 'aiser';
+			if (config === 'telego' && section === 'user1' && option === 'secret') return '0123456789abcdef0123456789abcdef';
 			if (config === 'nginx_telego' && section === 'cloudflare' && option === 'enabled')
 				return ingressMode === 'cloudflare' ? '1' : '0';
 			if (config === 'nginx_telego' && section === 'direct_https' && option === 'enabled')
@@ -61,10 +74,15 @@ async function check(initialStatus, ingressMode = 'disabled') {
 		}
 	};
 
-	const view = new Function('form', 'rpc', 'uci', 'view', 'E', '_', 'L', 'document',
+	const ui = {
+		showModal: (title, children) => { modal = new Element('modal', { title }, children); },
+		hideModal: () => {},
+		addNotification: () => {}
+	};
+	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'document',
 		fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8'))(
 		form, { declare: () => () => reply ? Promise.resolve(reply) : Promise.reject(new Error('rpcd unavailable')) },
-		uci, { extend: x => x },
+		ui, uci, { extend: x => x },
 		(tag, attrs, children) => new Element(tag, attrs, children), x => x,
 		{ resolveDefault: (p, fallback) => p.catch(() => fallback), Poll: { add: fn => { poll = fn; } } },
 		{ querySelector: () => null }
@@ -92,8 +110,42 @@ async function check(initialStatus, ingressMode = 'disabled') {
 		assert.equal(spliceHost.datatype, 'host', 'splice target accepts loopback IP or hostname');
 	}
 
-	for (const name of ['proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
+	for (const name of ['public_host', 'public_port', 'proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
 		assert.ok(options.find(o => o.section === 'general' && o.name === name), 'missing general option ' + name);
+
+	const publicHost = options.find(o => o.section === 'general' && o.name === 'public_host');
+	const publicPort = options.find(o => o.section === 'general' && o.name === 'public_port');
+	assert.equal(publicHost.datatype, 'host');
+	assert.equal(publicPort.datatype, 'port');
+
+	const links = options.find(o => o.section === 'secret' && o.name === '_links');
+	assert.ok(links, 'missing per-user link generator');
+	links.onclick('user1');
+	assert.ok(modal, 'link generator opens a modal');
+
+	const ddSecretOutput = modal.querySelector('#telego-proxy-dd-secret');
+	const ddLinkOutput = modal.querySelector('#telego-proxy-dd-link');
+	const eeSecretOutput = modal.querySelector('#telego-proxy-ee-secret');
+	const eeLinkOutput = modal.querySelector('#telego-proxy-ee-link');
+	assert.equal(ddSecretOutput.value, 'dd0123456789abcdef0123456789abcdef');
+	assert.equal(ddLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=dd0123456789abcdef0123456789abcdef');
+	assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
+	assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
+
+	const ddPanel = modal.querySelector('#telego-proxy-panel-dd');
+	const eePanel = modal.querySelector('#telego-proxy-panel-ee');
+	assert.equal(ddPanel.hidden, false);
+	assert.equal(eePanel.hidden, true);
+	modal.querySelector('#telego-proxy-tab-ee').attrs.click();
+	assert.equal(ddPanel.hidden, true);
+	assert.equal(eePanel.hidden, false);
+
+	const serverInput = modal.querySelector('#telego-proxy-public-server');
+	const portInput = modal.querySelector('#telego-proxy-public-port');
+	serverInput.value = '203.0.113.10';
+	portInput.value = '443';
+	serverInput.attrs.input();
+	assert.equal(ddLinkOutput.value, 'tg://proxy?server=203.0.113.10&port=443&secret=dd0123456789abcdef0123456789abcdef');
 
 	const fakeCertSize = options.find(o => o.section === 'tls_fronting' && o.name === 'fake_cert_size');
 	assert.equal(fakeCertSize.validate(null, '0'), true);

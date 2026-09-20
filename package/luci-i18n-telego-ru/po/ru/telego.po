@@ -861,3 +861,70 @@ msgstr "Разносит по времени отправку raw DD от про
 
 msgid "Use 0s or a positive integer duration such as 500us, 2ms, or 1s."
 msgstr "Используйте 0s или положительную целую длительность, например 500us, 2ms или 1s."
+
+
+msgid "Public Host"
+msgstr "Публичный адрес"
+
+msgid "Hostname or IP used only when generating MTProxy client links. It does not change the listener address."
+msgstr "Имя хоста или IP используется только при генерации клиентских ссылок MTProxy и не изменяет адрес прослушивания."
+
+msgid "Public Port"
+msgstr "Публичный порт"
+
+msgid "Optional port used only in generated links. Leave empty to reuse the port from Listen Address."
+msgstr "Необязательный порт только для генерируемых ссылок. Оставьте пустым, чтобы использовать порт из адреса прослушивания."
+
+msgid "Base secret is invalid. Save a 32-hex secret first."
+msgstr "Базовый секрет некорректен. Сначала сохраните секрет из 32 шестнадцатеричных символов."
+
+msgid "Mask domain is required for EE / FakeTLS."
+msgstr "Для EE / FakeTLS требуется домен маскировки."
+
+msgid "Public server is required."
+msgstr "Укажите публичный адрес сервера."
+
+msgid "Enter a valid public port."
+msgstr "Укажите корректный публичный порт."
+
+msgid "Copied to clipboard."
+msgstr "Скопировано в буфер обмена."
+
+msgid "Unable to copy automatically. Select the field and copy it manually."
+msgstr "Не удалось скопировать автоматически. Выделите поле и скопируйте его вручную."
+
+msgid "Copy"
+msgstr "Копировать"
+
+msgid "Derived Secret"
+msgstr "Готовый секрет"
+
+msgid "Telegram Link"
+msgstr "Ссылка Telegram"
+
+msgid "Raw Obfuscated2. The generated secret is dd + the saved 32-hex base secret."
+msgstr "Raw Obfuscated2. Готовый секрет состоит из dd и сохранённого базового секрета из 32 hex-символов."
+
+msgid "FakeTLS + Obfuscated2. The EE secret uses the saved TLS Fronting mask domain."
+msgstr "FakeTLS + Obfuscated2. Секрет EE использует сохранённый домен маскировки TLS-фронтинга."
+
+msgid "DD / Raw"
+msgstr "DD / Raw"
+
+msgid "EE / FakeTLS"
+msgstr "EE / FakeTLS"
+
+msgid "Connection Links"
+msgstr "Ссылки подключения"
+
+msgid "Links are generated locally in your browser. This dialog does not change telEgo runtime settings."
+msgstr "Ссылки генерируются локально в браузере. Это окно не изменяет рабочие настройки telEgo."
+
+msgid "Public Server"
+msgstr "Публичный сервер"
+
+msgid "Links"
+msgstr "Ссылки"
+
+msgid "Close"
+msgstr "Закрыть"

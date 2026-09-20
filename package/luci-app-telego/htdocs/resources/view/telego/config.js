@@ -2,6 +2,7 @@
 
 'require form';
 'require rpc';
+'require ui';
 'require uci';
 'require view';
 
@@ -20,6 +21,290 @@ function randomSecret() {
 			return value.toString(16).padStart(2, '0');
 		})
 		.join('');
+}
+
+function buildDDSecret(baseSecret) {
+	const normalized = String(baseSecret || '').trim().toLowerCase();
+	if (!/^[0-9a-f]{32}$/.test(normalized))
+		throw new Error(_('Base secret is invalid. Save a 32-hex secret first.'));
+
+	return 'dd' + normalized;
+}
+
+function utf8Hex(value) {
+	return Array.from(new TextEncoder().encode(String(value || '')))
+		.map(function (byte) {
+			return byte.toString(16).padStart(2, '0');
+		})
+		.join('');
+}
+
+function buildEESecret(baseSecret, maskHost) {
+	const host = String(maskHost || '').trim();
+	if (!host)
+		throw new Error(_('Mask domain is required for EE / FakeTLS.'));
+
+	return 'ee' + buildDDSecret(baseSecret).slice(2) + utf8Hex(host);
+}
+
+function listenPort(bindTo) {
+	const match = String(bindTo || '').match(/:([0-9]+)$/);
+	return match ? match[1] : '';
+}
+
+function buildTelegramProxyLink(server, port, secret) {
+	server = String(server || '').trim();
+	port = String(port || '').trim();
+
+	if (!server)
+		throw new Error(_('Public server is required.'));
+	if (!/^[0-9]+$/.test(port) || Number(port) < 1 || Number(port) > 65535)
+		throw new Error(_('Enter a valid public port.'));
+
+	return 'tg://proxy?server=' + encodeURIComponent(server) +
+		'&port=' + encodeURIComponent(port) +
+		'&secret=' + secret;
+}
+
+function copyText(value) {
+	if (window.navigator && window.navigator.clipboard && window.navigator.clipboard.writeText)
+		return window.navigator.clipboard.writeText(value);
+
+	return new Promise(function (resolve, reject) {
+		const textarea = document.createElement('textarea');
+		textarea.value = value;
+		textarea.setAttribute('readonly', 'readonly');
+		textarea.style.position = 'fixed';
+		textarea.style.opacity = '0';
+		document.body.appendChild(textarea);
+		textarea.select();
+
+		let copied = false;
+		try {
+			copied = document.execCommand('copy');
+		}
+		catch (e) {}
+
+		document.body.removeChild(textarea);
+		if (copied)
+			resolve();
+		else
+			reject(new Error('clipboard unavailable'));
+	});
+}
+
+function proxyOutputField(label, id) {
+	const input = E('input', {
+		'id': id,
+		'type': 'text',
+		'class': 'cbi-input-text',
+		'readonly': 'readonly',
+		'spellcheck': 'false',
+		'style': 'width:100%;font-family:monospace'
+	});
+	const button = E('button', {
+		'type': 'button',
+		'class': 'btn cbi-button cbi-button-action',
+		'click': function () {
+			if (!input.value)
+				return;
+
+			return copyText(input.value).then(function () {
+				ui.addNotification(null, E('p', {}, _('Copied to clipboard.')), 'info');
+			}, function () {
+				ui.addNotification(
+					null,
+					E('p', {}, _('Unable to copy automatically. Select the field and copy it manually.')),
+					'warning'
+				);
+			});
+		}
+	}, _('Copy'));
+
+	return {
+		input: input,
+		button: button,
+		node: E('div', { 'style': 'margin:0 0 1rem' }, [
+			E('label', { 'style': 'display:block;font-weight:600;margin-bottom:.35rem' }, label),
+			E('div', { 'style': 'display:flex;gap:.5rem;align-items:center' }, [input, button])
+		])
+	};
+}
+
+function showProxyLinks(sectionId) {
+	const username = uci.get('telego', sectionId, 'name') || sectionId;
+	const baseSecret = uci.get('telego', sectionId, 'secret') || '';
+	const maskHost = uci.get('telego', 'tls_fronting', 'mask_host') || '';
+	const bindTo = uci.get('telego', 'general', 'bind_to') || '';
+	const publicHost = uci.get('telego', 'general', 'public_host') || '';
+	const publicPort = uci.get('telego', 'general', 'public_port') || listenPort(bindTo);
+
+	const serverInput = E('input', {
+		'id': 'telego-proxy-public-server',
+		'type': 'text',
+		'class': 'cbi-input-text',
+		'value': publicHost,
+		'placeholder': 'proxy.example.com',
+		'style': 'width:100%'
+	});
+	const portInput = E('input', {
+		'id': 'telego-proxy-public-port',
+		'type': 'number',
+		'class': 'cbi-input-text',
+		'value': publicPort,
+		'min': '1',
+		'max': '65535',
+		'style': 'width:100%'
+	});
+
+	const endpointError = E('div', {
+		'id': 'telego-proxy-endpoint-error',
+		'class': 'alert-message warning',
+		'hidden': true,
+		'role': 'alert'
+	});
+	const ddError = E('div', {
+		'id': 'telego-proxy-dd-error',
+		'class': 'alert-message warning',
+		'hidden': true,
+		'role': 'alert'
+	});
+	const eeError = E('div', {
+		'id': 'telego-proxy-ee-error',
+		'class': 'alert-message warning',
+		'hidden': true,
+		'role': 'alert'
+	});
+
+	const ddSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-dd-secret');
+	const ddLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-dd-link');
+	const eeSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-ee-secret');
+	const eeLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-ee-link');
+
+	const ddPanel = E('div', { 'id': 'telego-proxy-panel-dd' }, [
+		E('p', {}, _('Raw Obfuscated2. The generated secret is dd + the saved 32-hex base secret.')),
+		ddError,
+		ddSecret.node,
+		ddLink.node
+	]);
+	const eePanel = E('div', { 'id': 'telego-proxy-panel-ee', 'hidden': true }, [
+		E('p', {}, _('FakeTLS + Obfuscated2. The EE secret uses the saved TLS Fronting mask domain.')),
+		E('p', {}, [
+			E('strong', {}, _('Mask Domain') + ': '),
+			E('span', { 'id': 'telego-proxy-ee-mask-host' }, maskHost || _('—'))
+		]),
+		eeError,
+		eeSecret.node,
+		eeLink.node
+	]);
+
+	let ddTab;
+	let eeTab;
+	function selectTab(mode) {
+		const dd = mode === 'dd';
+		ddPanel.hidden = !dd;
+		eePanel.hidden = dd;
+		if (dd) {
+			ddTab.classList.add('active');
+			eeTab.classList.remove('active');
+		} else {
+			eeTab.classList.add('active');
+			ddTab.classList.remove('active');
+		}
+	}
+
+	ddTab = E('button', {
+		'id': 'telego-proxy-tab-dd',
+		'type': 'button',
+		'class': 'btn cbi-button active',
+		'click': function () { selectTab('dd'); }
+	}, _('DD / Raw'));
+	eeTab = E('button', {
+		'id': 'telego-proxy-tab-ee',
+		'type': 'button',
+		'class': 'btn cbi-button',
+		'click': function () { selectTab('ee'); }
+	}, _('EE / FakeTLS'));
+
+	function setError(node, error) {
+		node.textContent = error ? String(error.message || error) : '';
+		node.hidden = !error;
+	}
+
+	function refresh() {
+		const server = serverInput.value;
+		const port = portInput.value;
+		let endpointFailure = null;
+		try {
+			buildTelegramProxyLink(server, port, 'test');
+		}
+		catch (e) {
+			endpointFailure = e;
+		}
+		setError(endpointError, endpointFailure);
+
+		try {
+			const secret = buildDDSecret(baseSecret);
+			ddSecret.input.value = secret;
+			ddLink.input.value = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
+			ddSecret.button.disabled = false;
+			ddLink.button.disabled = !!endpointFailure;
+			setError(ddError, null);
+		}
+		catch (e) {
+			ddSecret.input.value = '';
+			ddLink.input.value = '';
+			ddSecret.button.disabled = true;
+			ddLink.button.disabled = true;
+			setError(ddError, e);
+		}
+
+		try {
+			const secret = buildEESecret(baseSecret, maskHost);
+			eeSecret.input.value = secret;
+			eeLink.input.value = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
+			eeSecret.button.disabled = false;
+			eeLink.button.disabled = !!endpointFailure;
+			setError(eeError, null);
+		}
+		catch (e) {
+			eeSecret.input.value = '';
+			eeLink.input.value = '';
+			eeSecret.button.disabled = true;
+			eeLink.button.disabled = true;
+			setError(eeError, e);
+		}
+	}
+
+	serverInput.addEventListener('input', refresh);
+	portInput.addEventListener('input', refresh);
+
+	ui.showModal(_('Connection Links') + ' — ' + username, [
+		E('p', {}, _('Links are generated locally in your browser. This dialog does not change telEgo runtime settings.')),
+		E('div', { 'style': 'display:grid;grid-template-columns:minmax(0,1fr) minmax(8rem,.35fr);gap:.75rem;margin-bottom:1rem' }, [
+			E('label', {}, [
+				E('span', { 'style': 'display:block;font-weight:600;margin-bottom:.35rem' }, _('Public Server')),
+				serverInput
+			]),
+			E('label', {}, [
+				E('span', { 'style': 'display:block;font-weight:600;margin-bottom:.35rem' }, _('Public Port')),
+				portInput
+			])
+		]),
+		endpointError,
+		E('div', { 'class': 'telego-tabs', 'style': 'margin:1rem 0' }, [ddTab, eeTab]),
+		ddPanel,
+		eePanel,
+		E('div', { 'class': 'right' }, [
+			E('button', {
+				'type': 'button',
+				'class': 'btn cbi-button',
+				'click': ui.hideModal
+			}, _('Close'))
+		])
+	]);
+
+	refresh();
 }
 
 function formatBytes(value) {
@@ -266,6 +551,25 @@ function makeConfigMap() {
 	o.datatype = 'string';
 	o.default = '0.0.0.0:443';
 
+	o = s.option(
+		form.Value,
+		'public_host',
+		_('Public Host'),
+		_('Hostname or IP used only when generating MTProxy client links. It does not change the listener address.')
+	);
+	o.datatype = 'host';
+	o.rmempty = true;
+
+	o = s.option(
+		form.Value,
+		'public_port',
+		_('Public Port'),
+		_('Optional port used only in generated links. Leave empty to reuse the port from Listen Address.')
+	);
+	o.datatype = 'port';
+	o.rmempty = true;
+	o.default = '';
+
 	o = s.option(form.ListValue, 'log_level', _('Log Level'));
 	o.value('trace', _('Trace'));
 	o.value('debug', _('Debug'));
@@ -443,6 +747,13 @@ function makeConfigMap() {
 			widget,
 			button
 		]);
+	};
+
+	o = s.option(form.Button, '_links', _('Links'));
+	o.inputtitle = _('Links');
+	o.inputstyle = 'apply';
+	o.onclick = function (section_id) {
+		showProxyLinks(section_id);
 	};
 
 	/* WEB Proxy. */
