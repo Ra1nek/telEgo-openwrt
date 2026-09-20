@@ -120,6 +120,10 @@ jobs:
           go vet ./...
           go test ./...
 
+      - name: Race-test DD shaping lifecycle
+        working-directory: telego-src
+        run: go test -race ./pkg/gproxy -run '^TestOpenWrtDDDownlink'
+
       - name: Build Go Binary
         working-directory: telego-src
         env:

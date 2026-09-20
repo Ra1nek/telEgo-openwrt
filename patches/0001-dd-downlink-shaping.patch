@@ -57,19 +57,38 @@ diff --git a/pkg/config/config.go b/pkg/config/config.go
 diff --git a/pkg/gproxy/dc_events.go b/pkg/gproxy/dc_events.go
 --- a/pkg/gproxy/dc_events.go
 +++ b/pkg/gproxy/dc_events.go
-@@ -37,5 +37,7 @@
--	active   atomic.Bool
--	closed   atomic.Bool
--	onClosed func()
--	drs      *faketls.DRSState
-+	active          atomic.Bool
-+	closed          atomic.Bool
-+	onClosed        func()
-+	drs             *faketls.DRSState
-+	ddNextWriteNs   atomic.Int64
-+	ddWakeScheduled atomic.Bool
+@@ -4,6 +4,7 @@
+ 	"crypto/cipher"
+ 	"errors"
+ 	"io"
++	"sync"
+ 	"sync/atomic"
+ 	"time"
+ 
+@@ -38,6 +39,11 @@
+ 	closed   atomic.Bool
+ 	onClosed func()
+ 	drs      *faketls.DRSState
++
++	ddPacingMu       sync.Mutex
++	ddNextWrite      time.Time
++	ddTimer          *time.Timer
++	ddWakeGeneration uint64
  }
-@@ -137,34 +137,69 @@
+ 
+ func (h *dcEventHandler) OnOpen(c gnet.Conn) ([]byte, gnet.Action) {
+@@ -80,6 +86,7 @@
+ 		return gnet.None
+ 	}
+ 	ctx.closed.Store(true)
++	ctx.stopDDDownlinkTimer()
+ 	ctx.ToDC.close()
+ 	defer h.proxy.completeUpstreamClose(c, ctx.ClientConn, ctx.ToDC, ctx.onClosed)
+ 	if ctx.active.Load() {
+@@ -187,6 +194,94 @@
+ 	return gnet.None
+ }
+ 
 +func (h *ProxyHandler) ddDownlinkChunkSize(available int) int {
 +	n := min(available, relayBatchSize)
 +	if limit := h.config.DDDownlinkChunk; limit > 0 && n > limit {
@@ -78,77 +97,148 @@ diff --git a/pkg/gproxy/dc_events.go b/pkg/gproxy/dc_events.go
 +	return n
 +}
 +
++func (dcCtx *DCConnContext) ddDownlinkRemaining() time.Duration {
++	dcCtx.ddPacingMu.Lock()
++	defer dcCtx.ddPacingMu.Unlock()
++
++	if dcCtx.ddNextWrite.IsZero() {
++		return 0
++	}
++	remaining := time.Until(dcCtx.ddNextWrite)
++	if remaining > 0 {
++		return remaining
++	}
++
++	dcCtx.ddWakeGeneration++
++	if dcCtx.ddTimer != nil {
++		dcCtx.ddTimer.Stop()
++		dcCtx.ddTimer = nil
++	}
++	dcCtx.ddNextWrite = time.Time{}
++	return 0
++}
++
++func (dcCtx *DCConnContext) setDDDownlinkDeadline(delay time.Duration) {
++	dcCtx.ddPacingMu.Lock()
++	defer dcCtx.ddPacingMu.Unlock()
++
++	dcCtx.ddWakeGeneration++
++	if dcCtx.ddTimer != nil {
++		dcCtx.ddTimer.Stop()
++		dcCtx.ddTimer = nil
++	}
++	if delay > 0 {
++		dcCtx.ddNextWrite = time.Now().Add(delay)
++	} else {
++		dcCtx.ddNextWrite = time.Time{}
++	}
++}
++
++func (dcCtx *DCConnContext) stopDDDownlinkTimer() {
++	dcCtx.ddPacingMu.Lock()
++	defer dcCtx.ddPacingMu.Unlock()
++
++	dcCtx.ddWakeGeneration++
++	if dcCtx.ddTimer != nil {
++		dcCtx.ddTimer.Stop()
++		dcCtx.ddTimer = nil
++	}
++	dcCtx.ddNextWrite = time.Time{}
++}
++
 +func (h *ProxyHandler) scheduleDDDownlinkWake(dcConn gnet.Conn, dcCtx *DCConnContext, delay time.Duration) {
-+	if delay <= 0 || !dcCtx.ddWakeScheduled.CompareAndSwap(false, true) {
++	if delay <= 0 {
 +		return
 +	}
-+	time.AfterFunc(delay, func() {
-+		dcCtx.ddWakeScheduled.Store(false)
++
++	dcCtx.ddPacingMu.Lock()
++	if dcCtx.closed.Load() || dcCtx.ddTimer != nil {
++		dcCtx.ddPacingMu.Unlock()
++		return
++	}
++	generation := dcCtx.ddWakeGeneration
++	dcCtx.ddTimer = time.AfterFunc(delay, func() {
++		dcCtx.ddPacingMu.Lock()
++		if generation != dcCtx.ddWakeGeneration {
++			dcCtx.ddPacingMu.Unlock()
++			return
++		}
++		dcCtx.ddTimer = nil
++		dcCtx.ddNextWrite = time.Time{}
++		dcCtx.ddPacingMu.Unlock()
++
 +		if dcCtx.closed.Load() || dcCtx.ClientCtx == nil || dcCtx.ClientCtx.State() == StateClosed {
 +			return
 +		}
-+		_ = dcConn.Wake(nil)
++		if err := dcConn.Wake(nil); err != nil {
++			_ = dcConn.Close()
++		}
 +	})
++	dcCtx.ddPacingMu.Unlock()
 +}
 +
  func (h *ProxyHandler) handleDCTrafficDD(dcConn gnet.Conn, dcCtx *DCConnContext) gnet.Action {
  	clientCtx := dcCtx.ClientCtx
  	data, _ := dcConn.Peek(-1)
- 	if len(data) == 0 {
- 		return gnet.None
- 	}
+@@ -196,10 +291,16 @@
  	if len(data) > max(h.maxWriteBuffer, relayBatchSize) {
  		return gnet.Close
-+	}
+ 	}
 +	if delay := h.config.DDDownlinkDelay; delay > 0 {
-+		now := time.Now().UnixNano()
-+		if next := dcCtx.ddNextWriteNs.Load(); next > now {
-+			h.scheduleDDDownlinkWake(dcConn, dcCtx, time.Duration(next-now))
++		if remaining := dcCtx.ddDownlinkRemaining(); remaining > 0 {
++			h.scheduleDDDownlinkWake(dcConn, dcCtx, remaining)
 +			return gnet.None
 +		}
- 	}
++	}
  	if dcCtx.ToClient == nil {
  		dcCtx.ToClient = newRelayOutput(dcCtx.ClientConn, dcConn, clientCtx, h.maxWriteBuffer)
  	}
--	n := dcCtx.ToClient.reserve(min(len(data), relayBatchSize), 1)
 +	n := dcCtx.ToClient.reserve(h.ddDownlinkChunkSize(len(data)), 1)
+-	n := dcCtx.ToClient.reserve(min(len(data), relayBatchSize), 1)
  	if n == 0 {
  		return gnet.None
  	}
- 	buffer, release := h.relayBuffer(n)
- 	dcCtx.DCDecrypt.XORKeyStream(buffer, data[:n])
- 	dcCtx.ClientEncrypt.XORKeyStream(buffer, buffer)
- 	if err := dcCtx.ToClient.write(buffer, release); err != nil {
- 		return gnet.Close
- 	}
- 	if counter := clientCtx.TrafficOut(); counter != nil {
- 		counter.Add(int64(n))
+@@ -214,8 +315,15 @@
  	}
  	clientCtx.recordServerActivity()
  	_, _ = dcConn.Discard(n)
 +
 +	delay := h.config.DDDownlinkDelay
 +	if delay > 0 {
-+		dcCtx.ddNextWriteNs.Store(time.Now().Add(delay).UnixNano())
++		dcCtx.setDDDownlinkDeadline(delay)
 +	}
  	if len(data) > n {
--		if err := dcConn.Wake(nil); err != nil {
 +		if delay > 0 {
 +			h.scheduleDDDownlinkWake(dcConn, dcCtx, delay)
 +		} else if err := dcConn.Wake(nil); err != nil {
+-		if err := dcConn.Wake(nil); err != nil {
  			return gnet.Close
  		}
  	}
- 	return gnet.None
- }
 diff --git a/pkg/gproxy/openwrt_dd_shaping_test.go b/pkg/gproxy/openwrt_dd_shaping_test.go
 new file mode 100644
 --- /dev/null
 +++ b/pkg/gproxy/openwrt_dd_shaping_test.go
-@@ -0,0 +1,19 @@
+@@ -0,0 +1,88 @@
 +package gproxy
 +
-+import "testing"
++import (
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/panjf2000/gnet/v2"
++)
++
++type ddWakeTestConn struct {
++	*testMockGnetConn
++	wakes atomic.Int64
++}
++
++func (c *ddWakeTestConn) Wake(callback gnet.AsyncCallback) error {
++	c.wakes.Add(1)
++	return c.testMockGnetConn.Wake(callback)
++}
 +
 +func TestDDDownlinkChunkSizeOpenWrt(t *testing.T) {
 +	handler := NewProxyHandler(&Config{}, &testLogger{})
@@ -163,6 +253,59 @@ new file mode 100644
 +	}
 +	if got := handler.ddDownlinkChunkSize(700); got != 700 {
 +		t.Fatalf("short DD chunk = %d, want 700", got)
++	}
++}
++
++func TestOpenWrtDDDownlinkTimerCancellation(t *testing.T) {
++	handler := NewProxyHandler(&Config{}, &testLogger{})
++	conn := &ddWakeTestConn{testMockGnetConn: newTestMockGnetConn()}
++	ctx := &DCConnContext{ClientCtx: NewConnContext()}
++
++	ctx.setDDDownlinkDeadline(40 * time.Millisecond)
++	handler.scheduleDDDownlinkWake(conn, ctx, ctx.ddDownlinkRemaining())
++	ctx.ddPacingMu.Lock()
++	timerScheduled := ctx.ddTimer != nil
++	ctx.ddPacingMu.Unlock()
++	if !timerScheduled {
++		t.Fatal("DD wake timer was not scheduled")
++	}
++
++	ctx.closed.Store(true)
++	ctx.stopDDDownlinkTimer()
++	time.Sleep(70 * time.Millisecond)
++
++	if got := conn.wakes.Load(); got != 0 {
++		t.Fatalf("cancelled DD timer woke connection %d times", got)
++	}
++	ctx.ddPacingMu.Lock()
++	defer ctx.ddPacingMu.Unlock()
++	if ctx.ddTimer != nil || !ctx.ddNextWrite.IsZero() {
++		t.Fatal("cancelled DD timer retained pacing state")
++	}
++}
++
++func TestOpenWrtDDDownlinkTimerResetDropsStaleWake(t *testing.T) {
++	handler := NewProxyHandler(&Config{}, &testLogger{})
++	conn := &ddWakeTestConn{testMockGnetConn: newTestMockGnetConn()}
++	ctx := &DCConnContext{ClientCtx: NewConnContext()}
++
++	ctx.setDDDownlinkDeadline(80 * time.Millisecond)
++	handler.scheduleDDDownlinkWake(conn, ctx, ctx.ddDownlinkRemaining())
++
++	ctx.setDDDownlinkDeadline(10 * time.Millisecond)
++	handler.scheduleDDDownlinkWake(conn, ctx, ctx.ddDownlinkRemaining())
++
++	deadline := time.Now().Add(time.Second)
++	for conn.wakes.Load() == 0 && time.Now().Before(deadline) {
++		time.Sleep(time.Millisecond)
++	}
++	if got := conn.wakes.Load(); got != 1 {
++		t.Fatalf("reset DD timer wake count = %d, want 1", got)
++	}
++
++	time.Sleep(100 * time.Millisecond)
++	if got := conn.wakes.Load(); got != 1 {
++		t.Fatalf("stale DD timer produced an extra wake: %d", got)
 +	}
 +}
 diff --git a/pkg/config/openwrt_dd_shaping_test.go b/pkg/config/openwrt_dd_shaping_test.go
