@@ -35,11 +35,22 @@ const L = {
 	resource: path => '/luci-static/resources/' + path,
 	toArray: value => value == null ? [] : (Array.isArray(value) ? value : [value])
 };
-const shell = new Function('E', '_', 'L', source)(
+function BaseClass() {}
+BaseClass.extend = function (properties) {
+	function Constructor() {}
+	Object.assign(Constructor.prototype, properties);
+	return Constructor;
+};
+
+assert.match(source, /'require baseclass';/);
+const ShellClass = new Function('E', '_', 'L', 'baseclass', source)(
 	(tag, attrs, children) => new Element(tag, attrs, children),
 	x => x,
-	L
+	L,
+	BaseClass
 );
+assert.equal(typeof ShellClass, 'function', 'LuCI module factory must return a class constructor');
+const shell = new ShellClass();
 
 let selected = null;
 const content = new Element('section', { id: 'content' });

@@ -1,5 +1,7 @@
 'use strict';
 
+'require baseclass';
+
 const APP_SECTIONS = [
 	{ id: 'overview', label: _('Overview'), path: 'configuration', hash: '#overview' },
 	{ id: 'mtproxy', label: _('MTProxy'), path: 'configuration', hash: '#mtproxy' },
@@ -96,8 +98,8 @@ function TelEgoApp(active, content, options) {
 	}, children);
 }
 
-return {
+return baseclass.extend({
 	wrap: TelEgoApp,
 	activate: activate,
 	diagnosticsNav: DiagnosticsNav
-};
+});
