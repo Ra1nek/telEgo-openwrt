@@ -5,6 +5,9 @@ async function renderAdvanced(state = {}) {
 	const options = [];
 	const sections = [];
 	const formValues = state.formValues || {};
+	let shellActive = null;
+	let diagnosticsActive = null;
+
 	class Map {
 		lookupOption(name, section) {
 			return options.filter(option => option.name === name && option.section === section);
@@ -30,6 +33,7 @@ async function renderAdvanced(state = {}) {
 		}
 		render() { return Promise.resolve({ options, sections }); }
 	}
+
 	const form = {
 		Map,
 		TypedSection: function() {},
@@ -39,28 +43,26 @@ async function renderAdvanced(state = {}) {
 		DynamicList: function() {},
 		DummyValue: function() {}
 	};
+
 	const uci = {
-		load: async () => {},
+		load: async config => config,
 		get: (config, section, option) => {
-			if (config === 'telego' && section === 'tls_fronting' && option === 'enabled')
-				return state.tls ?? '1';
-			if (config === 'telego' && section === 'web_proxy' && option === 'enabled')
-				return state.web ?? '1';
 			if (config === 'telego' && section === 'middle_end' && option === 'enabled')
 				return state.middleEnd ?? '1';
-			if (config === 'nginx_telego' && section === 'shared' && option === 'enabled')
-				return state.ingress === 'shared' ? '1' : '0';
-			if (config === 'nginx_telego' && section === 'cloudflare' && option === 'enabled')
-				return state.ingress === 'cloudflare' ? '1' : '0';
-			if (config === 'nginx_telego' && section === 'direct_https' && option === 'enabled')
-				return state.ingress === 'direct_https' ? '1' : '0';
 			return null;
 		}
 	};
+
 	const source = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/advanced.js', 'utf8');
 	const appShell = {
-		wrap: (active, content) => content,
-		diagnosticsNav: () => ({})
+		wrap: (active, content, options) => {
+			shellActive = active;
+			return { content, options };
+		},
+		diagnosticsNav: active => {
+			diagnosticsActive = active;
+			return { active };
+		}
 	};
 	const view = new Function('form', 'uci', 'view', '_', 'L', 'appShell', source)(
 		form, uci, { extend: x => x }, x => x,
@@ -70,9 +72,12 @@ async function renderAdvanced(state = {}) {
 		},
 		appShell
 	);
-	await view.load();
+
+	const loaded = await view.load();
+	assert.equal(loaded, 'telego', 'legacy Runtime route only needs the telEgo UCI package');
+
 	const rendered = await view.render();
-	return { options, sections, rendered };
+	return { options, sections, rendered, shellActive, diagnosticsActive, source };
 }
 
 function option(options, section, name) {
@@ -83,37 +88,14 @@ function option(options, section, name) {
 	let result = await renderAdvanced();
 	let options = result.options;
 
-	for (const name of ['proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
-		assert.ok(option(options, 'general', name), 'missing advanced MTProxy option ' + name);
+	assert.equal(result.shellActive, 'diagnostics');
+	assert.equal(result.diagnosticsActive, 'runtime');
+	assert.ok(result.source.includes("_('Runtime & Diagnostics')"));
+	assert.ok(!result.source.includes("uci.load('nginx_telego')"), 'Runtime route must not depend on ingress UCI after P5.4');
 
-	for (const name of ['cert_host', 'cert_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_host', 'splice_port', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls'])
-		assert.ok(option(options, 'tls_fronting', name), 'missing advanced TLS option ' + name);
-
-	const fakeCertSize = option(options, 'tls_fronting', 'fake_cert_size');
-	assert.equal(fakeCertSize.validate(null, '0'), true);
-	assert.equal(fakeCertSize.validate(null, '256'), true);
-	assert.equal(fakeCertSize.validate(null, '16384'), true);
-	assert.notEqual(fakeCertSize.validate(null, '255'), true);
-	assert.notEqual(fakeCertSize.validate(null, '16385'), true);
-
-	for (const name of ['trusted_proxy_cidrs', 'backend', 'num_event_loops'])
-		assert.ok(option(options, 'web_proxy', name), 'missing advanced WEB option ' + name);
-
-	for (const name of ['socks5', 'socks5_username', 'socks5_password', 'artifact_proxy', 'nat_ip', 'max_connections', 'queue_budget_mb'])
-		assert.ok(option(options, 'middle_end', name), 'missing advanced Middle-End option ' + name);
-
-	const maxConnections = option(options, 'middle_end', 'max_connections');
-	assert.equal(maxConnections.validate(null, '0'), true);
-	assert.equal(maxConnections.validate(null, '1'), true);
-	assert.equal(maxConnections.validate(null, '10000'), true);
-	assert.notEqual(maxConnections.validate(null, '10001'), true);
-
-	const queueBudget = option(options, 'middle_end', 'queue_budget_mb');
-	assert.equal(queueBudget.validate(null, '0'), true);
-	assert.equal(queueBudget.validate(null, '2'), true);
-	assert.equal(queueBudget.validate(null, '32'), true);
-	assert.notEqual(queueBudget.validate(null, '1'), true);
-	assert.notEqual(queueBudget.validate(null, '33'), true);
+	for (const section of ['general', 'tls_fronting', 'web_proxy', 'middle_end'])
+		assert.equal(result.sections.some(entry => entry.section === section), false,
+			'feature-specific advanced section must move out of global Runtime: ' + section);
 
 	assert.equal(option(options, 'performance', 'tcp_buffer_kb'), undefined, 'unsupported TCP buffer control must not be exposed');
 	for (const name of ['num_event_loops', 'prefer_ip', 'idle_timeout', 'max_write_buffer_mb', 'dd_downlink_chunk', 'dd_downlink_delay', 'client_silence_close'])
@@ -139,7 +121,10 @@ function option(options, section, name) {
 	assert.notEqual(ddDelay.validate('performance', '2s'), true);
 	assert.notEqual(ddDelay.validate('performance', '999999999999999999999999ms'), true);
 
-	result = await renderAdvanced({ middleEnd: '0', formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } } });
+	result = await renderAdvanced({
+		middleEnd: '0',
+		formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } }
+	});
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
@@ -147,45 +132,35 @@ function option(options, section, name) {
 	assert.equal(ddDelay.validate('performance', '1s'), true);
 	assert.notEqual(ddChunk.validate('performance', '0'), true);
 
-	result = await renderAdvanced({ middleEnd: '0', formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } } });
+	result = await renderAdvanced({
+		middleEnd: '0',
+		formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } }
+	});
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
 	assert.equal(ddChunk.validate('performance', '0'), true);
 	assert.equal(ddDelay.validate('performance', '0s'), true);
 
-	result = await renderAdvanced({ middleEnd: '1', formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } } });
+	result = await renderAdvanced({
+		middleEnd: '1',
+		formValues: { performance: { dd_downlink_chunk: '1200', dd_downlink_delay: '2ms' } }
+	});
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
 	assert.notEqual(ddChunk.validate('performance', '1200'), true, 'Middle-End rejects DD chunk shaping');
 	assert.notEqual(ddDelay.validate('performance', '2ms'), true, 'Middle-End rejects DD delay shaping');
 
-	result = await renderAdvanced({ middleEnd: '1', formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } } });
+	result = await renderAdvanced({
+		middleEnd: '1',
+		formValues: { performance: { dd_downlink_chunk: '0', dd_downlink_delay: '0s' } }
+	});
 	options = result.options;
 	ddChunk = option(options, 'performance', 'dd_downlink_chunk');
 	ddDelay = option(options, 'performance', 'dd_downlink_delay');
 	assert.equal(ddChunk.validate('performance', '0'), true, 'Middle-End permits disabled DD shaping');
 	assert.equal(ddDelay.validate('performance', '0s'), true, 'Middle-End permits disabled DD pacing');
 
-	result = await renderAdvanced({ ingress: 'direct_https' });
-	options = result.options;
-	for (const name of ['cert_host', 'cert_port', 'splice_host', 'splice_port'])
-		assert.equal(option(options, 'tls_fronting', name), undefined, 'external TLS ingress must hide local TLS endpoint ' + name);
-	assert.ok(option(options, 'tls_fronting', 'fake_cert_size'));
-
-	result = await renderAdvanced({ tls: '0', web: '0', middleEnd: '0' });
-	options = result.options;
-	assert.ok(option(options, 'tls_fronting', '_feature_note'));
-	assert.equal(option(options, 'tls_fronting', 'fake_cert_size'), undefined);
-	assert.ok(option(options, 'web_proxy', '_feature_note'));
-	assert.equal(option(options, 'web_proxy', 'backend'), undefined);
-	assert.ok(option(options, 'middle_end', '_feature_note'));
-	assert.equal(option(options, 'middle_end', 'max_connections'), undefined);
-	assert.ok(option(options, 'performance', 'dd_downlink_chunk'), 'global advanced runtime controls remain available');
-
-	for (const section of ['general', 'tls_fronting', 'web_proxy', 'middle_end'])
-		assert.equal(option(result.options, section, 'enabled'), undefined, 'feature toggles stay on Configuration: ' + section);
-
-	console.log('LuCI Advanced Settings tests passed');
+	console.log('LuCI P5.4 Runtime and contextual Advanced tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

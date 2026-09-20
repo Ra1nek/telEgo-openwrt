@@ -1099,3 +1099,21 @@ msgstr "Настроен"
 
 msgid "Invalid"
 msgstr "Некорректен"
+
+msgid "Basic"
+msgstr "Основные"
+
+msgid "Advanced"
+msgstr "Расширенные"
+
+msgid "Runtime"
+msgstr "Работа сервиса"
+
+msgid "Runtime & Diagnostics"
+msgstr "Работа сервиса и диагностика"
+
+msgid "Configure each telEgo service in context. Rare controls are kept in the Advanced tab of the service they affect."
+msgstr "Настраивайте каждый сервис telEgo в его собственном разделе. Редко используемые параметры находятся на вкладке «Расширенные» соответствующего сервиса."
+
+msgid "Global runtime tuning and diagnostics remain here. Feature-specific advanced controls are now available in the Advanced tab of each service."
+msgstr "Здесь остаются глобальные параметры работы сервиса и диагностики. Расширенные параметры отдельных функций теперь находятся на вкладке «Расширенные» соответствующего сервиса."

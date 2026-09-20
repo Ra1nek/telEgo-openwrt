@@ -81,12 +81,21 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			const instance = {
 				anonymous: false, addremove: true, sortable: false,
 				map: { readonly: false },
+				tabs: [],
+				tab(name, title) {
+					this.tabs.push([name, title]);
+				},
 				option(type, name) {
 					const option = {
 						section, name, value() {},
 						depends(field, value) { this.dependency = [field, value]; }
 					};
 					options.push(option);
+					return option;
+				},
+				taboption(tab, type, name) {
+					const option = this.option(type, name);
+					option.tab = tab;
 					return option;
 				},
 				super(method) {
@@ -196,11 +205,20 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(hostname.rmempty, false);
 	assert.equal(hostname.retain, true);
 
-	for (const name of ['public_host', 'public_port'])
-		assert.ok(options.find(o => o.section === 'general' && o.name === name), 'missing basic general option ' + name);
+	const generalSection = sections.find(entry => entry.section === 'general').instance;
+	assert.deepEqual(generalSection.tabs, [['basic', 'Basic'], ['advanced', 'Advanced']], 'MTProxy exposes contextual Basic and Advanced tabs');
 
-	for (const name of ['proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url'])
-		assert.equal(options.find(o => o.section === 'general' && o.name === name), undefined, 'advanced general option leaked into Configuration: ' + name);
+	for (const name of ['public_host', 'public_port']) {
+		const basic = options.find(o => o.section === 'general' && o.name === name);
+		assert.ok(basic, 'missing basic general option ' + name);
+		assert.equal(basic.tab, 'basic', 'basic MTProxy option must stay in the Basic tab: ' + name);
+	}
+
+	for (const name of ['proxy_protocol', 'max_connections_per_ip', 'max_ips_per_user', 'ip_block_timeout', 'handshake_timeout', 'clock_sync_url']) {
+		const advanced = options.find(o => o.section === 'general' && o.name === name);
+		assert.ok(advanced, 'missing contextual advanced MTProxy option ' + name);
+		assert.equal(advanced.tab, 'advanced', 'MTProxy advanced option must be contextual: ' + name);
+	}
 
 	const publicHost = options.find(o => o.section === 'general' && o.name === 'public_host');
 	const publicPort = options.find(o => o.section === 'general' && o.name === 'public_port');
@@ -344,16 +362,48 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		? assert.notEqual(tlsEnabled.validate(null, '0'), true)
 		: assert.equal(tlsEnabled.validate(null, '0'), true);
 
+	const tlsSection = sections.find(entry => entry.section === 'tls_fronting').instance;
+	const webSection = sections.find(entry => entry.section === 'web_proxy').instance;
+	const middleEndSection = sections.find(entry => entry.section === 'middle_end').instance;
+	for (const section of [tlsSection, webSection, middleEndSection])
+		assert.deepEqual(section.tabs, [['basic', 'Basic'], ['advanced', 'Advanced']], 'feature section exposes contextual Basic and Advanced tabs');
+
 	for (const name of ['mask_host', 'mask_port']) {
 		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
+		assert.equal(option.tab, 'basic');
 		assert.deepEqual(option.dependency, ['enabled', '1'], 'basic TLS option visibility must follow enabled: ' + name);
 		assert.equal(option.retain, true, 'hidden TLS value must survive disabled Save & Apply: ' + name);
 	}
-	for (const name of ['cert_host', 'cert_port', 'fake_cert_size', 'mask_sni_safelist', 'splice_host', 'splice_port', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls'])
-		assert.equal(options.find(o => o.section === 'tls_fronting' && o.name === name), undefined, 'advanced TLS option leaked into Configuration: ' + name);
 
-	for (const name of ['trusted_proxy_cidrs', 'backend', 'num_event_loops'])
-		assert.equal(options.find(o => o.section === 'web_proxy' && o.name === name), undefined, 'advanced WEB option leaked into Configuration: ' + name);
+	for (const name of ['fake_cert_size', 'mask_sni_safelist', 'splice_proxy_protocol', 'splice_idle_timeout', 'enable_drs', 'enable_split_tls']) {
+		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
+		assert.ok(option, 'missing contextual TLS advanced option ' + name);
+		assert.equal(option.tab, 'advanced');
+		assert.deepEqual(option.dependency, ['enabled', '1']);
+		assert.equal(option.retain, true);
+	}
+	for (const name of ['cert_host', 'cert_port', 'splice_host', 'splice_port']) {
+		const option = options.find(o => o.section === 'tls_fronting' && o.name === name);
+		if (ingressMode === 'cloudflare' || ingressMode === 'direct_https')
+			assert.equal(option, undefined, 'external TLS ingress must hide local TLS endpoint ' + name);
+		else {
+			assert.ok(option, 'local TLS topology must expose contextual TLS endpoint ' + name);
+			assert.equal(option.tab, 'advanced');
+		}
+	}
+	const fakeCertSize = options.find(o => o.section === 'tls_fronting' && o.name === 'fake_cert_size');
+	assert.equal(fakeCertSize.validate(null, '0'), true);
+	assert.equal(fakeCertSize.validate(null, '256'), true);
+	assert.equal(fakeCertSize.validate(null, '16384'), true);
+	assert.notEqual(fakeCertSize.validate(null, '255'), true);
+
+	for (const name of ['trusted_proxy_cidrs', 'backend', 'num_event_loops']) {
+		const option = options.find(o => o.section === 'web_proxy' && o.name === name);
+		assert.ok(option, 'missing contextual WEB advanced option ' + name);
+		assert.equal(option.tab, 'advanced');
+		assert.deepEqual(option.dependency, ['enabled', '1']);
+		assert.equal(option.retain, true);
+	}
 
 	const middleEndEnabledOption = options.find(o => o.section === 'middle_end' && o.name === 'enabled');
 	if (ddChunkValue === '0' && ddDelayValue === '0s')
@@ -366,12 +416,25 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(proxyTag.validate(null, ''), true);
 	assert.equal(proxyTag.validate(null, '0123456789abcdef0123456789abcdef'), true);
 	assert.notEqual(proxyTag.validate(null, 'not-a-tag'), true);
-	for (const name of ['socks5', 'socks5_username', 'socks5_password', 'artifact_proxy', 'nat_ip', 'max_connections', 'queue_budget_mb'])
-		assert.equal(options.find(o => o.section === 'middle_end' && o.name === name), undefined, 'advanced Middle-End option leaked into Configuration: ' + name);
+	for (const name of ['socks5', 'socks5_username', 'socks5_password', 'artifact_proxy', 'nat_ip', 'max_connections', 'queue_budget_mb']) {
+		const option = options.find(o => o.section === 'middle_end' && o.name === name);
+		assert.ok(option, 'missing contextual Middle-End advanced option ' + name);
+		assert.equal(option.tab, 'advanced');
+		assert.deepEqual(option.dependency, ['enabled', '1']);
+		assert.equal(option.retain, true);
+	}
+	const maxConnections = options.find(o => o.section === 'middle_end' && o.name === 'max_connections');
+	assert.equal(maxConnections.validate(null, '0'), true);
+	assert.equal(maxConnections.validate(null, '10000'), true);
+	assert.notEqual(maxConnections.validate(null, '10001'), true);
+	const queueBudget = options.find(o => o.section === 'middle_end' && o.name === 'queue_budget_mb');
+	assert.equal(queueBudget.validate(null, '0'), true);
+	assert.equal(queueBudget.validate(null, '32'), true);
+	assert.notEqual(queueBudget.validate(null, '33'), true);
 
-	assert.equal(options.find(o => o.section === 'performance'), undefined, 'Performance section belongs on Advanced Settings');
-	assert.equal(options.find(o => o.section === 'upstream'), undefined, 'Upstream section belongs on Advanced Settings');
-	assert.equal(options.find(o => o.section === 'metrics'), undefined, 'Metrics section belongs on Advanced Settings');
+	assert.equal(options.find(o => o.section === 'performance'), undefined, 'Performance remains on Runtime until P5.5');
+	assert.equal(options.find(o => o.section === 'upstream'), undefined, 'Upstream remains on Runtime');
+	assert.equal(options.find(o => o.section === 'metrics'), undefined, 'Metrics remains on Runtime');
 
 	const webGroup = root.querySelector('#telego-status-group-web');
 	const middleEndGroup = root.querySelector('#telego-status-group-middleend');

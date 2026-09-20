@@ -99,7 +99,7 @@ assert.match(tabs[1].attrs.class, /\bactive\b/);
 const diagnostics = shell.diagnosticsNav('nginx-files');
 const sublinks = diagnostics.children;
 assert.equal(sublinks.length, 2);
-assert.equal(sublinks[0].children[0], 'Advanced Settings');
+assert.equal(sublinks[0].children[0], 'Runtime');
 assert.equal(sublinks[1].children[0], 'Nginx File Inventory');
 assert.equal(sublinks[1].attrs['aria-current'], 'page');
 

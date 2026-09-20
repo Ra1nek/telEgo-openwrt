@@ -750,20 +750,29 @@ function updateStatusError(errorText, root) {
 
 function makeConfigMap() {
 	const sharedWeb = uci.get('nginx_telego', 'shared', 'enabled') === '1';
+	const externalTlsWeb =
+		!sharedWeb &&
+		(
+			uci.get('nginx_telego', 'cloudflare', 'enabled') === '1' ||
+			uci.get('nginx_telego', 'direct_https', 'enabled') === '1'
+		);
 	const m = new form.Map(
 		'telego',
 		_('telEgo Configuration'),
-		_('Configure the core telEgo services. Rare transport and runtime controls are available on the Advanced Settings page.')
+		_('Configure each telEgo service in context. Rare controls are kept in the Advanced tab of the service they affect.')
 	);
 
 	let s = m.section(form.TypedSection, 'general', _('MTProxy'));
 	s.anonymous = true;
 	s.addremove = false;
+	s.tab('basic', _('Basic'));
+	s.tab('advanced', _('Advanced'));
 
-	let o = s.option(form.Flag, 'enabled', _('Enable MTProxy'));
+	let o = s.taboption('basic', form.Flag, 'enabled', _('Enable MTProxy'));
 	o.default = '0';
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Value,
 		'bind_to',
 		_('Listen Address'),
@@ -772,7 +781,8 @@ function makeConfigMap() {
 	o.datatype = 'string';
 	o.default = '0.0.0.0:443';
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Value,
 		'public_host',
 		_('Public Host'),
@@ -781,7 +791,8 @@ function makeConfigMap() {
 	o.datatype = 'host';
 	o.rmempty = true;
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Value,
 		'public_port',
 		_('Public Port'),
@@ -791,7 +802,7 @@ function makeConfigMap() {
 	o.rmempty = true;
 	o.default = '';
 
-	o = s.option(form.ListValue, 'log_level', _('Log Level'));
+	o = s.taboption('basic', form.ListValue, 'log_level', _('Log Level'));
 	o.value('trace', _('Trace'));
 	o.value('debug', _('Debug'));
 	o.value('info', _('Info'));
@@ -799,11 +810,51 @@ function makeConfigMap() {
 	o.value('error', _('Error'));
 	o.default = 'info';
 
+	o = s.taboption(
+		'advanced',
+		form.Flag,
+		'proxy_protocol',
+		_('Accept Incoming PROXY Protocol'),
+		_('Enable only when a trusted TCP proxy is directly in front of the public MTProxy listener.')
+	);
+	o.default = '0';
+
+	o = s.taboption('advanced', form.Value, 'max_connections_per_ip', _('Max Connections per IP'));
+	o.datatype = 'uinteger';
+	o.default = '100';
+	o.description = _('0 disables this connection-flood limit.');
+
+	o = s.taboption('advanced', form.Value, 'max_ips_per_user', _('Max IPs per User'));
+	o.datatype = 'uinteger';
+	o.default = '10';
+	o.description = _('0 disables per-secret IP limiting.');
+
+	o = s.taboption('advanced', form.Value, 'ip_block_timeout', _('IP Block Timeout'));
+	o.datatype = 'string';
+	o.default = '5m';
+
+	o = s.taboption('advanced', form.Value, 'handshake_timeout', _('Handshake Timeout'));
+	o.datatype = 'string';
+	o.default = '5s';
+
+	o = s.taboption(
+		'advanced',
+		form.Value,
+		'clock_sync_url',
+		_('Clock Sync URL'),
+		_('Optional HTTP(S) URL whose Date header corrects startup clock skew for FakeTLS validation.')
+	);
+	o.datatype = 'string';
+	o.rmempty = true;
+
 	s = m.section(form.TypedSection, 'tls_fronting', _('TLS Fronting'));
 	s.anonymous = true;
 	s.addremove = false;
+	s.tab('basic', _('Basic'));
+	s.tab('advanced', _('Advanced'));
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Flag,
 		'enabled',
 		_('Enable TLS Fronting'),
@@ -816,7 +867,8 @@ function makeConfigMap() {
 			: true;
 	};
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Value,
 		'mask_host',
 		_('Mask Domain'),
@@ -828,9 +880,105 @@ function makeConfigMap() {
 	o.depends('enabled', '1');
 	o.retain = true;
 
-	o = s.option(form.Value, 'mask_port', _('Mask Port'));
+	o = s.taboption('basic', form.Value, 'mask_port', _('Mask Port'));
 	o.datatype = 'port';
 	o.default = '443';
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	if (!externalTlsWeb) {
+		o = s.taboption(
+			'advanced',
+			form.Value,
+			'cert_host',
+			_('Certificate Host'),
+			_('Optional certificate source. Native shared-port Nginx on this router uses 127.0.0.1.')
+		);
+		o.datatype = 'host';
+		o.rmempty = true;
+		o.depends('enabled', '1');
+		o.retain = true;
+
+		o = s.taboption(
+			'advanced',
+			form.Value,
+			'cert_port',
+			_('Certificate Port'),
+			_('Native shared-port Nginx uses port 8444 for certificate collection.')
+		);
+		o.datatype = 'port';
+		o.rmempty = true;
+		o.default = '';
+		o.depends('enabled', '1');
+		o.retain = true;
+	}
+
+	o = s.taboption('advanced', form.Value, 'fake_cert_size', _('Fake Certificate Size'));
+	o.datatype = 'uinteger';
+	o.default = '0';
+	o.description = _('0 selects automatic matching; an explicit override must be from 256 to 16384 bytes.');
+	o.depends('enabled', '1');
+	o.retain = true;
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 16384)
+			? true
+			: _('Use 0 for automatic mode or a value from 256 to 16384.');
+	};
+
+	o = s.taboption('advanced', form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
+	o.datatype = 'hostname';
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	if (!externalTlsWeb) {
+		o = s.taboption(
+			'advanced',
+			form.Value,
+			'splice_host',
+			_('Fallback Host'),
+			_('Where unrecognized TLS is spliced. Native shared-port Nginx on this router uses 127.0.0.1.')
+		);
+		o.datatype = 'host';
+		o.rmempty = true;
+		o.depends('enabled', '1');
+		o.retain = true;
+
+		o = s.taboption(
+			'advanced',
+			form.Value,
+			'splice_port',
+			_('Fallback Port'),
+			_('Native shared-port Nginx uses port 8443 and PROXY protocol v2.')
+		);
+		o.datatype = 'port';
+		o.rmempty = true;
+		o.default = '';
+		o.depends('enabled', '1');
+		o.retain = true;
+	}
+
+	o = s.taboption('advanced', form.ListValue, 'splice_proxy_protocol', _('Fallback PROXY Protocol'));
+	o.value('0', _('Disabled'));
+	o.value('1', _('PROXY Protocol v1'));
+	o.value('2', _('PROXY Protocol v2'));
+	o.default = '0';
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Value, 'splice_idle_timeout', _('Fallback Idle Timeout'));
+	o.datatype = 'string';
+	o.default = '30s';
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Flag, 'enable_drs', _('Enable DRS'));
+	o.default = '1';
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Flag, 'enable_split_tls', _('Enable Split TLS'));
+	o.default = '1';
 	o.depends('enabled', '1');
 	o.retain = true;
 
@@ -1042,11 +1190,14 @@ function makeConfigMap() {
 	s = m.section(form.TypedSection, 'web_proxy', _('WEB Proxy'));
 	s.anonymous = true;
 	s.addremove = false;
+	s.tab('basic', _('Basic'));
+	s.tab('advanced', _('Advanced'));
 
-	o = s.option(form.Flag, 'enabled', _('Enable WEB Proxy'));
+	o = s.taboption('basic', form.Flag, 'enabled', _('Enable WEB Proxy'));
 	o.default = '0';
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.ListValue,
 		'carrier',
 		_('Carrier Mode'),
@@ -1058,7 +1209,8 @@ function makeConfigMap() {
 	o.value('websocket-lanes', _('WebSocket Lanes'));
 	o.default = 'https-lanes';
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Value,
 		'bind_to',
 		_('Bind Address'),
@@ -1067,7 +1219,8 @@ function makeConfigMap() {
 	o.datatype = 'string';
 	o.default = '127.0.0.1:8080';
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Value,
 		'hostname',
 		_('Hostname'),
@@ -1078,12 +1231,51 @@ function makeConfigMap() {
 	o.datatype = 'hostname';
 	o.rmempty = false;
 
+	o = s.taboption(
+		'advanced',
+		form.DynamicList,
+		'trusted_proxy_cidrs',
+		_('Trusted Proxy CIDRs'),
+		_('Only these proxy addresses may supply forwarded client addresses.')
+	);
+	o.datatype = 'cidr';
+	o.default = ['127.0.0.1/32'];
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption(
+		'advanced',
+		form.Value,
+		'backend',
+		_('Compatibility Backend'),
+		_('Optional local TCP or Unix backend. Leave empty to use the faster shared MTProxy core directly.')
+	);
+	o.datatype = 'string';
+	o.rmempty = true;
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption(
+		'advanced',
+		form.Value,
+		'num_event_loops',
+		_('WEB Event Loops'),
+		_('0 selects the automatic gnet event-loop count.')
+	);
+	o.datatype = 'uinteger';
+	o.default = '0';
+	o.depends('enabled', '1');
+	o.retain = true;
+
 	/* Middle-End. */
 	s = m.section(form.TypedSection, 'middle_end', _('Telegram Middle-End'));
 	s.anonymous = true;
 	s.addremove = false;
+	s.tab('basic', _('Basic'));
+	s.tab('advanced', _('Advanced'));
 
-	o = s.option(
+	o = s.taboption(
+		'basic',
 		form.Flag,
 		'enabled',
 		_('Enable Middle-End'),
@@ -1098,7 +1290,7 @@ function makeConfigMap() {
 			: true;
 	};
 
-	o = s.option(form.Value, 'proxy_tag', _('Proxy Tag'));
+	o = s.taboption('basic', form.Value, 'proxy_tag', _('Proxy Tag'));
 	o.depends('enabled', '1');
 	o.retain = true;
 	o.datatype = 'string';
@@ -1108,6 +1300,63 @@ function makeConfigMap() {
 		return !value || /^[0-9a-fA-F]{32}$/.test(value)
 			? true
 			: _('Proxy Tag must be empty or contain exactly 32 hexadecimal characters.');
+	};
+
+	o = s.taboption('advanced', form.Value, 'socks5', _('SOCKS5 Proxy'));
+	o.datatype = 'string';
+	o.rmempty = true;
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Value, 'socks5_username', _('SOCKS5 Username'));
+	o.datatype = 'string';
+	o.rmempty = true;
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Value, 'socks5_password', _('SOCKS5 Password'));
+	o.password = true;
+	o.datatype = 'string';
+	o.rmempty = true;
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Value, 'artifact_proxy', _('Artifact Proxy'));
+	o.datatype = 'string';
+	o.rmempty = true;
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Value, 'nat_ip', _('STUN NAT IP'));
+	o.datatype = 'ipaddr';
+	o.rmempty = true;
+	o.depends('enabled', '1');
+	o.retain = true;
+
+	o = s.taboption('advanced', form.Value, 'max_connections', _('Middle-End Max Connections'));
+	o.datatype = 'uinteger';
+	o.default = '0';
+	o.description = _('0 uses the upstream default of 10000; an override may only reduce it.');
+	o.depends('enabled', '1');
+	o.retain = true;
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 1 && number <= 10000)
+			? true
+			: _('Use 0 or a value from 1 to 10000.');
+	};
+
+	o = s.taboption('advanced', form.Value, 'queue_budget_mb', _('Middle-End Queue Budget (MB)'));
+	o.datatype = 'uinteger';
+	o.default = '0';
+	o.description = _('0 keeps upstream defaults: about 32 MiB request/input and 66 MiB shared response/output on 64-bit; 2 to 32 sets N MiB request/input and 2xN MiB shared response/output.');
+	o.depends('enabled', '1');
+	o.retain = true;
+	o.validate = function (section_id, value) {
+		const number = Number(value);
+		return value === '0' || (Number.isInteger(number) && number >= 2 && number <= 32)
+			? true
+			: _('Use 0 or a value from 2 to 32.');
 	};
 
 	return m.render();

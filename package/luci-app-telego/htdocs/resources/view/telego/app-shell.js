@@ -59,7 +59,7 @@ function activate(root, active) {
 
 function DiagnosticsNav(active) {
 	const entries = [
-		{ id: 'advanced', label: _('Advanced Settings'), href: L.url('admin/services/telego/advanced') },
+		{ id: 'runtime', label: _('Runtime'), href: L.url('admin/services/telego/advanced') },
 		{ id: 'nginx-files', label: _('Nginx File Inventory'), href: L.url('admin/services/telego/nginx-files') }
 	];
 

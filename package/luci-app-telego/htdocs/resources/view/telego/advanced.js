@@ -7,12 +7,6 @@
 
 const maxDDDownlinkDelayUs = 1000000;
 
-function featureNote(section, text) {
-	const o = section.option(form.DummyValue, '_feature_note', _('Status'));
-	o.cfgvalue = function () { return text; };
-	return o;
-}
-
 function parseDDDownlinkDelayUs(value) {
 	value = String(value || '');
 	if (value === '0s')
@@ -44,241 +38,22 @@ function siblingFormValue(option, name, sectionId, fallback) {
 
 return view.extend({
 	load: function () {
-		return Promise.all([
-			uci.load('telego'),
-			L.resolveDefault(uci.load('nginx_telego'), null)
-		]);
+		return uci.load('telego');
 	},
 
 	render: function () {
-		const tlsEnabled = uci.get('telego', 'tls_fronting', 'enabled') !== '0';
-		const webEnabled = uci.get('telego', 'web_proxy', 'enabled') === '1';
 		const middleEndEnabled = uci.get('telego', 'middle_end', 'enabled') === '1';
-		const sharedWeb = uci.get('nginx_telego', 'shared', 'enabled') === '1';
-		const externalTlsWeb =
-			!sharedWeb &&
-			(
-				uci.get('nginx_telego', 'cloudflare', 'enabled') === '1' ||
-				uci.get('nginx_telego', 'direct_https', 'enabled') === '1'
-			);
-
 		const m = new form.Map(
 			'telego',
-			_('Advanced Settings'),
-			_('Rare transport, security and runtime controls. Defaults are recommended unless you are diagnosing a specific problem or using an advanced ingress topology.')
+			_('Runtime & Diagnostics'),
+			_('Global runtime tuning and diagnostics remain here. Feature-specific advanced controls are now available in the Advanced tab of each service.')
 		);
 
-		let s = m.section(form.TypedSection, 'general', _('MTProxy Advanced'));
+		let s = m.section(form.TypedSection, 'performance', _('Performance'));
 		s.anonymous = true;
 		s.addremove = false;
 
-		let o = s.option(
-			form.Flag,
-			'proxy_protocol',
-			_('Accept Incoming PROXY Protocol'),
-			_('Enable only when a trusted TCP proxy is directly in front of the public MTProxy listener.')
-		);
-		o.default = '0';
-
-		o = s.option(form.Value, 'max_connections_per_ip', _('Max Connections per IP'));
-		o.datatype = 'uinteger';
-		o.default = '100';
-		o.description = _('0 disables this connection-flood limit.');
-
-		o = s.option(form.Value, 'max_ips_per_user', _('Max IPs per User'));
-		o.datatype = 'uinteger';
-		o.default = '10';
-		o.description = _('0 disables per-secret IP limiting.');
-
-		o = s.option(form.Value, 'ip_block_timeout', _('IP Block Timeout'));
-		o.datatype = 'string';
-		o.default = '5m';
-
-		o = s.option(form.Value, 'handshake_timeout', _('Handshake Timeout'));
-		o.datatype = 'string';
-		o.default = '5s';
-
-		o = s.option(
-			form.Value,
-			'clock_sync_url',
-			_('Clock Sync URL'),
-			_('Optional HTTP(S) URL whose Date header corrects startup clock skew for FakeTLS validation.')
-		);
-		o.datatype = 'string';
-		o.rmempty = true;
-
-		s = m.section(form.TypedSection, 'tls_fronting', _('TLS Fronting Advanced'));
-		s.anonymous = true;
-		s.addremove = false;
-
-		if (!tlsEnabled) {
-			featureNote(s, _('TLS Fronting is disabled. Enable it on the Configuration page to edit EE / FakeTLS advanced settings.'));
-		}
-		else {
-			if (!externalTlsWeb) {
-				o = s.option(
-					form.Value,
-					'cert_host',
-					_('Certificate Host'),
-					_('Optional certificate source. Native shared-port Nginx on this router uses 127.0.0.1.')
-				);
-				o.datatype = 'host';
-				o.rmempty = true;
-
-				o = s.option(
-					form.Value,
-					'cert_port',
-					_('Certificate Port'),
-					_('Native shared-port Nginx uses port 8444 for certificate collection.')
-				);
-				o.datatype = 'port';
-				o.rmempty = true;
-				o.default = '';
-			}
-
-			o = s.option(form.Value, 'fake_cert_size', _('Fake Certificate Size'));
-			o.datatype = 'uinteger';
-			o.default = '0';
-			o.description = _('0 selects automatic matching; an explicit override must be from 256 to 16384 bytes.');
-			o.validate = function (section_id, value) {
-				const number = Number(value);
-				return value === '0' || (Number.isInteger(number) && number >= 256 && number <= 16384)
-					? true
-					: _('Use 0 for automatic mode or a value from 256 to 16384.');
-			};
-
-			o = s.option(form.DynamicList, 'mask_sni_safelist', _('Mask SNI Safelist'));
-			o.datatype = 'hostname';
-
-			if (!externalTlsWeb) {
-				o = s.option(
-					form.Value,
-					'splice_host',
-					_('Fallback Host'),
-					_('Where unrecognized TLS is spliced. Native shared-port Nginx on this router uses 127.0.0.1.')
-				);
-				o.datatype = 'host';
-				o.rmempty = true;
-
-				o = s.option(
-					form.Value,
-					'splice_port',
-					_('Fallback Port'),
-					_('Native shared-port Nginx uses port 8443 and PROXY protocol v2.')
-				);
-				o.datatype = 'port';
-				o.rmempty = true;
-				o.default = '';
-			}
-
-			o = s.option(form.ListValue, 'splice_proxy_protocol', _('Fallback PROXY Protocol'));
-			o.value('0', _('Disabled'));
-			o.value('1', _('PROXY Protocol v1'));
-			o.value('2', _('PROXY Protocol v2'));
-			o.default = '0';
-
-			o = s.option(form.Value, 'splice_idle_timeout', _('Fallback Idle Timeout'));
-			o.datatype = 'string';
-			o.default = '30s';
-
-			o = s.option(form.Flag, 'enable_drs', _('Enable DRS'));
-			o.default = '1';
-
-			o = s.option(form.Flag, 'enable_split_tls', _('Enable Split TLS'));
-			o.default = '1';
-		}
-
-		s = m.section(form.TypedSection, 'web_proxy', _('WEB Proxy Advanced'));
-		s.anonymous = true;
-		s.addremove = false;
-		if (!webEnabled) {
-			featureNote(s, _('WEB Proxy is disabled. Enable it on the Configuration page to edit advanced WEB transport settings.'));
-		}
-		else {
-			o = s.option(
-				form.DynamicList,
-				'trusted_proxy_cidrs',
-				_('Trusted Proxy CIDRs'),
-				_('Only these proxy addresses may supply forwarded client addresses.')
-			);
-			o.datatype = 'cidr';
-			o.default = ['127.0.0.1/32'];
-
-			o = s.option(
-				form.Value,
-				'backend',
-				_('Compatibility Backend'),
-				_('Optional local TCP or Unix backend. Leave empty to use the faster shared MTProxy core directly.')
-			);
-			o.datatype = 'string';
-			o.rmempty = true;
-
-			o = s.option(
-				form.Value,
-				'num_event_loops',
-				_('WEB Event Loops'),
-				_('0 selects the automatic gnet event-loop count.')
-			);
-			o.datatype = 'uinteger';
-			o.default = '0';
-		}
-
-		s = m.section(form.TypedSection, 'middle_end', _('Middle-End Advanced'));
-		s.anonymous = true;
-		s.addremove = false;
-		if (!middleEndEnabled) {
-			featureNote(s, _('Middle-End is disabled. Enable it on the Configuration page to edit advanced Middle-End transport settings.'));
-		}
-		else {
-			o = s.option(form.Value, 'socks5', _('SOCKS5 Proxy'));
-			o.datatype = 'string';
-			o.rmempty = true;
-
-			o = s.option(form.Value, 'socks5_username', _('SOCKS5 Username'));
-			o.datatype = 'string';
-			o.rmempty = true;
-
-			o = s.option(form.Value, 'socks5_password', _('SOCKS5 Password'));
-			o.password = true;
-			o.datatype = 'string';
-			o.rmempty = true;
-
-			o = s.option(form.Value, 'artifact_proxy', _('Artifact Proxy'));
-			o.datatype = 'string';
-			o.rmempty = true;
-
-			o = s.option(form.Value, 'nat_ip', _('STUN NAT IP'));
-			o.datatype = 'ipaddr';
-			o.rmempty = true;
-
-			o = s.option(form.Value, 'max_connections', _('Middle-End Max Connections'));
-			o.datatype = 'uinteger';
-			o.default = '0';
-			o.description = _('0 uses the upstream default of 10000; an override may only reduce it.');
-			o.validate = function (section_id, value) {
-				const number = Number(value);
-				return value === '0' || (Number.isInteger(number) && number >= 1 && number <= 10000)
-					? true
-					: _('Use 0 or a value from 1 to 10000.');
-			};
-
-			o = s.option(form.Value, 'queue_budget_mb', _('Middle-End Queue Budget (MB)'));
-			o.datatype = 'uinteger';
-			o.default = '0';
-			o.description = _('0 keeps upstream defaults: about 32 MiB request/input and 66 MiB shared response/output on 64-bit; 2 to 32 sets N MiB request/input and 2xN MiB shared response/output.');
-			o.validate = function (section_id, value) {
-				const number = Number(value);
-				return value === '0' || (Number.isInteger(number) && number >= 2 && number <= 32)
-					? true
-					: _('Use 0 or a value from 2 to 32.');
-			};
-		}
-
-		s = m.section(form.TypedSection, 'performance', _('Performance'));
-		s.anonymous = true;
-		s.addremove = false;
-
-		o = s.option(form.Value, 'num_event_loops', _('Event Loops'));
+		let o = s.option(form.Value, 'num_event_loops', _('Event Loops'));
 		o.datatype = 'uinteger';
 		o.default = '0';
 
@@ -367,7 +142,7 @@ return view.extend({
 
 		return m.render().then(function (node) {
 			return appShell.wrap('diagnostics', node, {
-				secondary: appShell.diagnosticsNav('advanced')
+				secondary: appShell.diagnosticsNav('runtime')
 			});
 		});
 	}
