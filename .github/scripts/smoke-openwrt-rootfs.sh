@@ -3,6 +3,7 @@ set -euo pipefail
 
 FEED_ROOT=${1:-bin/packages}
 LEGACY_APK=${2:-${FEED_ROOT}/upgrade-fixture/telego-upgrade-fixture-0.6.0-r1.apk}
+INCOMPATIBLE_CORE_APK=${3:-${FEED_ROOT}/upgrade-fixture/telego-pkg-incompatible-0.6.5-r6.apk}
 OPENWRT_VERSION=${OPENWRT_VERSION:-25.12.5}
 OPENWRT_ARCH=${OPENWRT_ARCH:-x86_64}
 OPENWRT_TARGET=${OPENWRT_TARGET:-x86/64}
@@ -35,6 +36,10 @@ done
 
 if [[ ! -f "$LEGACY_APK" ]]; then
   printf 'Missing required installer upgrade fixture: %s\n' "$LEGACY_APK" >&2
+  exit 1
+fi
+if [[ ! -f "$INCOMPATIBLE_CORE_APK" ]]; then
+  printf 'Missing required incompatible core fixture: %s\n' "$INCOMPATIBLE_CORE_APK" >&2
   exit 1
 fi
 
@@ -111,7 +116,9 @@ for apk in "${APKS[@]}"; do
 done
 
 sudo cp -- "$LEGACY_APK" "$rootfs/tmp/telego-pkg-legacy.apk"
+sudo cp -- "$INCOMPATIBLE_CORE_APK" "$rootfs/tmp/telego-pkg-incompatible.apk"
 printf 'Legacy installer upgrade fixture: %s\n' "$LEGACY_APK"
+printf 'Incompatible core dependency fixture: %s\n' "$INCOMPATIBLE_CORE_APK"
 
 (
   cd "$preview_dir"
@@ -255,6 +262,19 @@ assert_installed() {
 # them again by design; direct lifecycle checks reuse the same indexes.
 apk update
 
+# A current LuCI package must refuse an explicitly supplied incompatible core
+# instead of installing a UI whose runtime contract the daemon cannot satisfy.
+if apk add --allow-untrusted \
+  /tmp/telego-pkg-incompatible.apk \
+  /tmp/telego-apks/luci-app-telego-*.apk >/tmp/telego-incompatible-core.log 2>&1; then
+  echo 'New luci-app-telego unexpectedly accepted telego-pkg 0.6.5-r6' >&2
+  cat /tmp/telego-incompatible-core.log >&2
+  exit 1
+fi
+if apk info -e luci-app-telego >/dev/null 2>&1 || apk info -e telego-pkg >/dev/null 2>&1; then
+  echo 'Failed incompatible-core transaction left telEgo packages installed' >&2
+  exit 1
+fi
 # True old -> new installer smoke. The legacy APK is built on the CI host using
 # the same SDK host apk-tools as OpenWrt packaging. The target apk is minimal and
 # intentionally cannot create packages itself.

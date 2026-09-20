@@ -3,6 +3,7 @@ set -euo pipefail
 
 OUTPUT_DIR=${1:-upgrade-fixture}
 OUTPUT_NAME=telego-upgrade-fixture-0.6.0-r1.apk
+INCOMPATIBLE_NAME=telego-pkg-incompatible-0.6.5-r6.apk
 
 mkdir -p "$OUTPUT_DIR"
 OUTPUT_DIR=$(cd "$OUTPUT_DIR" && pwd)
@@ -23,6 +24,7 @@ docker run --rm \
     apk_host=/builder/staging_dir/host/bin/apk
     fixture_root=/tmp/telego-upgrade-fixture
     output=/fixture-out/telego-upgrade-fixture-0.6.0-r1.apk
+    incompatible=/fixture-out/telego-pkg-incompatible-0.6.5-r6.apk
 
     test -x "$apk_host"
     rm -rf "$fixture_root"
@@ -56,8 +58,30 @@ EOF
       --output "$output"
 
     test -s "$output"
+
+    rm -rf "$fixture_root"
+    mkdir -p "$fixture_root/usr/bin"
+    cat >"$fixture_root/usr/bin/telego" <<"EOF"
+#!/bin/sh
+echo incompatible-core-fixture
+EOF
+    chmod 0755 "$fixture_root/usr/bin/telego"
+
+    "$apk_host" mkpkg \
+      --info "name:telego-pkg" \
+      --info "version:0.6.5-r6" \
+      --info "arch:x86_64" \
+      --info "description:telEgo incompatible core dependency fixture" \
+      --info "license:MIT" \
+      --info "origin:telego-incompatible-core-fixture" \
+      --files "$fixture_root" \
+      --output "$incompatible"
+
+    test -s "$incompatible"
   '
 
-sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$OUTPUT_NAME"
+sudo chown "$(id -u):$(id -g)" "$OUTPUT_DIR/$OUTPUT_NAME" "$OUTPUT_DIR/$INCOMPATIBLE_NAME"
 test -s "$OUTPUT_DIR/$OUTPUT_NAME"
+test -s "$OUTPUT_DIR/$INCOMPATIBLE_NAME"
 printf 'Created installer upgrade fixture: %s\n' "$OUTPUT_DIR/$OUTPUT_NAME"
+printf 'Created incompatible core fixture: %s\n' "$OUTPUT_DIR/$INCOMPATIBLE_NAME"
