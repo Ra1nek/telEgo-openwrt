@@ -60,7 +60,10 @@ async function renderAdvanced(state = {}) {
 	const source = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/advanced.js', 'utf8');
 	const view = new Function('form', 'uci', 'view', '_', 'L', source)(
 		form, uci, { extend: x => x }, x => x,
-		{ resolveDefault: (p, fallback) => Promise.resolve(p).catch(() => fallback) }
+		{
+			resolveDefault: (p, fallback) => Promise.resolve(p).catch(() => fallback),
+			toArray: value => value == null ? [] : (Array.isArray(value) ? value : [value])
+		}
 	);
 	await view.load();
 	const rendered = await view.render();

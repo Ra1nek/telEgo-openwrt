@@ -28,9 +28,9 @@ assert.deepEqual(acl.write.ubus['telego.nginx'], ['quarantine', 'restore', 'dele
 assert.match(makefile, /PKG_RELEASE:=14/);
 assert.match(i18nMakefile, /PKG_RELEASE:=10/);
 assert.match(nginxMakefile, /PKG_RELEASE:=9/);
-assert.match(makefile, /EXTRA_DEPENDS:=telego-pkg \\(>=0\\.6\\.5-r7\\)/);
-assert.match(nginxMakefile, /EXTRA_DEPENDS:=nginx-ssl \\(>=1\\.0\\), telego-pkg \\(>=0\\.6\\.5-r7\\)/);
-assert.match(i18nMakefile, /EXTRA_DEPENDS:=luci-app-telego \\(>=0\\.6\\.5-r14\\)/);
+assert.match(makefile, /EXTRA_DEPENDS:=telego-pkg \(>=0\.6\.5-r7\)/);
+assert.match(nginxMakefile, /EXTRA_DEPENDS:=nginx-ssl \(>=1\.0\), telego-pkg \(>=0\.6\.5-r7\)/);
+assert.match(i18nMakefile, /EXTRA_DEPENDS:=luci-app-telego \(>=0\.6\.5-r14\)/);
 assert.match(nginxMakefile, /nginx-telego-editor/);
 assert.match(nginxMakefile, /nginx-telego-firewall/);
 assert.match(nginxMakefile, /nginx-telego-platform/);
