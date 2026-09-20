@@ -6,6 +6,20 @@ set -eu
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT INT TERM
 RUNTIME_CONFIG="$tmp/telego.toml"
+MV_SOURCE_LOG="$tmp/mv-source"
+
+# Keep the real rename behavior while recording the temporary source path.
+# generate_config() must use a per-process file so concurrent start/reload
+# operations never write through the same staging path.
+mv() {
+	src=
+	case "${1:-}" in
+		-f) src=${2:-} ;;
+		*) src=${1:-} ;;
+	esac
+	printf '%s\n' "$src" >"$MV_SOURCE_LOG"
+	command mv "$@"
+}
 CF_ENABLED=0
 SHARED_ENABLED=0
 DIRECT_ENABLED=0
@@ -121,6 +135,10 @@ assert_external_tls_runtime() {
 # Generic/advanced TLS-fronting behavior remains backwards compatible.
 generate_config
 
+[ "$(cat "$MV_SOURCE_LOG")" = "${RUNTIME_CONFIG}.$$" ] || {
+	echo 'generate_config did not use a PID-unique temporary path' >&2
+	exit 1
+}
 test -s "$RUNTIME_CONFIG"
 awk '/^\[tls-fronting\]$/{on=1;next} /^\[/{on=0} on' "$RUNTIME_CONFIG" >"$tmp/tls-enabled"
 grep -Fqx 'enabled = true' "$tmp/tls-enabled"

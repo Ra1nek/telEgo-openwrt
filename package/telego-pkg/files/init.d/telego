@@ -161,7 +161,7 @@ managed_web_profile() {
 }
 
 generate_config() {
-	local tmp="${RUNTIME_CONFIG}.$" value profile external_tls_web=0
+	local tmp="${RUNTIME_CONFIG}.$$" value profile external_tls_web=0
 	TOML_RENDER_FAILED=0
 
 	mkdir -p /var/etc || return 1
