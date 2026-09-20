@@ -277,10 +277,6 @@ return view.extend({
 		s.anonymous = true;
 		s.addremove = false;
 
-		o = s.option(form.Value, 'tcp_buffer_kb', _('TCP Buffer (KB)'));
-		o.datatype = 'uinteger';
-		o.default = '128';
-
 		o = s.option(form.Value, 'num_event_loops', _('Event Loops'));
 		o.datatype = 'uinteger';
 		o.default = '0';

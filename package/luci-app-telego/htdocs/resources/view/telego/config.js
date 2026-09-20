@@ -680,6 +680,8 @@ function makeConfigMap() {
 	);
 	o.datatype = 'string';
 	o.rmempty = false;
+	o.modalonly = true;
+	o.password = true;
 	o.validate = function (section_id, value) {
 		return /^[0-9a-fA-F]{32}$/.test(value)
 			? true
@@ -692,7 +694,40 @@ function makeConfigMap() {
 		);
 
 		const input = widget.querySelector('input');
-		const button = E('button', {
+		input.type = 'password';
+
+		const reveal = E('button', {
+			'id': 'telego-secret-reveal-' + section_id,
+			'type': 'button',
+			'class': 'btn cbi-button',
+			'title': _('Show secret'),
+			'aria-label': _('Show secret'),
+			'click': function () {
+				const hidden = input.type === 'password';
+				input.type = hidden ? 'text' : 'password';
+				this.textContent = hidden ? _('Hide') : _('Show');
+				this.title = hidden ? _('Hide secret') : _('Show secret');
+				this.setAttribute('aria-label', this.title);
+			}
+		}, _('Show'));
+
+		const copy = E('button', {
+			'type': 'button',
+			'class': 'btn cbi-button',
+			'title': _('Copy secret'),
+			'aria-label': _('Copy secret'),
+			'click': function () {
+				if (!input.value)
+					return;
+				return copyText(input.value).then(function () {
+					ui.addNotification(null, E('p', {}, _('Copied to clipboard.')), 'info');
+				}, function () {
+					ui.addNotification(null, E('p', {}, _('Unable to copy automatically. Select the field and copy it manually.')), 'warning');
+				});
+			}
+		}, _('Copy'));
+
+		const generate = E('button', {
 			'type': 'button',
 			'class': 'btn cbi-button cbi-button-action',
 			'title': _('Generate random secret'),
@@ -705,7 +740,9 @@ function makeConfigMap() {
 
 		return E('div', { 'class': 'telego-secret-editor' }, [
 			widget,
-			button
+			reveal,
+			copy,
+			generate
 		]);
 	};
 

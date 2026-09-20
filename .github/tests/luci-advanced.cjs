@@ -110,7 +110,8 @@ function option(options, section, name) {
 	assert.notEqual(queueBudget.validate(null, '1'), true);
 	assert.notEqual(queueBudget.validate(null, '33'), true);
 
-	for (const name of ['tcp_buffer_kb', 'num_event_loops', 'prefer_ip', 'idle_timeout', 'max_write_buffer_mb', 'dd_downlink_chunk', 'dd_downlink_delay', 'client_silence_close'])
+	assert.equal(option(options, 'performance', 'tcp_buffer_kb'), undefined, 'unsupported TCP buffer control must not be exposed');
+	for (const name of ['num_event_loops', 'prefer_ip', 'idle_timeout', 'max_write_buffer_mb', 'dd_downlink_chunk', 'dd_downlink_delay', 'client_silence_close'])
 		assert.ok(option(options, 'performance', name), 'missing Performance option ' + name);
 	assert.ok(option(options, 'upstream', 'socks5'));
 	for (const name of ['bind_to', 'path', 'diagnostics'])

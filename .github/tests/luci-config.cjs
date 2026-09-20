@@ -11,8 +11,10 @@ class Element {
 		this.classList = { add() {}, remove() {} };
 	}
 	addEventListener(name, handler) { this.attrs[name] = handler; }
+	setAttribute(name, value) { this.attrs[name] = value; }
+	dispatchEvent() {}
 	querySelector(selector) {
-		if (selector === '#' + this.attrs.id) return this;
+		if (selector === this.tag || selector === '#' + this.attrs.id) return this;
 		for (const child of this.children) {
 			const found = child?.querySelector?.(selector);
 			if (found) return found;
@@ -109,6 +111,18 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	const publicPort = options.find(o => o.section === 'general' && o.name === 'public_port');
 	assert.equal(publicHost.datatype, 'host');
 	assert.equal(publicPort.datatype, 'port');
+
+	const secretOption = options.find(o => o.section === 'secret' && o.name === 'secret');
+	assert.equal(secretOption.modalonly, true, 'base secret must not be rendered in the users grid');
+	assert.equal(secretOption.password, true, 'base secret editor defaults to masked input');
+	const secretEditor = secretOption.renderWidget('user1', 0, '0123456789abcdef0123456789abcdef');
+	const secretInput = secretEditor.querySelector('input');
+	assert.equal(secretInput.type, 'password', 'secret stays masked until explicit reveal');
+	const revealButton = secretEditor.querySelector('#telego-secret-reveal-user1');
+	revealButton.attrs.click.call(revealButton);
+	assert.equal(secretInput.type, 'text', 'explicit reveal shows the secret');
+	revealButton.attrs.click.call(revealButton);
+	assert.equal(secretInput.type, 'password', 'second reveal action masks the secret again');
 
 	const links = options.find(o => o.section === 'secret' && o.name === '_links');
 	assert.ok(links, 'missing per-user link generator');
