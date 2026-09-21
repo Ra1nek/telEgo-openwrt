@@ -34,7 +34,7 @@ assert.match(config, /event\.key === 'ArrowRight'/);
 assert.match(config, /event\.key === 'Home'/);
 assert.match(config, /event\.key === 'End'/);
 assert.match(config, /setAttribute\('tabindex', dd \? '0' : '-1'\)/);
-assert.match(config, /aria-describedby': 'telego-proxy-session-note telego-proxy-endpoint-error'/);
+assert.match(config, /aria-describedby': 'telego-proxy-session-note telego-proxy-pending-note telego-proxy-endpoint-error'/);
 
 // Dynamic status is not announced on every poll; only actionable error/status
 // surfaces use live regions.
