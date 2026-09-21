@@ -192,7 +192,11 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		form, { declare: () => () => reply ? Promise.resolve(reply) : Promise.reject(new Error('rpcd unavailable')) },
 		ui, uci, { extend: x => x },
 		(tag, attrs, children) => new Element(tag, attrs, children), x => x,
-		{ resolveDefault: (p, fallback) => p.catch(() => fallback), Poll: { add: fn => { poll = fn; } } },
+		{
+			url: path => '/cgi-bin/luci/' + path,
+			resolveDefault: (p, fallback) => p.catch(() => fallback),
+			Poll: { add: fn => { poll = fn; } }
+		},
 		uqr, appShell, windowObject, { querySelector: () => null }
 	);
 	await view.load();
