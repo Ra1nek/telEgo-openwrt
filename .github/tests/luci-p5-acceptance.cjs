@@ -13,8 +13,8 @@ const css = fs.readFileSync('package/luci-app-telego/htdocs/css/telego.css', 'ut
 // exist across route changes.
 assert.doesNotMatch(shell, /'role': 'tablist'/);
 assert.doesNotMatch(shell, /'role': 'tab'/);
-assert.match(shell, /'aria-controls': section\.controls/);
-assert.match(shell, /'aria-pressed': selected \? 'true' : 'false'/);
+assert.match(shell, /attrs\['aria-controls'\] = section\.controls/);
+assert.match(shell, /attrs\['aria-pressed'\] = selected \? 'true' : 'false'/);
 assert.match(shell, /'aria-current'\] = selected \? 'page' : null/);
 assert.match(shell, /removeAttribute\('aria-current'\)/);
 
