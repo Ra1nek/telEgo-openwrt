@@ -402,7 +402,8 @@ P5 UNIFIED APPLICATION SHELL
 }
 
 .telego-app-tab.active,
-.telego-app-tab[aria-selected="true"],
+.telego-app-tab[aria-current="page"],
+.telego-app-tab[aria-pressed="true"],
 .telego-app-subtab.active {
 	border-color: var(--telego-primary-color);
 	color: var(--telego-primary-color);
@@ -990,5 +991,170 @@ P5.6 DIAGNOSTICS CLEANUP
 	.telego-status-grid,
 	.telego-diagnostic-grid {
 		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+
+/* ==========================================================================
+P5.7 RESPONSIVE / MOBILE / ACCESSIBILITY ACCEPTANCE
+=========================================================================== */
+.telego-app,
+.telego-app-content,
+.telego-app-content .cbi-map,
+.telego-app-content .cbi-section {
+	min-width: 0;
+}
+
+.telego-app input,
+.telego-app select,
+.telego-app textarea {
+	max-width: 100%;
+	box-sizing: border-box;
+}
+
+.telego-app a:focus-visible,
+.telego-app button:focus-visible,
+.telego-app input:focus-visible,
+.telego-app select:focus-visible,
+.telego-app textarea:focus-visible,
+.telego-responsive-table:focus-visible {
+	outline: 2px solid var(--telego-primary-color);
+	outline-offset: 2px;
+}
+
+.telego-app-tab,
+.telego-connection-mode-tab,
+.telego-performance-profile,
+#cbi-telego-secret .cbi-button,
+.telego-connection-actions .btn,
+.telego-connection-footer .btn,
+.telego-diagnostics-actions .btn,
+.telego-overview-heading .btn,
+.telego-responsive-table .cbi-button,
+.telego-app .cbi-page-actions .cbi-button {
+	min-height: 44px;
+}
+
+.telego-secret-editor {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+	gap: var(--telego-spacing-sm);
+	align-items: center;
+	min-width: 0;
+}
+
+.telego-secret-editor > :first-child {
+	min-width: 0;
+}
+
+.telego-field-label {
+	display: block;
+	margin: var(--telego-spacing-md) 0 var(--telego-spacing-xs);
+	font-weight: 600;
+}
+
+.telego-responsive-table {
+	max-width: 100%;
+	overflow-x: auto;
+	overscroll-behavior-inline: contain;
+	-webkit-overflow-scrolling: touch;
+}
+
+.telego-responsive-table > table {
+	min-width: 680px;
+	margin-bottom: 0;
+}
+
+.telego-responsive-table td,
+.telego-responsive-table th {
+	vertical-align: top;
+}
+
+.telego-responsive-table td:first-child {
+	overflow-wrap: anywhere;
+}
+
+@media screen and (max-width: 640px) {
+	.telego-app {
+		width: 100%;
+	}
+
+	.telego-app-header h1 {
+		font-size: 1.55em;
+	}
+
+	.telego-app-content .cbi-value,
+	.telego-app-content .cbi-value-field {
+		min-width: 0;
+	}
+
+	.telego-secret-editor {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+
+	.telego-secret-editor > :first-child {
+		grid-column: 1 / -1;
+	}
+
+	.telego-secret-editor .cbi-button {
+		width: 100%;
+		margin: 0;
+	}
+
+	.telego-connection-modal {
+		max-height: calc(100vh - 2rem);
+		overflow-y: auto;
+	}
+
+	.telego-connection-summary {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.telego-connection-summary dt {
+		margin-top: var(--telego-spacing-xs);
+	}
+
+	.telego-connection-summary dd {
+		margin-bottom: var(--telego-spacing-xs);
+	}
+}
+
+@media screen and (max-width: 420px) {
+	.telego-app-tabs {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	#cbi-telego-secret .cbi-section-table-row:not(.placeholder) > .td {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	#cbi-telego-secret .cbi-section-actions > div {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.telego-connection-mode-tabs {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.telego-app *,
+	.telego-app *::before,
+	.telego-app *::after {
+		scroll-behavior: auto !important;
+		transition-duration: 0.01ms !important;
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+	}
+}
+
+@media (forced-colors: active) {
+	.telego-app-tab.active,
+	.telego-app-tab[aria-current="page"],
+	.telego-app-tab[aria-pressed="true"],
+	.telego-connection-mode-tab[aria-selected="true"],
+	.telego-performance-profile[aria-pressed="true"] {
+		outline: 2px solid CanvasText;
+		outline-offset: 2px;
 	}
 }

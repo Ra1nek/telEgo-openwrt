@@ -3,8 +3,8 @@
 'require baseclass';
 
 const APP_SECTIONS = [
-	{ id: 'overview', label: _('Overview'), path: 'configuration', hash: '#overview' },
-	{ id: 'mtproxy', label: _('MTProxy'), path: 'configuration', hash: '#mtproxy' },
+	{ id: 'overview', label: _('Overview'), path: 'configuration', hash: '#overview', controls: 'telego-status-pane' },
+	{ id: 'mtproxy', label: _('MTProxy'), path: 'configuration', hash: '#mtproxy', controls: 'telego-config-pane' },
 	{ id: 'web', label: _('WEB Ingress'), path: 'ingress' },
 	{ id: 'diagnostics', label: _('Diagnostics'), path: 'advanced' }
 ];
@@ -16,19 +16,20 @@ function sectionHref(section) {
 function AppTabs(active, onSelect) {
 	return E('nav', {
 		'class': 'telego-app-tabs',
-		'role': 'tablist',
 		'aria-label': 'telEgo'
 	}, APP_SECTIONS.map(function (section) {
 		const selected = section.id === active;
 		const attrs = {
+			'id': 'telego-app-nav-' + section.id,
 			'class': 'telego-app-tab' + (selected ? ' active' : ''),
-			'data-telego-section': section.id,
-			'role': 'tab',
-			'aria-selected': selected ? 'true' : 'false'
+			'data-telego-section': section.id
 		};
 
-		if (onSelect && (section.id === 'overview' || section.id === 'mtproxy')) {
+		if (onSelect && section.controls) {
 			attrs.type = 'button';
+			attrs['data-telego-switch'] = '1';
+			attrs['aria-controls'] = section.controls;
+			attrs['aria-pressed'] = selected ? 'true' : 'false';
 			attrs.click = function (event) {
 				if (event && event.preventDefault)
 					event.preventDefault();
@@ -38,6 +39,7 @@ function AppTabs(active, onSelect) {
 		}
 
 		attrs.href = sectionHref(section);
+		attrs['aria-current'] = selected ? 'page' : null;
 		return E('a', attrs, section.label);
 	}));
 }
@@ -53,7 +55,18 @@ function activate(root, active) {
 		const tab = tabs[i];
 		const selected = tab.getAttribute('data-telego-section') === active;
 		tab.classList.toggle('active', selected);
-		tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+
+		if (tab.getAttribute('data-telego-switch') === '1') {
+			tab.setAttribute('aria-pressed', selected ? 'true' : 'false');
+			tab.removeAttribute('aria-current');
+		}
+		else {
+			tab.removeAttribute('aria-pressed');
+			if (selected)
+				tab.setAttribute('aria-current', 'page');
+			else
+				tab.removeAttribute('aria-current');
+		}
 	}
 }
 

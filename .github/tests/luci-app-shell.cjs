@@ -28,6 +28,7 @@ class Element {
 	}
 	setAttribute(name, value) { this.attrs[name] = value; }
 	getAttribute(name) { return this.attrs[name]; }
+	removeAttribute(name) { delete this.attrs[name]; }
 	querySelectorAll(selector) {
 		const out = [];
 		const match = selector === '.telego-app-tab'
@@ -62,6 +63,8 @@ BaseClass.extend = function (properties) {
 };
 
 assert.match(source, /'require baseclass';/);
+assert.doesNotMatch(source, /'role': 'tablist'/, 'application shell is navigation, not an ARIA tablist');
+assert.doesNotMatch(source, /'role': 'tab'/, 'application shell does not expose mixed links/buttons as ARIA tabs');
 const ShellClass = new Function('E', '_', 'L', 'baseclass', source)(
 	(tag, attrs, children) => new Element(tag, attrs, children),
 	x => x,
@@ -83,7 +86,10 @@ assert.equal(tabs[0].tag, 'button');
 assert.equal(tabs[1].tag, 'button');
 assert.equal(tabs[2].tag, 'a');
 assert.equal(tabs[3].tag, 'a');
-assert.equal(tabs[0].attrs['aria-selected'], 'true');
+assert.equal(tabs[0].attrs['aria-pressed'], 'true');
+assert.equal(tabs[0].attrs['aria-controls'], 'telego-status-pane');
+assert.equal(tabs[1].attrs['aria-controls'], 'telego-config-pane');
+assert.equal(tabs[0].attrs.role, undefined, 'top-level mixed navigation must not masquerade as ARIA tabs');
 assert.equal(tabs[2].attrs.href, '/cgi-bin/luci/admin/services/telego/ingress');
 assert.equal(tabs[3].attrs.href, '/cgi-bin/luci/admin/services/telego/advanced');
 
@@ -92,9 +98,15 @@ assert.equal(selected, 'mtproxy');
 
 shell.activate(root, 'mtproxy');
 assert.equal(root.attrs['data-telego-section'], 'mtproxy');
-assert.equal(tabs[0].attrs['aria-selected'], 'false');
-assert.equal(tabs[1].attrs['aria-selected'], 'true');
+assert.equal(tabs[0].attrs['aria-pressed'], 'false');
+assert.equal(tabs[1].attrs['aria-pressed'], 'true');
+assert.equal(tabs[1].attrs['aria-current'], undefined);
 assert.match(tabs[1].attrs.class, /\bactive\b/);
+
+shell.activate(root, 'diagnostics');
+assert.equal(tabs[1].attrs['aria-pressed'], 'false');
+assert.equal(tabs[3].attrs['aria-current'], 'page');
+assert.equal(tabs[0].attrs['aria-current'], undefined);
 
 assert.equal(shell.diagnosticsNav, undefined, 'P5.6 removes the diagnostics secondary navigation');
 

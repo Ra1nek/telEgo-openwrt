@@ -40,6 +40,7 @@ jobs:
         run: |
           node .github/tests/luci-config.cjs
           node .github/tests/luci-advanced.cjs
+          node .github/tests/luci-p5-acceptance.cjs
 
       - name: Validate OpenWrt Makefiles
         run: python3 .github/scripts/check-openwrt-makefiles.py

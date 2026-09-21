@@ -274,7 +274,8 @@ function showProxyLinks(sectionId) {
 		'value': publicHost,
 		'placeholder': 'proxy.example.com',
 		'autocomplete': 'off',
-		'spellcheck': 'false'
+		'spellcheck': 'false',
+		'aria-describedby': 'telego-proxy-session-note telego-proxy-endpoint-error'
 	});
 	const portInput = E('input', {
 		'id': 'telego-proxy-public-port',
@@ -283,7 +284,8 @@ function showProxyLinks(sectionId) {
 		'value': publicPort,
 		'min': '1',
 		'max': '65535',
-		'inputmode': 'numeric'
+		'inputmode': 'numeric',
+		'aria-describedby': 'telego-proxy-session-note telego-proxy-endpoint-error'
 	});
 
 	const endpointError = E('div', {
@@ -366,12 +368,15 @@ function showProxyLinks(sectionId) {
 
 	let ddTab;
 	let eeTab;
-	function selectTab(mode) {
+	function selectTab(mode, focusTab) {
 		const dd = mode === 'dd';
 		ddPanel.hidden = !dd;
 		eePanel.hidden = dd;
 		ddTab.setAttribute('aria-selected', dd ? 'true' : 'false');
 		eeTab.setAttribute('aria-selected', dd ? 'false' : 'true');
+		ddTab.setAttribute('tabindex', dd ? '0' : '-1');
+		eeTab.setAttribute('tabindex', dd || !tlsFrontingEnabled ? '-1' : '0');
+
 		if (dd) {
 			ddTab.classList.add('active');
 			eeTab.classList.remove('active');
@@ -380,6 +385,32 @@ function showProxyLinks(sectionId) {
 			eeTab.classList.add('active');
 			ddTab.classList.remove('active');
 		}
+
+		const activeTab = dd ? ddTab : eeTab;
+		if (focusTab && activeTab && activeTab.focus)
+			activeTab.focus();
+	}
+
+	function handleModeKeydown(event) {
+		if (!event)
+			return;
+
+		let mode = null;
+		if (event.key === 'Home')
+			mode = 'dd';
+		else if (event.key === 'End')
+			mode = tlsFrontingEnabled ? 'ee' : 'dd';
+		else if (event.key === 'ArrowLeft')
+			mode = event.currentTarget === ddTab && tlsFrontingEnabled ? 'ee' : 'dd';
+		else if (event.key === 'ArrowRight')
+			mode = event.currentTarget === eeTab ? 'dd' : (tlsFrontingEnabled ? 'ee' : 'dd');
+
+		if (!mode)
+			return;
+
+		if (event.preventDefault)
+			event.preventDefault();
+		selectTab(mode, true);
 	}
 
 	ddTab = E('button', {
@@ -389,6 +420,8 @@ function showProxyLinks(sectionId) {
 		'role': 'tab',
 		'aria-selected': 'true',
 		'aria-controls': 'telego-proxy-panel-dd',
+		'tabindex': '0',
+		'keydown': handleModeKeydown,
 		'click': function () { selectTab('dd'); }
 	}, _('DD / Raw'));
 	eeTab = E('button', {
@@ -398,8 +431,10 @@ function showProxyLinks(sectionId) {
 		'role': 'tab',
 		'aria-selected': 'false',
 		'aria-controls': 'telego-proxy-panel-ee',
+		'tabindex': '-1',
 		'disabled': tlsFrontingEnabled ? null : 'disabled',
 		'title': tlsFrontingEnabled ? '' : _('Enable TLS Fronting to generate EE / FakeTLS links.'),
+		'keydown': handleModeKeydown,
 		'click': function () {
 			if (tlsFrontingEnabled)
 				selectTab('ee');
@@ -497,11 +532,11 @@ function showProxyLinks(sectionId) {
 				'class': 'alert-message notice'
 			}, _('Public Server and Public Port are loaded from saved settings. Changes here apply only to this connection dialog and are not saved.')),
 			E('div', { 'class': 'telego-connection-endpoint-grid' }, [
-				E('label', {}, [
+				E('label', { 'for': 'telego-proxy-public-server' }, [
 					E('span', {}, _('Public Server')),
 					serverInput
 				]),
-				E('label', {}, [
+				E('label', { 'for': 'telego-proxy-public-port' }, [
 					E('span', {}, _('Public Port')),
 					portInput
 				])
@@ -1284,11 +1319,13 @@ return view.extend({
 			const statusNode = buildStatusView();
 
 			const configPane = E('section', {
-				'id': 'telego-config-pane'
+				'id': 'telego-config-pane',
+				'aria-labelledby': 'telego-app-nav-mtproxy'
 			}, configNode);
 
 			const statusPane = E('section', {
-				'id': 'telego-status-pane'
+				'id': 'telego-status-pane',
+				'aria-labelledby': 'telego-app-nav-overview'
 			}, statusNode);
 
 			const initialSection =
@@ -1299,8 +1336,10 @@ return view.extend({
 
 			function selectSection(section, updateUrl) {
 				const mtproxy = section === 'mtproxy';
-				configPane.style.display = mtproxy ? '' : 'none';
-				statusPane.style.display = mtproxy ? 'none' : '';
+				configPane.hidden = !mtproxy;
+				statusPane.hidden = mtproxy;
+				configPane.setAttribute('aria-hidden', mtproxy ? 'false' : 'true');
+				statusPane.setAttribute('aria-hidden', mtproxy ? 'true' : 'false');
 
 				if (updateUrl && window.history && window.history.replaceState)
 					window.history.replaceState(null, '', mtproxy ? '#mtproxy' : '#overview');

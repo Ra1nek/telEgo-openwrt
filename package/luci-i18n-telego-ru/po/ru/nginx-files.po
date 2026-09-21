@@ -181,3 +181,6 @@ msgid "Lines prefixed with - are from the canonical package copy; lines prefixed
 msgstr "Строки с префиксом - относятся к канонической копии пакета; строки с префиксом + — к активному файлу."
 msgid "Close"
 msgstr "Закрыть"
+
+msgid "File content"
+msgstr "Содержимое файла"

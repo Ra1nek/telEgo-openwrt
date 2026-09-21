@@ -9,6 +9,7 @@ class Element {
 		this.disabled = attrs.disabled != null;
 		this.textContent = typeof children === 'string' ? children : '';
 		this.innerHTML = '';
+		this.focused = false;
 		this.classList = {
 			add: (...names) => {
 				const set = new Set(String(this.attrs.class || '').split(/\s+/).filter(Boolean));
@@ -56,6 +57,7 @@ class Element {
 	getAttribute(name) { return this.attrs[name]; }
 	removeAttribute(name) { delete this.attrs[name]; }
 	dispatchEvent() {}
+	focus() { this.focused = true; }
 	querySelector(selector) {
 		const classes = String(this.attrs.class || '').split(/\s+/).filter(Boolean);
 		if (selector === this.tag || selector === '#' + this.attrs.id || (selector.startsWith('.') && classes.includes(selector.slice(1)))) return this;
@@ -201,8 +203,17 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	);
 	await view.load();
 	const root = await view.render();
-	assert.ok(root.querySelector('#telego-config-pane'), 'configuration renders even without rpcd');
+	const configPane = root.querySelector('#telego-config-pane');
+	const statusPane = root.querySelector('#telego-status-pane');
+	assert.ok(configPane, 'configuration renders even without rpcd');
+	assert.ok(statusPane, 'overview pane renders');
 	assert.equal(root.attrs['data-telego-section'], 'overview', 'unified shell opens on Overview by default');
+	assert.equal(configPane.hidden, true, 'inactive MTProxy pane uses the native hidden state');
+	assert.equal(statusPane.hidden, false, 'active Overview pane remains exposed');
+	assert.equal(configPane.attrs['aria-hidden'], 'true');
+	assert.equal(statusPane.attrs['aria-hidden'], 'false');
+	assert.equal(configPane.attrs['aria-labelledby'], 'telego-app-nav-mtproxy');
+	assert.equal(statusPane.attrs['aria-labelledby'], 'telego-app-nav-overview');
 
 	const hostname = options.find(o => o.section === 'web_proxy' && o.name === 'hostname');
 	assert.deepEqual(hostname.dependency, ['enabled', '1']);
@@ -310,18 +321,56 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 
 	const ddPanel = modal.querySelector('#telego-proxy-panel-dd');
 	const eePanel = modal.querySelector('#telego-proxy-panel-ee');
+	const ddTab = modal.querySelector('#telego-proxy-tab-dd');
+	const eeTab = modal.querySelector('#telego-proxy-tab-ee');
 	assert.equal(ddPanel.hidden, false);
 	assert.equal(eePanel.hidden, true);
-	assert.equal(modal.querySelector('#telego-proxy-tab-dd').attrs['aria-selected'], 'true');
-	assert.equal(modal.querySelector('#telego-proxy-tab-ee').attrs['aria-selected'], 'false');
-	modal.querySelector('#telego-proxy-tab-ee').attrs.click();
+	assert.equal(ddTab.attrs['aria-selected'], 'true');
+	assert.equal(eeTab.attrs['aria-selected'], 'false');
+	assert.equal(ddTab.attrs.tabindex, '0');
+	assert.equal(eeTab.attrs.tabindex, '-1');
+
+	if (tlsFrontingEnabled === '1') {
+		let prevented = false;
+		ddTab.attrs.keydown({ key: 'ArrowRight', currentTarget: ddTab, preventDefault() { prevented = true; } });
+		assert.equal(prevented, true, 'ArrowRight is handled by the connection tablist');
+		assert.equal(ddPanel.hidden, true);
+		assert.equal(eePanel.hidden, false);
+		assert.equal(ddTab.attrs.tabindex, '-1');
+		assert.equal(eeTab.attrs.tabindex, '0');
+		assert.equal(eeTab.focused, true, 'keyboard tab switch moves focus to the selected tab');
+
+		eeTab.attrs.keydown({ key: 'ArrowRight', currentTarget: eeTab, preventDefault() {} });
+		assert.equal(ddPanel.hidden, false, 'ArrowRight wraps from EE back to DD');
+		assert.equal(eePanel.hidden, true);
+
+		ddTab.attrs.keydown({ key: 'ArrowLeft', currentTarget: ddTab, preventDefault() {} });
+		assert.equal(ddPanel.hidden, true, 'ArrowLeft wraps from DD to EE');
+		assert.equal(eePanel.hidden, false);
+
+		eeTab.focused = false;
+		eeTab.attrs.keydown({ key: 'Home', currentTarget: eeTab, preventDefault() {} });
+		assert.equal(ddPanel.hidden, false);
+		assert.equal(eePanel.hidden, true);
+		assert.equal(ddTab.attrs['aria-selected'], 'true');
+	}
+	else {
+		ddTab.attrs.keydown({ key: 'ArrowRight', currentTarget: ddTab, preventDefault() {} });
+		assert.equal(ddPanel.hidden, false);
+		assert.equal(eePanel.hidden, true);
+		assert.equal(eeTab.attrs.tabindex, '-1', 'disabled EE tab stays out of the roving tab order');
+	}
+
+	eeTab.attrs.click();
 	assert.equal(ddPanel.hidden, tlsFrontingEnabled === '1' ? true : false);
 	assert.equal(eePanel.hidden, tlsFrontingEnabled === '1' ? false : true);
-	assert.equal(modal.querySelector('#telego-proxy-tab-dd').attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'false' : 'true');
-	assert.equal(modal.querySelector('#telego-proxy-tab-ee').attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'true' : 'false');
+	assert.equal(ddTab.attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'false' : 'true');
+	assert.equal(eeTab.attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'true' : 'false');
 
 	const serverInput = modal.querySelector('#telego-proxy-public-server');
 	const portInput = modal.querySelector('#telego-proxy-public-port');
+	assert.equal(serverInput.attrs['aria-describedby'], 'telego-proxy-session-note telego-proxy-endpoint-error');
+	assert.equal(portInput.attrs['aria-describedby'], 'telego-proxy-session-note telego-proxy-endpoint-error');
 	serverInput.value = '203.0.113.10';
 	portInput.value = '443';
 	serverInput.attrs.input();
