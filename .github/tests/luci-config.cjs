@@ -173,13 +173,13 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	};
 	const appShell = {
 		wrap: (active, content, options) => {
-			const root = new Element('div', { 'data-telego-section': active }, [
+			const children = [
 				new Element('span', { id: 'telego-app-service', hidden: true }, [
 					new Element('strong', { id: 'telego-app-service-value' }, '')
 				]),
-				new Element('time', { id: 'telego-app-freshness', hidden: true }, ''),
-				content
-			]);
+				new Element('time', { id: 'telego-app-freshness', hidden: true }, '')
+			].concat(Array.isArray(content) ? content : [content]);
+			const root = new Element('div', { 'data-telego-section': active }, children);
 			root.shellOptions = options || {};
 			return root;
 		},
