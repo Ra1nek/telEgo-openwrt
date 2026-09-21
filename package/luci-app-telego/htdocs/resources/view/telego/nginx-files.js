@@ -95,9 +95,7 @@ return view.extend({
 			]), container
 		]);
 		this.renderInventory(container, initial, refresh);
-		return appShell.wrap('diagnostics', root, {
-			secondary: appShell.diagnosticsNav('nginx-files')
-		});
+		return appShell.wrap('diagnostics', root);
 	},
 	renderInventory: function (container, result, refresh) {
 		container.innerHTML = '';

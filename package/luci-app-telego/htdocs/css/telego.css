@@ -890,3 +890,105 @@ P5.5 PERFORMANCE PROFILES
 		min-height: 0;
 	}
 }
+
+
+/* ==========================================================================
+P5.6 DIAGNOSTICS CLEANUP
+=========================================================================== */
+.telego-overview-heading,
+.telego-diagnostics-heading {
+	display: flex;
+	justify-content: space-between;
+	gap: var(--telego-spacing-lg);
+	align-items: flex-start;
+	margin-bottom: var(--telego-spacing-lg);
+}
+
+.telego-overview-heading h2,
+.telego-diagnostics-heading h2 {
+	margin-top: 0;
+}
+
+.telego-status-grid,
+.telego-diagnostic-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: var(--telego-spacing-sm);
+}
+
+.telego-status-card,
+.telego-diagnostic-card {
+	min-width: 0;
+	padding: var(--telego-spacing-md);
+	border: 1px solid var(--telego-border-light);
+	border-radius: var(--telego-radius-lg);
+	background: var(--telego-bg-secondary);
+}
+
+.telego-status-label,
+.telego-diagnostic-label {
+	margin-bottom: var(--telego-spacing-xs);
+	color: var(--telego-text-secondary);
+	font-size: .86em;
+	font-weight: 600;
+}
+
+.telego-status-value,
+.telego-diagnostic-value {
+	overflow-wrap: anywhere;
+	color: var(--telego-text-primary);
+	font-size: 1.05em;
+	font-weight: 600;
+}
+
+.telego-status-error {
+	margin-top: var(--telego-spacing-md);
+	color: var(--telego-error-color);
+}
+
+.telego-diagnostic-section {
+	margin: 0 0 var(--telego-spacing-xl);
+}
+
+.telego-diagnostic-section h3 {
+	margin-bottom: var(--telego-spacing-sm);
+}
+
+.telego-diagnostics-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--telego-spacing-sm);
+	justify-content: flex-end;
+}
+
+.telego-diagnostics-runtime {
+	margin-top: var(--telego-spacing-xl);
+	padding-top: var(--telego-spacing-lg);
+	border-top: 1px solid var(--telego-border-light);
+}
+
+@media screen and (max-width: 900px) {
+	.telego-status-grid,
+	.telego-diagnostic-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+}
+
+@media screen and (max-width: 640px) {
+	.telego-overview-heading,
+	.telego-diagnostics-heading {
+		flex-direction: column;
+	}
+
+	.telego-diagnostics-actions,
+	.telego-diagnostics-actions .btn,
+	.telego-overview-heading .btn {
+		width: 100%;
+		box-sizing: border-box;
+	}
+
+	.telego-status-grid,
+	.telego-diagnostic-grid {
+		grid-template-columns: minmax(0, 1fr);
+	}
+}

@@ -432,36 +432,27 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(queueBudget.validate(null, '32'), true);
 	assert.notEqual(queueBudget.validate(null, '33'), true);
 
-	assert.equal(options.find(o => o.section === 'performance'), undefined, 'Performance remains on Runtime until P5.5');
-	assert.equal(options.find(o => o.section === 'upstream'), undefined, 'Upstream remains on Runtime');
-	assert.equal(options.find(o => o.section === 'metrics'), undefined, 'Metrics remains on Runtime');
+	assert.equal(options.find(o => o.section === 'performance'), undefined, 'Performance tuning stays on Diagnostics, not MTProxy configuration');
+	assert.equal(options.find(o => o.section === 'upstream'), undefined, 'Upstream tuning stays on Diagnostics');
+	assert.equal(options.find(o => o.section === 'metrics'), undefined, 'Metrics configuration stays on Diagnostics');
 
-	const webGroup = root.querySelector('#telego-status-group-web');
-	const middleEndGroup = root.querySelector('#telego-status-group-middleend');
-	assert.ok(webGroup, 'WEB runtime status group exists');
-	assert.ok(middleEndGroup, 'Middle-End runtime status group exists');
+	assert.equal(root.querySelector('#telego-status-group-web'), null, 'detailed WEB runtime moved to Diagnostics');
+	assert.equal(root.querySelector('#telego-status-group-middleend'), null, 'detailed Middle-End runtime moved to Diagnostics');
+	assert.ok(root.querySelector('#telego-status-state'), 'Overview keeps the service health summary');
+	assert.ok(root.querySelector('#telego-status-connections'), 'Overview keeps the active connection summary');
 
 	if (initialStatus) {
-		assert.equal(webGroup.hidden, !initialStatus.web_enabled, 'WEB runtime visibility follows backend status');
-		assert.equal(middleEndGroup.hidden, !initialStatus.middleend_enabled, 'Middle-End runtime visibility follows backend status');
-		assert.equal(root.querySelector('#telego-status-pid').textContent, '42');
+		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running');
 		if (initialStatus.metrics_available) {
 			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Running');
-			assert.equal(root.querySelector('#telego-status-web-sessions').textContent, initialStatus.web_enabled ? '2' : '—');
-			assert.equal(root.querySelector('#telego-status-web-streams').textContent, initialStatus.web_enabled ? '5' : '—');
-			assert.equal(root.querySelector('#telego-status-me-links').textContent, initialStatus.middleend_enabled ? '4' : '—');
-			assert.equal(root.querySelector('#telego-status-me-artifact').textContent, initialStatus.middleend_enabled ? 'Applied' : 'Disabled');
+			assert.equal(root.querySelector('#telego-status-connections').textContent, String(initialStatus.connections));
 			assert.equal(root.querySelector('#telego-status-error').textContent, '');
 		} else {
 			assert.equal(root.querySelector('#telego-status-metrics').textContent, 'Error');
-			assert.equal(root.querySelector('#telego-status-web-sessions').textContent, '—');
-			assert.equal(root.querySelector('#telego-status-me-links').textContent, '—');
-			assert.equal(root.querySelector('#telego-status-me-artifact').textContent, '—');
+			assert.equal(root.querySelector('#telego-status-connections').textContent, '—');
 			assert.equal(root.querySelector('#telego-status-error').textContent, 'Metrics: Error (fetch-failed)');
 		}
 	} else {
-		assert.equal(webGroup.hidden, true, 'WEB runtime stays hidden until backend status is available');
-		assert.equal(middleEndGroup.hidden, true, 'Middle-End runtime stays hidden until backend status is available');
 		assert.equal(root.querySelector('#telego-status-error').textContent, 'Unable to read telEgo status.');
 	}
 	assert.equal(typeof poll, 'function');
@@ -469,35 +460,22 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	if (initialStatus) {
 		reply = null;
 		await poll();
-		assert.equal(root.querySelector('#telego-status-state').textContent, 'Unavailable', 'RPC failure marks status unavailable');
-		assert.equal(root.querySelector('#telego-status-pid').textContent, '—', 'RPC failure clears stale PID');
+		assert.equal(root.querySelector('#telego-status-state').textContent, 'Unavailable', 'RPC failure marks Overview unavailable');
 		assert.equal(root.querySelector('#telego-status-connections').textContent, '—', 'RPC failure clears stale counters');
-		assert.equal(webGroup.hidden, true, 'RPC failure hides stale WEB runtime state');
-		assert.equal(middleEndGroup.hidden, true, 'RPC failure hides stale Middle-End runtime state');
 		assert.equal(root.querySelector('#telego-status-error').textContent, 'Unable to read telEgo status.');
 
 		reply = initialStatus;
 		await poll();
-		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running', 'status recovers after RPC returns');
-		assert.equal(root.querySelector('#telego-status-pid').textContent, '42', 'fresh PID returns after RPC recovery');
+		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running', 'Overview recovers after RPC returns');
 		assert.equal(
 			root.querySelector('#telego-status-error').textContent,
 			initialStatus.metrics_available ? '' : 'Metrics: Error (' + String(initialStatus.metrics_error || 'unavailable') + ')',
-			'RPC recovery restores the current metrics state instead of stale RPC data'
+			'RPC recovery restores the current metrics state'
 		);
-
-		reply = { ...initialStatus, web_enabled: false, middleend_enabled: false };
-		await poll();
-		assert.equal(webGroup.hidden, true, 'poll hides WEB runtime when it becomes disabled');
-		assert.equal(middleEndGroup.hidden, true, 'poll hides Middle-End runtime when it becomes disabled');
-
-		reply = { ...initialStatus, web_enabled: true, middleend_enabled: true };
-		await poll();
-		assert.equal(webGroup.hidden, false, 'poll restores WEB runtime when it becomes enabled');
-		assert.equal(middleEndGroup.hidden, false, 'poll restores Middle-End runtime when it becomes enabled');
 	} else {
-		await poll(); // RPC failures must not reject the polling callback.
+		await poll();
 	}
+
 }
 
 const healthyStatus = {
@@ -534,5 +512,7 @@ assert.match(connectionCss, /\.telego-connection-qr svg/);
 assert.match(connectionCss, /#cbi-telego-secret \.cbi-section-actions > div/);
 assert.match(connectionCss, /\.telego-user-secret-status\.is-configured/);
 assert.match(connectionCss, /#cbi-telego-secret \.cbi-section-table-row:not\(\.placeholder\)/);
+assert.match(connectionCss, /\.telego-overview-heading/);
+assert.match(connectionCss, /\.telego-status-grid/);
 console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

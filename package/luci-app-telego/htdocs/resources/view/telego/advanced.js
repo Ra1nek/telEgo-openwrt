@@ -1,9 +1,40 @@
 'use strict';
 
 'require form';
+'require rpc';
 'require uci';
 'require view';
 'require view.telego.app-shell as appShell';
+
+const callTelegoStatus = rpc.declare({
+	object: 'telego',
+	method: 'status',
+	expect: { '': {} }
+});
+
+const callPlatformStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'platform_status',
+	expect: { '': {} }
+});
+
+const callFirewallStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'firewall_status',
+	expect: { '': {} }
+});
+
+const callCertificateStatus = rpc.declare({
+	object: 'telego.nginx',
+	method: 'certificate_status',
+	expect: { '': {} }
+});
+
+const callNginxInventory = rpc.declare({
+	object: 'telego.nginx',
+	method: 'inventory',
+	expect: { '': {} }
+});
 
 const maxDDDownlinkDelayUs = 1000000;
 
@@ -109,15 +140,21 @@ function applyPerformanceProfile(section, sectionId, profileName) {
 	if (!profile)
 		return false;
 
+	const widgets = {};
 	for (const key of PERFORMANCE_PROFILE_KEYS) {
 		const widget = section.getUIElement(sectionId, key);
 		if (!widget || !widget.setValue)
 			continue;
 
+		widgets[key] = widget;
 		widget.setValue(profile[key]);
-		if (widget.triggerValidation)
-			widget.triggerValidation();
 	}
+
+	/* Validate only after every field has its new profile value. This avoids
+	 * transient cross-field errors when disabling DD shaping (chunk/delay). */
+	for (const key of Object.keys(widgets))
+		if (widgets[key].triggerValidation)
+			widgets[key].triggerValidation();
 
 	return true;
 }
@@ -151,6 +188,300 @@ function siblingFormValue(option, name, sectionId, fallback) {
 	return value == null || value === '' ? fallback : value;
 }
 
+function formatBytes(value) {
+	value = Number(value) || 0;
+
+	if (value < 1024)
+		return Math.round(value) + ' ' + _('B');
+
+	const units = [_('B'), _('KiB'), _('MiB'), _('GiB'), _('TiB')];
+	let unit = 0;
+	while (value >= 1024 && unit < units.length - 1) {
+		value /= 1024;
+		unit++;
+	}
+	return value.toFixed(value >= 100 ? 0 : 1) + ' ' + units[unit];
+}
+
+function formatUptime(seconds) {
+	seconds = Math.max(0, Number(seconds) || 0);
+	const days = Math.floor(seconds / 86400);
+	seconds %= 86400;
+	const hours = Math.floor(seconds / 3600);
+	seconds %= 3600;
+	const minutes = Math.floor(seconds / 60);
+	const secs = Math.floor(seconds % 60);
+	const parts = [];
+
+	if (days)
+		parts.push(days + ' ' + _('d'));
+	if (hours || days)
+		parts.push(hours + ' ' + _('h'));
+	if (minutes || hours || days)
+		parts.push(minutes + ' ' + _('m'));
+	parts.push(secs + ' ' + _('s'));
+
+	return parts.join(' ');
+}
+
+function serviceState(status) {
+	if (!status || !status.running)
+		return uci.get('telego', 'general', 'enabled') === '1' ? _('Stopped') : _('Disabled');
+	return _('Running');
+}
+
+function onOff(value) {
+	return value ? _('Enabled') : _('Disabled');
+}
+
+function yesNo(value) {
+	return Number(value) > 0 ? _('Yes') : _('No');
+}
+
+function middleEndArtifactState(status) {
+	if (!status || !status.middleend_enabled)
+		return _('Disabled');
+	if (!status.metrics_available)
+		return _('—');
+	if (Number(status.middleend_artifact_pending) > 0)
+		return _('Pending');
+	if (Number(status.middleend_artifact_applied) > 0)
+		return _('Applied');
+	return _('Waiting');
+}
+
+function ingressProfileLabel(profile) {
+	switch (profile) {
+	case 'shared':
+		return _('Native Shared-Port');
+	case 'cloudflare':
+		return _('Cloudflare Tunnel');
+	case 'direct_https':
+		return _('Direct HTTPS');
+	case 'disabled':
+	case 'none':
+		return _('Disabled');
+	default:
+		return profile || _('Unavailable');
+	}
+}
+
+function firewallStateText(state) {
+	if (!state || !state.ok)
+		return _('Unavailable');
+	if (state.section_state === 'owned')
+		return state.managed_match ? _('Owned and in sync') : _('Owned but drifted');
+	if (state.section_state === 'foreign')
+		return _('Foreign reserved section');
+	return _('Absent');
+}
+
+function diagnosticCard(label, key) {
+	return E('div', { 'class': 'telego-diagnostic-card' }, [
+		E('div', { 'class': 'telego-diagnostic-label' }, label),
+		E('div', { 'class': 'telego-diagnostic-value', 'id': 'telego-diagnostic-' + key }, _('—'))
+	]);
+}
+
+function diagnosticGroup(title, cards, key) {
+	const attrs = { 'class': 'telego-diagnostic-section' };
+	if (key) {
+		attrs.id = 'telego-diagnostic-group-' + key;
+		attrs.hidden = true;
+	}
+
+	return E('section', attrs, [
+		E('h3', {}, title),
+		E('div', { 'class': 'telego-diagnostic-grid' }, cards)
+	]);
+}
+
+function diagnosticLink(label, href, css) {
+	return E('a', {
+		'class': 'btn cbi-button ' + (css || 'cbi-button-action'),
+		'href': href
+	}, label);
+}
+
+function setDiagnosticGroupVisible(root, key, visible) {
+	const node = root.querySelector('#telego-diagnostic-group-' + key);
+	if (node)
+		node.hidden = !visible;
+}
+
+function buildDiagnosticsView() {
+	const service = diagnosticGroup(_('Service Runtime'), [
+		diagnosticCard(_('Service State'), 'state'),
+		diagnosticCard(_('PID'), 'pid'),
+		diagnosticCard(_('Service Uptime'), 'uptime'),
+		diagnosticCard(_('Metrics'), 'metrics')
+	]);
+
+	const listeners = diagnosticGroup(_('Configured Listeners'), [
+		diagnosticCard(_('MTProxy Listener'), 'mtproxy-listener'),
+		diagnosticCard(_('WEB Backend Listener'), 'web-listener'),
+		diagnosticCard(_('Metrics Listener'), 'metrics-listener'),
+		diagnosticCard(_('LuCI HTTPS Listener'), 'luci-listener')
+	]);
+
+	const mtproxy = diagnosticGroup(_('MTProxy Counters'), [
+		diagnosticCard(_('Active Connections'), 'connections'),
+		diagnosticCard(_('Active IPs'), 'ips'),
+		diagnosticCard(_('Tracked IPs'), 'tracked'),
+		diagnosticCard(_('Blocked IPs'), 'blocked'),
+		diagnosticCard(_('Traffic Received'), 'rx'),
+		diagnosticCard(_('Traffic Sent'), 'tx')
+	]);
+
+	const web = diagnosticGroup(_('WEB Proxy Runtime'), [
+		diagnosticCard(_('WEB Proxy State'), 'web-state'),
+		diagnosticCard(_('Carrier Mode'), 'web-carrier'),
+		diagnosticCard(_('Active WEB Sessions'), 'web-sessions'),
+		diagnosticCard(_('Active WEB Streams'), 'web-streams'),
+		diagnosticCard(_('Active WebSockets'), 'web-websockets'),
+		diagnosticCard(_('Backend Dials'), 'web-dials'),
+		diagnosticCard(_('Pending WEB Bytes'), 'web-pending-bytes'),
+		diagnosticCard(_('Pending WEB Items'), 'web-pending-items'),
+		diagnosticCard(_('Carrier Retries'), 'web-retries'),
+		diagnosticCard(_('Backpressure Events'), 'web-backpressure')
+	], 'web');
+
+	const middleEnd = diagnosticGroup(_('Middle-End Runtime'), [
+		diagnosticCard(_('Middle-End State'), 'me-state'),
+		diagnosticCard(_('Admitting New Bindings'), 'me-admitting'),
+		diagnosticCard(_('Repair in Progress'), 'me-repairing'),
+		diagnosticCard(_('Physical Links'), 'me-links'),
+		diagnosticCard(_('Active Bindings'), 'me-bindings'),
+		diagnosticCard(_('Active Slot Repairs'), 'me-repairs'),
+		diagnosticCard(_('Slot Failures'), 'me-failures'),
+		diagnosticCard(_('Artifact State'), 'me-artifact'),
+		diagnosticCard(_('Artifact Refresh Failures'), 'me-artifact-failures')
+	], 'middleend');
+
+	const nginx = diagnosticGroup(_('Nginx & HTTPS'), [
+		diagnosticCard(_('Ingress Profile'), 'nginx-profile'),
+		diagnosticCard(_('Certificate State'), 'certificate-state'),
+		diagnosticCard(_('Certificate Expires'), 'certificate-expiry'),
+		diagnosticCard(_('Certificate Hostname'), 'certificate-hostname'),
+		diagnosticCard(_('Certificate SHA-256'), 'certificate-fingerprint'),
+		diagnosticCard(_('Firewall State'), 'firewall'),
+		diagnosticCard(_('Nginx Files'), 'nginx-files'),
+		diagnosticCard(_('Unsafe Nginx Entries'), 'nginx-unsafe')
+	]);
+
+	return E('div', { 'class': 'telego-diagnostics' }, [
+		E('div', { 'class': 'telego-diagnostics-heading' }, [
+			E('div', {}, [
+				E('h2', {}, _('Diagnostics')),
+				E('p', {}, _('Runtime status, listeners, counters, metrics health and Nginx/HTTPS diagnostics in one place.'))
+			]),
+			E('div', { 'class': 'telego-diagnostics-actions' }, [
+				diagnosticLink(_('Nginx Configuration'), L.url('admin/services/telego/nginx-files')),
+				diagnosticLink(_('WEB Ingress'), L.url('admin/services/telego/ingress'), 'cbi-button-neutral'),
+				diagnosticLink(_('System Log'), L.url('admin/status/logs'), 'cbi-button-neutral')
+			])
+		]),
+		service,
+		listeners,
+		mtproxy,
+		web,
+		middleEnd,
+		nginx,
+		E('p', {
+			'id': 'telego-diagnostic-error',
+			'class': 'telego-status-error',
+			'aria-live': 'polite'
+		})
+	]);
+}
+
+function updateDiagnostics(status, platform, firewall, certificate, inventory, root) {
+	if (!root)
+		return;
+
+	setDiagnosticGroupVisible(root, 'web', !!(status && status.web_enabled));
+	setDiagnosticGroupVisible(root, 'middleend', !!(status && status.middleend_enabled));
+
+	const metricsReady = !!(status && status.metrics_available);
+	const metricsVisible = !!(status && status.running && metricsReady);
+	const mtproxyListener = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
+	const webListener = uci.get('telego', 'web_proxy', 'bind_to') || '127.0.0.1:8080';
+	const metricsListener = uci.get('telego', 'metrics', 'bind_to') || '127.0.0.1:9090';
+	const luciListener = platform && platform.ok && platform.luci_https_port
+		? ':' + platform.luci_https_port
+		: _('—');
+
+	const values = {
+		state: serviceState(status),
+		pid: status && status.pid ? status.pid : _('—'),
+		uptime: status ? formatUptime(status.uptime) : _('—'),
+		metrics: status && status.running ? (metricsReady ? _('Running') : _('Error')) : _('—'),
+		'mtproxy-listener': mtproxyListener,
+		'web-listener': webListener,
+		'metrics-listener': metricsListener,
+		'luci-listener': luciListener,
+		connections: metricsVisible ? status.connections : _('—'),
+		ips: metricsVisible ? status.ips_active : _('—'),
+		tracked: metricsVisible ? status.ips_tracked : _('—'),
+		blocked: metricsVisible ? status.ips_blocked : _('—'),
+		rx: metricsVisible ? formatBytes(status.rx_bytes) : _('—'),
+		tx: metricsVisible ? formatBytes(status.tx_bytes) : _('—'),
+		'web-state': status ? onOff(status.web_enabled) : _('—'),
+		'web-carrier': status && status.web_carrier ? status.web_carrier : _('—'),
+		'web-sessions': metricsVisible && status.web_enabled ? status.web_sessions_active : _('—'),
+		'web-streams': metricsVisible && status.web_enabled ? status.web_streams_active : _('—'),
+		'web-websockets': metricsVisible && status.web_enabled ? status.web_websockets_active : _('—'),
+		'web-dials': metricsVisible && status.web_enabled ? status.web_backend_dials_active : _('—'),
+		'web-pending-bytes': metricsVisible && status.web_enabled ? formatBytes(status.web_pending_bytes) : _('—'),
+		'web-pending-items': metricsVisible && status.web_enabled ? status.web_pending_items : _('—'),
+		'web-retries': metricsVisible && status.web_enabled ? status.web_carrier_retries_total : _('—'),
+		'web-backpressure': metricsVisible && status.web_enabled ? status.web_backpressure_total : _('—'),
+		'me-state': status ? onOff(status.middleend_enabled) : _('—'),
+		'me-admitting': metricsVisible && status.middleend_enabled ? yesNo(status.middleend_admitting) : _('—'),
+		'me-repairing': metricsVisible && status.middleend_enabled ? yesNo(status.middleend_repairing) : _('—'),
+		'me-links': metricsVisible && status.middleend_enabled ? status.middleend_links : _('—'),
+		'me-bindings': metricsVisible && status.middleend_enabled ? status.middleend_bindings : _('—'),
+		'me-repairs': metricsVisible && status.middleend_enabled ? status.middleend_repairs_active : _('—'),
+		'me-failures': metricsVisible && status.middleend_enabled ? status.middleend_slot_failures_total : _('—'),
+		'me-artifact': status ? middleEndArtifactState(status) : _('—'),
+		'me-artifact-failures': metricsVisible && status.middleend_enabled ? status.middleend_artifact_refresh_failures : _('—'),
+		'nginx-profile': certificate && certificate.ok ? ingressProfileLabel(certificate.profile) : _('Unavailable'),
+		'certificate-state': certificate && certificate.ok
+			? (certificate.managed_tls ? (certificate.certificate_state || _('Unknown')) : _('Not managed'))
+			: _('Unavailable'),
+		'certificate-expiry': certificate && certificate.ok && certificate.managed_tls
+			? (certificate.not_after || certificate.expiry_state || _('—'))
+			: _('—'),
+		'certificate-hostname': certificate && certificate.ok ? (certificate.hostname || _('—')) : _('—'),
+		'certificate-fingerprint': certificate && certificate.ok ? (certificate.fingerprint_sha256 || _('—')) : _('—'),
+		firewall: firewallStateText(firewall),
+		'nginx-files': inventory && inventory.ok ? String((inventory.files || []).length) : _('Unavailable'),
+		'nginx-unsafe': inventory && inventory.ok ? String(Number(inventory.unsafe_count) || 0) : _('Unavailable')
+	};
+
+	Object.keys(values).forEach(function (key) {
+		const node = root.querySelector('#telego-diagnostic-' + key);
+		if (node)
+			node.textContent = String(values[key]);
+	});
+
+	const errors = [];
+	if (!status)
+		errors.push(_('Unable to read telEgo status.'));
+	else if (status.running && !metricsReady)
+		errors.push(_('Metrics') + ': ' + _('Error') + ' (' + String(status.metrics_error || 'unavailable') + ')');
+	if (!platform || !platform.ok)
+		errors.push(_('Platform status is unavailable.'));
+	if (!certificate || !certificate.ok)
+		errors.push(_('Certificate status is unavailable.'));
+	if (!inventory || !inventory.ok)
+		errors.push(_('Nginx inventory is unavailable.'));
+
+	const errorNode = root.querySelector('#telego-diagnostic-error');
+	if (errorNode)
+		errorNode.textContent = errors.join(' ');
+}
+
 return view.extend({
 	load: function () {
 		return uci.load('telego');
@@ -160,8 +491,8 @@ return view.extend({
 		const middleEndEnabled = uci.get('telego', 'middle_end', 'enabled') === '1';
 		const m = new form.Map(
 			'telego',
-			_('Runtime & Diagnostics'),
-			_('Global runtime tuning and diagnostics remain here. Feature-specific advanced controls are now available in the Advanced tab of each service.')
+			_('Runtime Tuning'),
+			_('Performance profiles and low-level runtime controls. Live status and infrastructure diagnostics are shown above.')
 		);
 
 		let s = m.section(
@@ -344,7 +675,7 @@ return view.extend({
 		o.datatype = 'string';
 		o.rmempty = true;
 
-		s = m.section(form.TypedSection, 'metrics', _('Metrics'));
+		s = m.section(form.TypedSection, 'metrics', _('Metrics Configuration'));
 		s.anonymous = true;
 		s.addremove = false;
 		o = s.option(form.Value, 'bind_to', _('Metrics Address'));
@@ -358,10 +689,46 @@ return view.extend({
 		o.description = _('Private runtime diagnostics require a literal loopback metrics address.');
 		o.default = '0';
 
-		return m.render().then(function (node) {
-			return appShell.wrap('diagnostics', node, {
-				secondary: appShell.diagnosticsNav('runtime')
-			});
+		return Promise.all([
+			m.render(),
+			L.resolveDefault(callTelegoStatus(), null),
+			L.resolveDefault(callPlatformStatus(), null),
+			L.resolveDefault(callFirewallStatus(), null),
+			L.resolveDefault(callCertificateStatus(), null),
+			L.resolveDefault(callNginxInventory(), null)
+		]).then(function (data) {
+			const dashboard = buildDiagnosticsView();
+			const root = appShell.wrap('diagnostics', E('div', {}, [
+				dashboard,
+				E('div', { 'class': 'telego-diagnostics-runtime' }, data[0])
+			]));
+
+			updateDiagnostics(data[1], data[2], data[3], data[4], data[5], root);
+
+			L.Poll.add(function () {
+				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
+					updateDiagnostics(status, data[2], data[3], data[4], data[5], root);
+				});
+			}, 5);
+
+			L.Poll.add(function () {
+				return Promise.all([
+					L.resolveDefault(callPlatformStatus(), null),
+					L.resolveDefault(callFirewallStatus(), null),
+					L.resolveDefault(callCertificateStatus(), null),
+					L.resolveDefault(callNginxInventory(), null)
+				]).then(function (fresh) {
+					data[2] = fresh[0];
+					data[3] = fresh[1];
+					data[4] = fresh[2];
+					data[5] = fresh[3];
+					return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
+						updateDiagnostics(status, data[2], data[3], data[4], data[5], root);
+					});
+				});
+			}, 30);
+
+			return root;
 		});
 	}
 });

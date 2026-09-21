@@ -57,25 +57,6 @@ function activate(root, active) {
 	}
 }
 
-function DiagnosticsNav(active) {
-	const entries = [
-		{ id: 'runtime', label: _('Runtime'), href: L.url('admin/services/telego/advanced') },
-		{ id: 'nginx-files', label: _('Nginx File Inventory'), href: L.url('admin/services/telego/nginx-files') }
-	];
-
-	return E('nav', {
-		'class': 'telego-app-subtabs',
-		'aria-label': _('Diagnostics')
-	}, entries.map(function (entry) {
-		const selected = entry.id === active;
-		return E('a', {
-			'class': 'telego-app-subtab' + (selected ? ' active' : ''),
-			'href': entry.href,
-			'aria-current': selected ? 'page' : null
-		}, entry.label);
-	}));
-}
-
 function TelEgoApp(active, content, options) {
 	options = options || {};
 
@@ -103,6 +84,5 @@ function TelEgoApp(active, content, options) {
 
 return baseclass.extend({
 	wrap: TelEgoApp,
-	activate: activate,
-	diagnosticsNav: DiagnosticsNav
+	activate: activate
 });

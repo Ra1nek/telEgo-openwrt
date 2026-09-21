@@ -96,12 +96,7 @@ assert.equal(tabs[0].attrs['aria-selected'], 'false');
 assert.equal(tabs[1].attrs['aria-selected'], 'true');
 assert.match(tabs[1].attrs.class, /\bactive\b/);
 
-const diagnostics = shell.diagnosticsNav('nginx-files');
-const sublinks = diagnostics.children;
-assert.equal(sublinks.length, 2);
-assert.equal(sublinks[0].children[0], 'Runtime');
-assert.equal(sublinks[1].children[0], 'Nginx File Inventory');
-assert.equal(sublinks[1].attrs['aria-current'], 'page');
+assert.equal(shell.diagnosticsNav, undefined, 'P5.6 removes the diagnostics secondary navigation');
 
 const menu = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/luci/menu.d/telego.menu.json', 'utf8'));
 assert.equal(menu['admin/services/telego/configuration'].title, 'Overview');

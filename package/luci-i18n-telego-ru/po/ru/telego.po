@@ -1156,3 +1156,99 @@ msgstr "Для диагностики зависания iOS на «Updating»: 
 
 msgid "Profiles do not add a new runtime setting. They only stage values in the existing Performance fields below."
 msgstr "Профили не добавляют новый runtime-параметр. Они только подставляют значения в существующие поля «Производительность» ниже."
+
+msgid "A concise telEgo health summary. Detailed runtime counters, listeners, metrics and Nginx diagnostics are available in Diagnostics."
+msgstr "Краткая сводка состояния telEgo. Подробные runtime-счётчики, точки прослушивания, метрики и диагностика Nginx доступны в разделе «Диагностика»."
+
+msgid "Open Diagnostics"
+msgstr "Открыть диагностику"
+
+msgid "Runtime Tuning"
+msgstr "Настройка работы сервиса"
+
+msgid "Performance profiles and low-level runtime controls. Live status and infrastructure diagnostics are shown above."
+msgstr "Профили производительности и низкоуровневые параметры работы сервиса. Текущее состояние и инфраструктурная диагностика показаны выше."
+
+msgid "Metrics Configuration"
+msgstr "Настройка метрик"
+
+msgid "Service Runtime"
+msgstr "Состояние сервиса"
+
+msgid "Listeners"
+msgstr "Точки прослушивания"
+
+msgid "MTProxy Listener"
+msgstr "Адрес MTProxy"
+
+msgid "WEB Backend Listener"
+msgstr "Адрес WEB-бэкенда"
+
+msgid "Metrics Listener"
+msgstr "Адрес метрик"
+
+msgid "LuCI HTTPS Listener"
+msgstr "Адрес HTTPS LuCI"
+
+msgid "MTProxy Counters"
+msgstr "Счётчики MTProxy"
+
+msgid "Nginx & HTTPS"
+msgstr "Nginx и HTTPS"
+
+msgid "Certificate State"
+msgstr "Состояние сертификата"
+
+msgid "Certificate Expires"
+msgstr "Срок действия сертификата"
+
+msgid "Certificate Hostname"
+msgstr "Имя хоста сертификата"
+
+msgid "Firewall State"
+msgstr "Состояние межсетевого экрана"
+
+msgid "Unsafe Nginx Entries"
+msgstr "Небезопасные записи Nginx"
+
+msgid "Runtime status, listeners, counters, metrics health and Nginx/HTTPS diagnostics in one place."
+msgstr "Состояние сервиса, точки прослушивания, счётчики, работоспособность метрик и диагностика Nginx/HTTPS собраны в одном месте."
+
+msgid "Nginx Configuration"
+msgstr "Конфигурация Nginx"
+
+msgid "System Log"
+msgstr "Системный журнал"
+
+msgid "Not managed"
+msgstr "Не управляется"
+
+msgid "Platform status is unavailable."
+msgstr "Состояние платформы недоступно."
+
+msgid "Certificate status is unavailable."
+msgstr "Состояние сертификата недоступно."
+
+msgid "Nginx inventory is unavailable."
+msgstr "Инвентаризация Nginx недоступна."
+
+msgid "Nginx Files"
+msgstr "Файлы Nginx"
+
+msgid "Absent"
+msgstr "Отсутствует"
+
+msgid "Unknown"
+msgstr "Неизвестно"
+
+msgid "Native Shared-Port"
+msgstr "Native Shared-Port"
+
+msgid "Cloudflare Tunnel"
+msgstr "Cloudflare Tunnel"
+
+msgid "Direct HTTPS"
+msgstr "Direct HTTPS"
+
+msgid "Configured Listeners"
+msgstr "Настроенные точки прослушивания"

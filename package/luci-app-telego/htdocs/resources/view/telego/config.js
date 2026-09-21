@@ -576,26 +576,6 @@ function serviceState(status) {
 	return _('Running');
 }
 
-function onOff(value) {
-	return value ? _('Enabled') : _('Disabled');
-}
-
-function yesNo(value) {
-	return Number(value) > 0 ? _('Yes') : _('No');
-}
-
-function middleEndArtifactState(status) {
-	if (!status || !status.middleend_enabled)
-		return _('Disabled');
-	if (!status.metrics_available)
-		return _('—');
-	if (Number(status.middleend_artifact_pending) > 0)
-		return _('Pending');
-	if (Number(status.middleend_artifact_applied) > 0)
-		return _('Applied');
-	return _('Waiting');
-}
-
 function statusCard(label, key) {
 	return E('div', { 'class': 'telego-status-card' }, [
 		E('div', { 'class': 'telego-status-label' }, label),
@@ -603,123 +583,48 @@ function statusCard(label, key) {
 	]);
 }
 
-function statusGroup(title, cards, key) {
-	const attrs = { 'class': 'telego-status-section' };
-	if (key) {
-		attrs.id = 'telego-status-group-' + key;
-		attrs.hidden = true;
-	}
-
-	return E('div', attrs, [
-		E('h3', {}, title),
-		E('div', { 'class': 'telego-status-grid' }, cards)
-	]);
-}
-
-function setStatusGroupVisible(root, key, visible) {
-	const node = root.querySelector('#telego-status-group-' + key);
-	if (node)
-		node.hidden = !visible;
-}
-
 function buildStatusView() {
-	const service = statusGroup(_('Service and MTProxy'), [
-		statusCard(_('Service State'), 'state'),
-		statusCard(_('PID'), 'pid'),
-		statusCard(_('Service Uptime'), 'uptime'),
-		statusCard(_('Metrics'), 'metrics'),
-		statusCard(_('Active Connections'), 'connections'),
-		statusCard(_('Active IPs'), 'ips'),
-		statusCard(_('Tracked IPs'), 'tracked'),
-		statusCard(_('Blocked IPs'), 'blocked'),
-		statusCard(_('Traffic Received'), 'rx'),
-		statusCard(_('Traffic Sent'), 'tx')
-	]);
-
-	const web = statusGroup(_('WEB Proxy Runtime'), [
-		statusCard(_('WEB Proxy State'), 'web-state'),
-		statusCard(_('Carrier Mode'), 'web-carrier'),
-		statusCard(_('Active WEB Sessions'), 'web-sessions'),
-		statusCard(_('Active WEB Streams'), 'web-streams'),
-		statusCard(_('Active WebSockets'), 'web-websockets'),
-		statusCard(_('Backend Dials'), 'web-dials'),
-		statusCard(_('Pending WEB Bytes'), 'web-pending-bytes'),
-		statusCard(_('Pending WEB Items'), 'web-pending-items'),
-		statusCard(_('WEB Sessions Created'), 'web-created'),
-		statusCard(_('WEB Sessions Closed'), 'web-closed'),
-		statusCard(_('Carrier Retries'), 'web-retries'),
-		statusCard(_('Backpressure Events'), 'web-backpressure')
-	], 'web');
-
-	const middleEnd = statusGroup(_('Middle-End Runtime'), [
-		statusCard(_('Middle-End State'), 'me-state'),
-		statusCard(_('Admitting New Bindings'), 'me-admitting'),
-		statusCard(_('Repair in Progress'), 'me-repairing'),
-		statusCard(_('Physical Links'), 'me-links'),
-		statusCard(_('Active Bindings'), 'me-bindings'),
-		statusCard(_('Active Slot Repairs'), 'me-repairs'),
-		statusCard(_('Slot Failures'), 'me-failures'),
-		statusCard(_('Artifact State'), 'me-artifact'),
-		statusCard(_('Artifact Refresh Failures'), 'me-artifact-failures')
-	], 'middleend');
-
 	const error = E('p', {
 		'class': 'telego-status-error',
 		'id': 'telego-status-error',
 		'aria-live': 'polite'
 	});
 
-	return E('div', {}, [
-		E('h2', {}, _('telEgo Status')),
-		E('p', {}, _('Live service, WEB Proxy and Middle-End statistics from the local metrics endpoint.')),
-		service,
-		web,
-		middleEnd,
+	return E('div', { 'class': 'telego-overview-summary' }, [
+		E('div', { 'class': 'telego-overview-heading' }, [
+			E('div', {}, [
+				E('h2', {}, _('Overview')),
+				E('p', {}, _('A concise telEgo health summary. Detailed runtime counters, listeners, metrics and Nginx diagnostics are available in Diagnostics.'))
+			]),
+			E('a', {
+				'class': 'btn cbi-button cbi-button-action',
+				'href': L.url('admin/services/telego/advanced')
+			}, _('Open Diagnostics'))
+		]),
+		E('div', { 'class': 'telego-status-grid' }, [
+			statusCard(_('Service State'), 'state'),
+			statusCard(_('Service Uptime'), 'uptime'),
+			statusCard(_('Active Connections'), 'connections'),
+			statusCard(_('Traffic Received'), 'rx'),
+			statusCard(_('Traffic Sent'), 'tx'),
+			statusCard(_('Metrics'), 'metrics')
+		]),
 		error
 	]);
 }
 
 function updateStatus(status, root) {
 	root = root || document;
-	setStatusGroupVisible(root, 'web', !!(status && status.web_enabled));
-	setStatusGroupVisible(root, 'middleend', !!(status && status.middleend_enabled));
 
 	const metricsReady = !!(status && status.metrics_available);
 	const metricsVisible = !!(status && status.running && metricsReady);
 	const values = {
 		state: serviceState(status),
-		pid: status && status.pid ? status.pid : _('—'),
 		uptime: status ? formatUptime(status.uptime) : _('—'),
 		metrics: status && status.running ? (metricsReady ? _('Running') : _('Error')) : _('—'),
 		connections: metricsVisible ? status.connections : _('—'),
-		ips: metricsVisible ? status.ips_active : _('—'),
-		tracked: metricsVisible ? status.ips_tracked : _('—'),
-		blocked: metricsVisible ? status.ips_blocked : _('—'),
 		rx: metricsVisible ? formatBytes(status.rx_bytes) : _('—'),
-		tx: metricsVisible ? formatBytes(status.tx_bytes) : _('—'),
-
-		'web-state': status ? onOff(status.web_enabled) : _('—'),
-		'web-carrier': status && status.web_carrier ? status.web_carrier : _('—'),
-		'web-sessions': metricsVisible && status.web_enabled ? status.web_sessions_active : _('—'),
-		'web-streams': metricsVisible && status.web_enabled ? status.web_streams_active : _('—'),
-		'web-websockets': metricsVisible && status.web_enabled ? status.web_websockets_active : _('—'),
-		'web-dials': metricsVisible && status.web_enabled ? status.web_backend_dials_active : _('—'),
-		'web-pending-bytes': metricsVisible && status.web_enabled ? formatBytes(status.web_pending_bytes) : _('—'),
-		'web-pending-items': metricsVisible && status.web_enabled ? status.web_pending_items : _('—'),
-		'web-created': metricsVisible && status.web_enabled ? status.web_sessions_created_total : _('—'),
-		'web-closed': metricsVisible && status.web_enabled ? status.web_sessions_closed_total : _('—'),
-		'web-retries': metricsVisible && status.web_enabled ? status.web_carrier_retries_total : _('—'),
-		'web-backpressure': metricsVisible && status.web_enabled ? status.web_backpressure_total : _('—'),
-
-		'me-state': status ? onOff(status.middleend_enabled) : _('—'),
-		'me-admitting': metricsVisible && status.middleend_enabled ? yesNo(status.middleend_admitting) : _('—'),
-		'me-repairing': metricsVisible && status.middleend_enabled ? yesNo(status.middleend_repairing) : _('—'),
-		'me-links': metricsVisible && status.middleend_enabled ? status.middleend_links : _('—'),
-		'me-bindings': metricsVisible && status.middleend_enabled ? status.middleend_bindings : _('—'),
-		'me-repairs': metricsVisible && status.middleend_enabled ? status.middleend_repairs_active : _('—'),
-		'me-failures': metricsVisible && status.middleend_enabled ? status.middleend_slot_failures_total : _('—'),
-		'me-artifact': status ? middleEndArtifactState(status) : _('—'),
-		'me-artifact-failures': metricsVisible && status.middleend_enabled ? status.middleend_artifact_refresh_failures : _('—')
+		tx: metricsVisible ? formatBytes(status.tx_bytes) : _('—')
 	};
 
 	Object.keys(values).forEach(function (key) {
