@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
 const shell = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/app-shell.js', 'utf8');
+const foundation = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ui-foundation.js', 'utf8');
 const config = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8');
 const advanced = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/advanced.js', 'utf8');
 const nginx = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/nginx-files.js', 'utf8');
@@ -71,4 +72,18 @@ assert.match(css, /@media \(forced-colors: active\)/);
 assert.match(css, /\.telego-secret-editor\s*\{/);
 assert.match(css, /\.telego-connection-summary\s*\{[\s\S]*grid-template-columns:/);
 
-console.log('LuCI P5.7 responsive/mobile/accessibility acceptance tests passed');
+// P6.1 foundation keeps the custom layer on native LuCI theme tokens and owns
+// telEgo polling registrations as a namespace.
+assert.match(css, /--telego-bg-primary:\s*var\(--background-color-high, Canvas\)/);
+assert.match(css, /--telego-text-primary:\s*var\(--text-color-highest, CanvasText\)/);
+assert.match(css, /--telego-primary-color:\s*var\(--primary-color-high, Highlight\)/);
+assert.doesNotMatch(css, /#[0-9a-fA-F]{3,8}\b/, 'custom telEgo stylesheet must not carry its own hard-coded palette');
+assert.match(shell, /uiFoundation\.resetPolls\('telego'\)/);
+assert.match(shell, /Pending changes/);
+assert.match(foundation, /document\.hidden/);
+assert.match(foundation, /L\.Poll\.remove/);
+assert.match(foundation, /pollers\[id\] === wrapped/, 'managed poll exposes a late-result generation guard');
+assert.match(foundation, /uci\.changes\(\)/);
+assert.match(foundation, /node\.textContent = safeText/);
+
+console.log('LuCI P6.1 responsive/theme/foundation acceptance tests passed');

@@ -96,6 +96,7 @@ sh .github/tests/package-reconcile.sh
 bash .github/tests/patched-go-format.sh
 bash .github/tests/service-definition.sh
 "${NODE:-node}" .github/tests/luci-app-shell.cjs
+"${NODE:-node}" .github/tests/luci-ui-foundation.cjs
 "${NODE:-node}" .github/tests/luci-config.cjs
 "${NODE:-node}" .github/tests/luci-advanced.cjs
 "${NODE:-node}" .github/tests/luci-p5-acceptance.cjs

@@ -173,11 +173,48 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	};
 	const appShell = {
 		wrap: (active, content, options) => {
-			const root = new Element('div', { 'data-telego-section': active }, content);
+			const root = new Element('div', { 'data-telego-section': active }, [
+				new Element('span', { id: 'telego-app-service', hidden: true }, [
+					new Element('strong', { id: 'telego-app-service-value' }, '')
+				]),
+				new Element('time', { id: 'telego-app-freshness', hidden: true }, ''),
+				content
+			]);
 			root.shellOptions = options || {};
 			return root;
 		},
-		activate: (root, active) => { root.attrs['data-telego-section'] = active; }
+		activate: (root, active) => { root.attrs['data-telego-section'] = active; },
+		updateHeader: (root, state) => {
+			if (Object.prototype.hasOwnProperty.call(state, 'serviceText')) {
+				const service = root.querySelector('#telego-app-service');
+				const value = root.querySelector('#telego-app-service-value');
+				service.hidden = false;
+				service.attrs['data-tone'] = state.serviceTone || 'neutral';
+				value.textContent = String(state.serviceText);
+			}
+			const freshness = root.querySelector('#telego-app-freshness');
+			if (state.updatedAt) {
+				freshness.attrs['data-updated-at'] = String(Number(state.updatedAt));
+				freshness.hidden = false;
+			}
+			if (Object.prototype.hasOwnProperty.call(state, 'stale'))
+				freshness.attrs['data-stale'] = state.stale ? 'true' : 'false';
+		}
+	};
+	const uiFoundation = {
+		setText: (node, value, fallback) => {
+			if (node)
+				node.textContent = value === null || value === undefined || value === ''
+					? (fallback === undefined ? '' : String(fallback))
+					: String(value);
+			return node;
+		},
+		addPoll: (namespace, key, fn) => {
+			assert.equal(namespace, 'telego');
+			assert.equal(key, 'runtime-status');
+			poll = () => fn(() => true);
+			return poll;
+		}
 	};
 	const windowObject = {
 		location: { hash: '' },
@@ -189,17 +226,16 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			return '<svg data-test="telego-qr"></svg>';
 		}
 	};
-	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'uqr', 'appShell', 'window', 'document',
+	const view = new Function('form', 'rpc', 'ui', 'uci', 'view', 'E', '_', 'L', 'uqr', 'appShell', 'uiFoundation', 'window', 'document',
 		fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8'))(
 		form, { declare: () => () => reply ? Promise.resolve(reply) : Promise.reject(new Error('rpcd unavailable')) },
 		ui, uci, { extend: x => x },
 		(tag, attrs, children) => new Element(tag, attrs, children), x => x,
 		{
 			url: path => '/cgi-bin/luci/' + path,
-			resolveDefault: (p, fallback) => p.catch(() => fallback),
-			Poll: { add: fn => { poll = fn; } }
+			resolveDefault: (p, fallback) => p.catch(() => fallback)
 		},
-		uqr, appShell, windowObject, { querySelector: () => null }
+		uqr, appShell, uiFoundation, windowObject, { querySelector: () => null }
 	);
 	await view.load();
 	const root = await view.render();
@@ -511,15 +547,18 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(typeof poll, 'function');
 
 	if (initialStatus) {
+		const previousConnections = root.querySelector('#telego-status-connections').textContent;
 		reply = null;
 		await poll();
-		assert.equal(root.querySelector('#telego-status-state').textContent, 'Unavailable', 'RPC failure marks Overview unavailable');
-		assert.equal(root.querySelector('#telego-status-connections').textContent, '—', 'RPC failure clears stale counters');
+		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running', 'RPC failure preserves the last known service state');
+		assert.equal(root.querySelector('#telego-status-connections').textContent, previousConnections, 'RPC failure preserves stale counters instead of replacing them with zero/unknown');
 		assert.equal(root.querySelector('#telego-status-error').textContent, 'Unable to read telEgo status.');
+		assert.equal(root.querySelector('#telego-app-freshness').attrs['data-stale'], 'true', 'RPC failure marks the shell status stale');
 
 		reply = initialStatus;
 		await poll();
 		assert.equal(root.querySelector('#telego-status-state').textContent, 'Running', 'Overview recovers after RPC returns');
+		assert.equal(root.querySelector('#telego-app-freshness').attrs['data-stale'], 'false', 'successful poll clears stale state');
 		assert.equal(
 			root.querySelector('#telego-status-error').textContent,
 			initialStatus.metrics_available ? '' : 'Metrics: Error (' + String(initialStatus.metrics_error || 'unavailable') + ')',
@@ -567,5 +606,8 @@ assert.match(connectionCss, /\.telego-user-secret-status\.is-configured/);
 assert.match(connectionCss, /#cbi-telego-secret \.cbi-section-table-row:not\(\.placeholder\)/);
 assert.match(connectionCss, /\.telego-overview-heading/);
 assert.match(connectionCss, /\.telego-status-grid/);
+assert.match(connectionCss, /var\(--background-color-high, Canvas\)/);
+assert.match(connectionCss, /\.telego-app-meta\s*\{/);
+assert.doesNotMatch(connectionCss, /--telego-bg-primary:\s*#fff/i);
 console.log('LuCI configuration tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

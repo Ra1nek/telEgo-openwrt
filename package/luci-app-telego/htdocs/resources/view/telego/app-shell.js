@@ -1,6 +1,7 @@
 'use strict';
 
 'require baseclass';
+'require view.telego.ui-foundation as uiFoundation';
 
 const APP_SECTIONS = [
 	{ id: 'overview', label: _('Overview'), path: 'configuration', hash: '#overview', controls: 'telego-status-pane' },
@@ -70,17 +71,130 @@ function activate(root, active) {
 	}
 }
 
+function formatUpdatedAt(timestamp) {
+	const date = new Date(Number(timestamp));
+	if (isNaN(date.getTime()))
+		return '';
+
+	try {
+		return date.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit'
+		});
+	}
+	catch (e) {
+		return date.toTimeString().slice(0, 8);
+	}
+}
+
+function AppHeader() {
+	return E('header', { 'class': 'telego-app-header' }, [
+		E('div', { 'class': 'telego-app-title' }, [
+			E('h1', {}, 'telEgo')
+		]),
+		E('div', {
+			'class': 'telego-app-meta'
+		}, [
+			E('span', {
+				'id': 'telego-app-service',
+				'class': 'telego-app-meta-item telego-app-service',
+				'hidden': true
+			}, [
+				E('span', { 'class': 'telego-app-meta-label' }, _('Service') + ':'),
+				E('strong', { 'id': 'telego-app-service-value' }, _('—'))
+			]),
+			E('time', {
+				'id': 'telego-app-freshness',
+				'class': 'telego-app-meta-item telego-app-freshness',
+				'hidden': true
+			}),
+			E('span', {
+				'id': 'telego-app-pending',
+				'class': 'telego-app-meta-item telego-app-pending',
+				'hidden': true
+			})
+		])
+	]);
+}
+
+function updateHeader(root, state) {
+	if (!root || !state)
+		return;
+
+	if (Object.prototype.hasOwnProperty.call(state, 'serviceText')) {
+		const service = root.querySelector('#telego-app-service');
+		const value = root.querySelector('#telego-app-service-value');
+		if (service && value) {
+			uiFoundation.setText(value, state.serviceText, _('—'));
+			service.hidden = false;
+			service.setAttribute('data-tone', state.serviceTone || 'neutral');
+		}
+	}
+
+	const freshness = root.querySelector('#telego-app-freshness');
+	if (freshness) {
+		if (state.updatedAt) {
+			const formatted = formatUpdatedAt(state.updatedAt);
+			freshness.setAttribute('datetime', new Date(Number(state.updatedAt)).toISOString());
+			freshness.setAttribute('data-updated-at', String(Number(state.updatedAt)));
+			uiFoundation.setText(freshness, _('Updated') + ': ' + formatted);
+			freshness.hidden = false;
+		}
+
+		if (Object.prototype.hasOwnProperty.call(state, 'stale')) {
+			freshness.classList.toggle('is-stale', !!state.stale);
+			freshness.setAttribute('data-stale', state.stale ? 'true' : 'false');
+
+			if (state.stale) {
+				const last = Number(freshness.getAttribute('data-updated-at') || 0);
+				const formatted = last ? formatUpdatedAt(last) : '';
+				uiFoundation.setText(
+					freshness,
+					formatted
+						? _('Status stale') + ' · ' + _('Updated') + ': ' + formatted
+						: _('Status stale')
+				);
+				freshness.hidden = false;
+			}
+		}
+	}
+
+	if (Object.prototype.hasOwnProperty.call(state, 'pendingChanges')) {
+		const pending = root.querySelector('#telego-app-pending');
+		if (pending) {
+			const count = Number(state.pendingChanges) || 0;
+			uiFoundation.setText(pending, _('Pending changes') + ': ' + count);
+			pending.hidden = count <= 0;
+		}
+	}
+}
+
+function watchPendingChanges(root) {
+	const packages = ['telego', 'nginx_telego'];
+
+	function refresh(isCurrent) {
+		return uiFoundation.pendingChanges(packages).then(function (count) {
+			if (!isCurrent || isCurrent())
+				updateHeader(root, { pendingChanges: count });
+		});
+	}
+
+	refresh(function () { return true; });
+	uiFoundation.addPoll('telego', 'pending-changes', refresh, 10);
+}
+
 function TelEgoApp(active, content, options) {
 	options = options || {};
+
+	uiFoundation.resetPolls('telego');
 
 	const children = [
 		E('link', {
 			'rel': 'stylesheet',
 			'href': L.resource('css/telego.css')
 		}),
-		E('header', { 'class': 'telego-app-header' }, [
-			E('h1', {}, 'telEgo')
-		]),
+		AppHeader(),
 		AppTabs(active, options.onSelect)
 	];
 
@@ -89,13 +203,17 @@ function TelEgoApp(active, content, options) {
 
 	children.push(E('div', { 'class': 'telego-app-content' }, content));
 
-	return E('div', {
+	const root = E('div', {
 		'class': 'telego-app',
 		'data-telego-section': active
 	}, children);
+
+	watchPendingChanges(root);
+	return root;
 }
 
 return baseclass.extend({
 	wrap: TelEgoApp,
-	activate: activate
+	activate: activate,
+	updateHeader: updateHeader
 });

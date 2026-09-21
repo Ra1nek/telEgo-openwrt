@@ -38,6 +38,7 @@ jobs:
 
       - name: Run LuCI behavior smoke tests
         run: |
+          node .github/tests/luci-ui-foundation.cjs
           node .github/tests/luci-config.cjs
           node .github/tests/luci-advanced.cjs
           node .github/tests/luci-p5-acceptance.cjs

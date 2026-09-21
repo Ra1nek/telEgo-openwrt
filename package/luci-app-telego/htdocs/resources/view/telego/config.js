@@ -7,6 +7,7 @@
 'require uqr';
 'require view';
 'require view.telego.app-shell as appShell';
+'require view.telego.ui-foundation as uiFoundation';
 
 const callTelegoStatus = rpc.declare({
 	object: 'telego',
@@ -663,29 +664,45 @@ function updateStatus(status, root) {
 	};
 
 	Object.keys(values).forEach(function (key) {
-		const node = root.querySelector('#telego-status-' + key);
-		if (node)
-			node.textContent = String(values[key]);
+		uiFoundation.setText(root.querySelector('#telego-status-' + key), values[key], _('—'));
 	});
 
-	const error = root.querySelector('#telego-status-error');
-	if (error)
-		error.textContent = status && status.running && !metricsReady
+	uiFoundation.setText(
+		root.querySelector('#telego-status-error'),
+		status && status.running && !metricsReady
 			? _('Metrics') + ': ' + _('Error') + ' (' + String(status.metrics_error || 'unavailable') + ')'
-			: '';
+			: ''
+	);
+
+	appShell.updateHeader(root, {
+		serviceText: serviceState(status),
+		serviceTone: status && status.running
+			? 'success'
+			: (uci.get('telego', 'general', 'enabled') === '1' ? 'error' : 'neutral'),
+		updatedAt: Date.now(),
+		stale: false
+	});
 }
 
 function updateStatusError(errorText, root) {
 	root = root || document;
-	updateStatus(null, root);
 
-	const state = root.querySelector('#telego-status-state');
-	if (state)
-		state.textContent = _('Unavailable');
+	const freshness = root.querySelector('#telego-app-freshness');
+	const hadSuccessfulStatus = !!(freshness && freshness.getAttribute('data-updated-at'));
 
-	const node = root.querySelector('#telego-status-error');
-	if (node)
-		node.textContent = errorText || _('Unable to read telEgo status.');
+	if (!hadSuccessfulStatus) {
+		uiFoundation.setText(root.querySelector('#telego-status-state'), _('Unavailable'));
+		appShell.updateHeader(root, {
+			serviceText: _('Unavailable'),
+			serviceTone: 'error'
+		});
+	}
+
+	uiFoundation.setText(
+		root.querySelector('#telego-status-error'),
+		errorText || _('Unable to read telEgo status.')
+	);
+	appShell.updateHeader(root, { stale: true });
 }
 
 function makeConfigMap() {
@@ -1355,8 +1372,10 @@ return view.extend({
 			});
 			selectSection(initialSection, false);
 
-			L.Poll.add(function () {
+			uiFoundation.addPoll('telego', 'runtime-status', function (isCurrent) {
 				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
+					if (!isCurrent())
+						return;
 					if (status)
 						updateStatus(status, root);
 					else

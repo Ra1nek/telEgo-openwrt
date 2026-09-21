@@ -204,18 +204,54 @@ async function renderAdvanced(state = {}) {
 	const appShell = {
 		wrap: (active, content) => {
 			shellActive = active;
-			return new Element('div', { 'data-active': active }, content);
+			return new Element('div', { 'data-active': active }, [
+				new Element('span', { id: 'telego-app-service', hidden: true }, [
+					new Element('strong', { id: 'telego-app-service-value' }, '')
+				]),
+				new Element('time', { id: 'telego-app-freshness', hidden: true }, ''),
+				content
+			]);
+		},
+		updateHeader: (root, stateValue) => {
+			if (Object.prototype.hasOwnProperty.call(stateValue, 'serviceText')) {
+				const service = root.querySelector('#telego-app-service');
+				const value = root.querySelector('#telego-app-service-value');
+				service.hidden = false;
+				service.attrs['data-tone'] = stateValue.serviceTone || 'neutral';
+				value.textContent = String(stateValue.serviceText);
+			}
+			const freshness = root.querySelector('#telego-app-freshness');
+			if (stateValue.updatedAt) {
+				freshness.attrs['data-updated-at'] = String(Number(stateValue.updatedAt));
+				freshness.hidden = false;
+			}
+			if (Object.prototype.hasOwnProperty.call(stateValue, 'stale'))
+				freshness.attrs['data-stale'] = stateValue.stale ? 'true' : 'false';
+		}
+	};
+	const uiFoundation = {
+		setText: (node, value, fallback) => {
+			if (node)
+				node.textContent = value === null || value === undefined || value === ''
+					? (fallback === undefined ? '' : String(fallback))
+					: String(value);
+			return node;
+		},
+		addPoll: (namespace, key, fn, interval) => {
+			assert.equal(namespace, 'telego');
+			const wrapped = () => fn(() => true);
+			pollers.push({ key, fn: wrapped, interval });
+			return wrapped;
 		}
 	};
 	const L = {
 		url: path => '/cgi-bin/luci/' + path,
 		resolveDefault: (promise, fallback) => Promise.resolve(promise).catch(() => fallback),
-		toArray: value => value == null ? [] : (Array.isArray(value) ? value : [value]),
-		Poll: { add: (fn, interval) => { pollers.push({ fn, interval }); } }
+		toArray: value => value == null ? [] : (Array.isArray(value) ? value : [value])
 	};
 
-	const view = new Function('form', 'rpc', 'uci', 'view', '_', 'L', 'appShell', 'E', source)(
-		form, rpc, uci, { extend: x => x }, x => x, L, appShell,
+	const view = new Function('form', 'rpc', 'uci', 'view', '_', 'L', 'appShell', 'uiFoundation', 'E', source)(
+		form, rpc, uci, { extend: x => x }, x => x, L, appShell, uiFoundation,
 		(tag, attrs, children) => new Element(tag, attrs, children)
 	);
 
@@ -255,6 +291,9 @@ function option(options, section, name) {
 	assert.match(result.source, /admin\/status\/logs/);
 	assert.equal(result.pollers.length, 2, 'Diagnostics uses fast runtime and slower infrastructure polling');
 	assert.deepEqual(result.pollers.map(p => p.interval), [5, 30]);
+	assert.deepEqual(result.pollers.map(p => p.key), ['runtime-status', 'infrastructure-status']);
+	assert.equal(result.root.querySelector('#telego-app-service-value').textContent, 'Running');
+	assert.equal(result.root.querySelector('#telego-app-freshness').attrs['data-stale'], 'false');
 
 	for (const section of ['general', 'tls_fronting', 'web_proxy', 'middle_end'])
 		assert.equal(result.sections.some(entry => entry.section === section), false,
@@ -330,6 +369,8 @@ function option(options, section, name) {
 	assert.match(css, /\.telego-diagnostic-grid\s*\{/);
 	assert.match(css, /\.telego-diagnostics-actions\s*\{/);
 	assert.match(css, /\.telego-performance-profile-grid\s*\{/);
+	assert.match(css, /var\(--background-color-high, Canvas\)/);
+	assert.match(css, /\.telego-app-meta-item\s*\{/);
 
 	console.log('LuCI P5.6 Diagnostics cleanup tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

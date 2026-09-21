@@ -17,6 +17,8 @@ class Element {
 		this.tag = tag;
 		this.attrs = attrs || {};
 		this.children = Array.isArray(children) ? children : [children];
+		this.hidden = attrs.hidden === true;
+		this.textContent = typeof children === 'string' ? children : '';
 		this.classList = {
 			toggle: (name, enabled) => {
 				const classes = String(this.attrs.class || '').split(/\s+/).filter(Boolean);
@@ -29,6 +31,15 @@ class Element {
 	setAttribute(name, value) { this.attrs[name] = value; }
 	getAttribute(name) { return this.attrs[name]; }
 	removeAttribute(name) { delete this.attrs[name]; }
+	querySelector(selector) {
+		if (selector.startsWith('#') && this.attrs.id === selector.slice(1))
+			return this;
+		for (const child of this.children) {
+			const found = child?.querySelector?.(selector);
+			if (found) return found;
+		}
+		return null;
+	}
 	querySelectorAll(selector) {
 		const out = [];
 		const match = selector === '.telego-app-tab'
@@ -45,8 +56,6 @@ const source = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/te
 const L = {
 	url: path => '/cgi-bin/luci/' + path,
 	resource: path => '/luci-static/resources/' + path,
-	// Match LuCI.toArray(): generic objects such as NodeList are wrapped,
-	// not expanded. The shell must therefore not use L.toArray(NodeList).
 	toArray: value => {
 		if (value == null) return [];
 		if (Array.isArray(value)) return value;
@@ -62,61 +71,108 @@ BaseClass.extend = function (properties) {
 	return Constructor;
 };
 
+let resetNamespace = null;
+let pendingPoll = null;
+const uiFoundation = {
+	resetPolls: namespace => { resetNamespace = namespace; },
+	pendingChanges: () => Promise.resolve(2),
+	addPoll: (namespace, key, fn, interval) => {
+		pendingPoll = { namespace, key, fn, interval };
+		return fn;
+	},
+	setText: (node, value, fallback) => {
+		if (node) node.textContent = value == null || value === '' ? String(fallback || '') : String(value);
+		return node;
+	}
+};
+
 assert.match(source, /'require baseclass';/);
+assert.match(source, /uiFoundation\.resetPolls\('telego'\)/);
 assert.doesNotMatch(source, /'role': 'tablist'/, 'application shell is navigation, not an ARIA tablist');
 assert.doesNotMatch(source, /'role': 'tab'/, 'application shell does not expose mixed links/buttons as ARIA tabs');
-const ShellClass = new Function('E', '_', 'L', 'baseclass', source)(
+
+const ShellClass = new Function('E', '_', 'L', 'baseclass', 'uiFoundation', source)(
 	(tag, attrs, children) => new Element(tag, attrs, children),
 	x => x,
 	L,
-	BaseClass
+	BaseClass,
+	uiFoundation
 );
 assert.equal(typeof ShellClass, 'function', 'LuCI module factory must return a class constructor');
 const shell = new ShellClass();
 
-let selected = null;
-const content = new Element('section', { id: 'content' });
-const root = shell.wrap('overview', content, { onSelect: id => { selected = id; } });
-const tabs = root.querySelectorAll('.telego-app-tab');
+(async () => {
+	let selected = null;
+	const content = new Element('section', { id: 'content' });
+	const root = shell.wrap('overview', content, { onSelect: id => { selected = id; } });
+	await Promise.resolve();
 
-assert.equal(tabs.length, 4);
-assert.equal(Array.isArray(tabs), false, 'querySelectorAll test double must behave like a NodeList, not an Array');
-assert.deepEqual(Array.from(tabs, tab => tab.children[0]), ['Overview', 'MTProxy', 'WEB Ingress', 'Diagnostics']);
-assert.equal(tabs[0].tag, 'button');
-assert.equal(tabs[1].tag, 'button');
-assert.equal(tabs[2].tag, 'a');
-assert.equal(tabs[3].tag, 'a');
-assert.equal(tabs[0].attrs['aria-pressed'], 'true');
-assert.equal(tabs[0].attrs['aria-controls'], 'telego-status-pane');
-assert.equal(tabs[1].attrs['aria-controls'], 'telego-config-pane');
-assert.equal(tabs[0].attrs.role, undefined, 'top-level mixed navigation must not masquerade as ARIA tabs');
-assert.equal(tabs[2].attrs.href, '/cgi-bin/luci/admin/services/telego/ingress');
-assert.equal(tabs[3].attrs.href, '/cgi-bin/luci/admin/services/telego/advanced');
+	assert.equal(resetNamespace, 'telego', 'opening a telEgo view resets stale telEgo poll registrations');
+	assert.deepEqual(
+		{ namespace: pendingPoll.namespace, key: pendingPoll.key, interval: pendingPoll.interval },
+		{ namespace: 'telego', key: 'pending-changes', interval: 10 }
+	);
 
-tabs[1].attrs.click({ preventDefault() {} });
-assert.equal(selected, 'mtproxy');
+	const tabs = root.querySelectorAll('.telego-app-tab');
+	assert.equal(tabs.length, 4);
+	assert.equal(Array.isArray(tabs), false, 'querySelectorAll test double must behave like a NodeList, not an Array');
+	assert.deepEqual(Array.from(tabs, tab => tab.children[0]), ['Overview', 'MTProxy', 'WEB Ingress', 'Diagnostics']);
+	assert.equal(tabs[0].tag, 'button');
+	assert.equal(tabs[1].tag, 'button');
+	assert.equal(tabs[2].tag, 'a');
+	assert.equal(tabs[3].tag, 'a');
+	assert.equal(tabs[0].attrs['aria-pressed'], 'true');
+	assert.equal(tabs[0].attrs['aria-controls'], 'telego-status-pane');
+	assert.equal(tabs[1].attrs['aria-controls'], 'telego-config-pane');
+	assert.equal(tabs[0].attrs.role, undefined, 'top-level mixed navigation must not masquerade as ARIA tabs');
+	assert.equal(tabs[2].attrs.href, '/cgi-bin/luci/admin/services/telego/ingress');
+	assert.equal(tabs[3].attrs.href, '/cgi-bin/luci/admin/services/telego/advanced');
 
-shell.activate(root, 'mtproxy');
-assert.equal(root.attrs['data-telego-section'], 'mtproxy');
-assert.equal(tabs[0].attrs['aria-pressed'], 'false');
-assert.equal(tabs[1].attrs['aria-pressed'], 'true');
-assert.equal(tabs[1].attrs['aria-current'], undefined);
-assert.match(tabs[1].attrs.class, /\bactive\b/);
+	const pending = root.querySelector('#telego-app-pending');
+	assert.equal(pending.hidden, false);
+	assert.equal(pending.textContent, 'Pending changes: 2');
 
-shell.activate(root, 'diagnostics');
-assert.equal(tabs[1].attrs['aria-pressed'], 'false');
-assert.equal(tabs[3].attrs['aria-current'], 'page');
-assert.equal(tabs[0].attrs['aria-current'], undefined);
+	shell.updateHeader(root, {
+		serviceText: 'Running',
+		serviceTone: 'success',
+		updatedAt: 1700000000000,
+		stale: false
+	});
+	assert.equal(root.querySelector('#telego-app-service').hidden, false);
+	assert.equal(root.querySelector('#telego-app-service').attrs['data-tone'], 'success');
+	assert.equal(root.querySelector('#telego-app-service-value').textContent, 'Running');
+	assert.equal(root.querySelector('#telego-app-freshness').attrs['data-stale'], 'false');
+	assert.equal(root.querySelector('#telego-app-freshness').attrs['data-updated-at'], '1700000000000');
 
-assert.equal(shell.diagnosticsNav, undefined, 'P5.6 removes the diagnostics secondary navigation');
+	shell.updateHeader(root, { stale: true });
+	assert.equal(root.querySelector('#telego-app-freshness').attrs['data-stale'], 'true');
+	assert.match(root.querySelector('#telego-app-freshness').textContent, /Status stale/);
 
-const menu = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/luci/menu.d/telego.menu.json', 'utf8'));
-assert.equal(menu['admin/services/telego/configuration'].title, 'Overview');
-assert.equal(menu['admin/services/telego/ingress'].title, undefined);
-assert.equal(menu['admin/services/telego/advanced'].title, undefined);
-assert.equal(menu['admin/services/telego/nginx-files'].title, undefined);
-assert.equal(menu['admin/services/telego/ingress'].action.path, 'telego/ingress');
-assert.equal(menu['admin/services/telego/advanced'].action.path, 'telego/advanced');
-assert.equal(menu['admin/services/telego/nginx-files'].action.path, 'telego/nginx-files');
+	tabs[1].attrs.click({ preventDefault() {} });
+	assert.equal(selected, 'mtproxy');
 
-console.log('LuCI P5.1 application shell tests passed');
+	shell.activate(root, 'mtproxy');
+	assert.equal(root.attrs['data-telego-section'], 'mtproxy');
+	assert.equal(tabs[0].attrs['aria-pressed'], 'false');
+	assert.equal(tabs[1].attrs['aria-pressed'], 'true');
+	assert.equal(tabs[1].attrs['aria-current'], undefined);
+	assert.match(tabs[1].attrs.class, /\bactive\b/);
+
+	shell.activate(root, 'diagnostics');
+	assert.equal(tabs[1].attrs['aria-pressed'], 'false');
+	assert.equal(tabs[3].attrs['aria-current'], 'page');
+	assert.equal(tabs[0].attrs['aria-current'], undefined);
+
+	assert.equal(shell.diagnosticsNav, undefined, 'P5.6 removes the diagnostics secondary navigation');
+
+	const menu = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/luci/menu.d/telego.menu.json', 'utf8'));
+	assert.equal(menu['admin/services/telego/configuration'].title, 'Overview');
+	assert.equal(menu['admin/services/telego/ingress'].title, undefined);
+	assert.equal(menu['admin/services/telego/advanced'].title, undefined);
+	assert.equal(menu['admin/services/telego/nginx-files'].title, undefined);
+	assert.equal(menu['admin/services/telego/ingress'].action.path, 'telego/ingress');
+	assert.equal(menu['admin/services/telego/advanced'].action.path, 'telego/advanced');
+	assert.equal(menu['admin/services/telego/nginx-files'].action.path, 'telego/nginx-files');
+
+	console.log('LuCI P6.1 application shell foundation tests passed');
+})().catch(error => { console.error(error); process.exit(1); });

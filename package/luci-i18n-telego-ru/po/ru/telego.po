@@ -1252,3 +1252,15 @@ msgstr "Direct HTTPS"
 
 msgid "Configured Listeners"
 msgstr "Настроенные точки прослушивания"
+
+msgid "Service"
+msgstr "Служба"
+
+msgid "Updated"
+msgstr "Обновлено"
+
+msgid "Status stale"
+msgstr "Данные устарели"
+
+msgid "Pending changes"
+msgstr "Ожидающие изменения"
