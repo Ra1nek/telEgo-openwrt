@@ -86,4 +86,21 @@ assert.match(foundation, /pollers\[id\] === wrapped/, 'managed poll exposes a la
 assert.match(foundation, /uci\.changes\(\)/);
 assert.match(foundation, /node\.textContent = safeText/);
 
-console.log('LuCI P6.1 responsive/theme/foundation acceptance tests passed');
+// P6.2 connection privacy and keyboard-reorder contracts.
+assert.match(config, /const CONNECTION_MASK = '••••'/);
+assert.match(config, /input\.setAttribute\('data-revealed', 'false'\)/);
+assert.match(config, /node\.removeAttribute\('href'\)/);
+assert.match(config, /uiFoundation\.pendingChanges\(\['telego'\]\)/);
+assert.match(config, /this\.map\.data\.move\(configName, section_id, targetSectionId, direction > 0\)/);
+assert.match(config, /telego-user-move-up/);
+assert.match(config, /telego-user-move-down/);
+assert.match(config, /aria-live': 'polite'/);
+assert.match(config, /Replace the configured secret with a new random secret/);
+assert.match(config, /baseSecret = ''/);
+assert.match(config, /maskHost = ''/);
+assert.match(config, /renderProxyQr\(state\.qrSlot, state\.qrId, value\.link\)/);
+assert.match(css, /\.telego-sr-only\s*\{/);
+assert.match(css, /\.telego-connection-qr-card\[data-state="hidden"\]/);
+assert.match(css, /#cbi-telego-secret \.telego-user-move\s*\{/);
+
+console.log('LuCI P6.2 connection UX acceptance tests passed');

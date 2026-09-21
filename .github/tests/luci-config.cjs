@@ -1,6 +1,8 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
+if (typeof global.Event !== 'function') global.Event = class Event { constructor(type, options) { this.type = type; this.options = options; } };
+
 class Element {
 	constructor(tag, attrs = {}, children = []) {
 		this.tag = tag; this.attrs = attrs; this.style = {}; this.hidden = attrs.hidden === true;
@@ -8,8 +10,9 @@ class Element {
 		this.value = attrs.value || '';
 		this.disabled = attrs.disabled != null;
 		this.textContent = typeof children === 'string' ? children : '';
-		this.innerHTML = '';
+		this._innerHTML = '';
 		this.focused = false;
+		this.selected = false;
 		this.classList = {
 			add: (...names) => {
 				const set = new Set(String(this.attrs.class || '').split(/\s+/).filter(Boolean));
@@ -26,14 +29,44 @@ class Element {
 		for (const child of this.children)
 			if (child instanceof Element) child.parentNode = this;
 	}
+	get innerHTML() { return this._innerHTML; }
+	set innerHTML(value) {
+		this._innerHTML = String(value);
+		if (value === '') {
+			for (const child of this.children)
+				if (child instanceof Element) child.parentNode = null;
+			this.children = [];
+		}
+	}
+	get firstChild() { return this.children.length ? this.children[0] : null; }
 	get lastElementChild() {
 		for (let i = this.children.length - 1; i >= 0; i--)
 			if (this.children[i] instanceof Element) return this.children[i];
 		return null;
 	}
+	get previousElementSibling() {
+		if (!this.parentNode) return null;
+		const siblings = this.parentNode.children.filter(child => child instanceof Element);
+		const index = siblings.indexOf(this);
+		return index > 0 ? siblings[index - 1] : null;
+	}
+	get nextElementSibling() {
+		if (!this.parentNode) return null;
+		const siblings = this.parentNode.children.filter(child => child instanceof Element);
+		const index = siblings.indexOf(this);
+		return index >= 0 && index < siblings.length - 1 ? siblings[index + 1] : null;
+	}
 	appendChild(child) {
 		if (child instanceof Element) child.parentNode = this;
 		this.children.push(child);
+		return child;
+	}
+	removeChild(child) {
+		const index = this.children.indexOf(child);
+		if (index >= 0) {
+			this.children.splice(index, 1);
+			if (child instanceof Element) child.parentNode = null;
+		}
 		return child;
 	}
 	insertBefore(child, reference) {
@@ -58,6 +91,16 @@ class Element {
 	removeAttribute(name) { delete this.attrs[name]; }
 	dispatchEvent() {}
 	focus() { this.focused = true; }
+	select() { this.selected = true; }
+	closest(selector) {
+		let node = this;
+		while (node) {
+			const classes = String(node.attrs?.class || '').split(/\s+/).filter(Boolean);
+			if (selector.startsWith('.') && classes.includes(selector.slice(1))) return node;
+			node = node.parentNode;
+		}
+		return null;
+	}
 	querySelector(selector) {
 		const classes = String(this.attrs.class || '').split(/\s+/).filter(Boolean);
 		if (selector === this.tag || selector === '#' + this.attrs.id || (selector.startsWith('.') && classes.includes(selector.slice(1)))) return this;
@@ -69,11 +112,17 @@ class Element {
 	}
 }
 
-async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled = '1', ddChunkValue = '0', ddDelayValue = '0s') {
+async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled = '1', ddChunkValue = '0', ddDelayValue = '0s', pendingChangeCount = 0, draftPublicHost = null) {
 	const options = [];
 	const sections = [];
 	let removedSection = null;
 	let removedContext = null;
+	const movedSections = [];
+	const clipboardValues = [];
+	const legacyClipboardValues = [];
+	let legacyCopyAllowed = true;
+	let confirmCalls = 0;
+	let confirmResult = false;
 	let poll;
 	let modal;
 	let reply = initialStatus;
@@ -82,7 +131,24 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		section(kind, section) {
 			const instance = {
 				anonymous: false, addremove: true, sortable: false,
-				map: { readonly: false },
+				map: {
+					readonly: false,
+					config: 'telego',
+					data: {
+						move: (...args) => { movedSections.push(args); }
+					},
+					lookupOption(name, sectionId) {
+						if (draftPublicHost !== null && sectionId === 'general' && name === 'public_host') {
+							return [{
+								formvalue: () => draftPublicHost
+							}, sectionId];
+						}
+						return null;
+					}
+				},
+				cfgsections() {
+					return section === 'secret' ? ['user1', 'user2'] : [section];
+				},
 				tabs: [],
 				tab(name, title) {
 					this.tabs.push([name, title]);
@@ -127,7 +193,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		GridSection: function() {},
 		TypedSection: function() {}
 	};
-	form.Value.prototype = { renderWidget() { return new Element('input'); } };
+	form.Value.prototype = { renderWidget(section_id, option_index, cfgvalue) { return new Element('input', { value: cfgvalue || '' }); } };
 	form.GridSection.prototype.handleRemove = function(section_id) {
 		removedSection = section_id;
 		removedContext = this;
@@ -147,6 +213,8 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			if (config === 'telego' && section === 'performance' && option === 'dd_downlink_delay') return ddDelayValue;
 			if (config === 'telego' && section === 'user1' && option === 'name') return 'aiser';
 			if (config === 'telego' && section === 'user1' && option === 'secret') return '0123456789abcdef0123456789abcdef';
+			if (config === 'telego' && section === 'user2' && option === 'name') return 'second';
+			if (config === 'telego' && section === 'user2' && option === 'secret') return 'fedcba9876543210fedcba9876543210';
 			if (config === 'telego' && section === 'new-user' && option === 'name') return '';
 			if (config === 'telego' && section === 'new-user' && option === 'secret') return '';
 			if (config === 'telego' && section === 'bad-user' && option === 'name') return 'broken';
@@ -214,11 +282,43 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			assert.equal(key, 'runtime-status');
 			poll = () => fn(() => true);
 			return poll;
-		}
+		},
+		pendingChanges: () => Promise.resolve(pendingChangeCount)
 	};
 	const windowObject = {
 		location: { hash: '' },
-		history: { replaceState: (state, title, hash) => { windowObject.location.hash = hash; } }
+		history: { replaceState: (state, title, hash) => { windowObject.location.hash = hash; } },
+		navigator: {
+			clipboard: {
+				writeText: value => {
+					clipboardValues.push(value);
+					return Promise.resolve();
+				}
+			}
+		},
+		crypto: {
+			getRandomValues: bytes => {
+				for (let i = 0; i < bytes.length; i++) bytes[i] = i;
+				return bytes;
+			}
+		},
+		confirm: () => {
+			confirmCalls++;
+			return confirmResult;
+		}
+	};
+	const documentBody = new Element('body');
+	const documentObject = {
+		body: documentBody,
+		querySelector: () => null,
+		createElement: tag => new Element(tag),
+		execCommand: command => {
+			if (command !== 'copy' || !legacyCopyAllowed)
+				return false;
+			const textarea = documentBody.lastElementChild;
+			legacyClipboardValues.push(textarea ? textarea.value : '');
+			return true;
+		}
 	};
 	const uqr = {
 		renderSVG: (value, options) => {
@@ -235,7 +335,7 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 			url: path => '/cgi-bin/luci/' + path,
 			resolveDefault: (p, fallback) => p.catch(() => fallback)
 		},
-		uqr, appShell, uiFoundation, windowObject, { querySelector: () => null }
+		uqr, appShell, uiFoundation, windowObject, documentObject
 	);
 	await view.load();
 	const root = await view.render();
@@ -288,6 +388,16 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	revealButton.attrs.click.call(revealButton);
 	assert.equal(secretInput.type, 'password', 'second reveal action masks the secret again');
 
+	const generateButton = secretEditor.querySelector('#telego-secret-generate-user1');
+	const configuredSecret = secretInput.value;
+	generateButton.attrs.click();
+	assert.equal(confirmCalls, 1, 'replacing a configured secret requires confirmation');
+	assert.equal(secretInput.value, configuredSecret, 'cancelled replacement preserves the configured secret');
+	confirmResult = true;
+	generateButton.attrs.click();
+	assert.equal(confirmCalls, 2);
+	assert.equal(secretInput.value, '000102030405060708090a0b0c0d0e0f', 'confirmed generation stages a 16-byte cryptographic secret as 32 hex characters');
+
 	const users = sections.find(entry => entry.section === 'secret').instance;
 	assert.equal(users.addbtntitle, 'Add user');
 	assert.equal(users.actionstitle, 'Actions');
@@ -314,12 +424,25 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	const editButton = rowActions.querySelector('.telego-user-edit');
 	const deleteButton = rowActions.querySelector('.telego-user-delete');
 	const reorderButton = rowActions.querySelector('.telego-user-reorder');
+	const moveUpButton = rowActions.querySelector('.telego-user-move-up');
+	const moveDownButton = rowActions.querySelector('.telego-user-move-down');
+	const reorderStatus = rowActions.querySelector('.telego-user-reorder-status');
 	assert.ok(connectButton, 'users grid has a Connect action');
 	assert.ok(editButton, 'users grid keeps an Edit action');
 	assert.ok(deleteButton, 'users grid has a guarded Delete action');
-	assert.ok(reorderButton, 'users grid keeps the reorder handle');
+	assert.ok(reorderButton, 'users grid keeps the drag reorder handle');
+	assert.ok(moveUpButton && moveDownButton, 'users grid exposes keyboard-accessible move controls');
+	assert.equal(moveUpButton.disabled, true, 'first user cannot move further up');
+	assert.equal(moveDownButton.disabled, false, 'first user can move down');
 	assert.equal(editButton.attrs.title, 'Edit user');
+
+	moveDownButton.attrs.click({ currentTarget: moveDownButton, preventDefault() {} });
+	assert.deepEqual(movedSections[0], ['telego', 'user1', 'user2', true], 'keyboard reorder uses native UCI move semantics and the real section SID');
+	assert.equal(moveDownButton.focused, true, 'keyboard reorder preserves focus on the invoked control');
+	assert.match(reorderStatus.textContent, /Position: 2 \/ 2/, 'keyboard reorder announces the resulting position');
+
 	connectButton.attrs.click({ preventDefault() {} });
+	await Promise.resolve();
 	assert.ok(modal, 'Connect opens the connection modal');
 	assert.deepEqual(modal.attrs.title, ['Connection Links — aiser'], 'connection modal uses the selected UCI section');
 
@@ -327,33 +450,63 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	const ddLinkOutput = modal.querySelector('#telego-proxy-dd-link');
 	const eeSecretOutput = modal.querySelector('#telego-proxy-ee-secret');
 	const eeLinkOutput = modal.querySelector('#telego-proxy-ee-link');
-	const ddQr = modal.querySelector('#telego-proxy-dd-qr');
-	const eeQr = modal.querySelector('#telego-proxy-ee-qr');
 	const ddOpen = modal.querySelector('#telego-proxy-dd-open');
 	const eeOpen = modal.querySelector('#telego-proxy-ee-open');
+	const ddReveal = modal.querySelector('#telego-proxy-dd-reveal');
+	const eeReveal = modal.querySelector('#telego-proxy-ee-reveal');
 	assert.ok(modal.querySelector('#telego-proxy-session-note'), 'modal explains that endpoint edits are session-only');
+	const pendingNote = modal.querySelector('#telego-proxy-pending-note');
+	const expectPendingNote = pendingChangeCount > 0 || draftPublicHost !== null;
+	assert.equal(
+		pendingNote.hidden,
+		!expectPendingNote,
+		'connection modal warns when the displayed saved UCI differs from form or runtime state'
+	);
+	if (pendingChangeCount > 0 && draftPublicHost === null)
+		assert.match(pendingNote.textContent, /saved telEgo changes waiting for Apply/);
+	if (draftPublicHost !== null && pendingChangeCount === 0)
+		assert.match(pendingNote.textContent, /unsaved edits/);
+	assert.equal(ddSecretOutput.value, '••••', 'DD secret is masked before explicit reveal');
+	assert.equal(ddLinkOutput.value, '••••', 'DD link is masked before explicit reveal');
+	assert.equal(eeSecretOutput.value, '••••', 'EE secret is masked before explicit reveal');
+	assert.equal(eeLinkOutput.value, '••••', 'EE link is masked before explicit reveal');
+	assert.equal(modal.querySelector('#telego-proxy-dd-qr'), null, 'DD QR is not mounted before reveal');
+	assert.equal(modal.querySelector('#telego-proxy-ee-qr'), null, 'EE QR is not mounted before reveal');
+	assert.equal(ddOpen.attrs.href, undefined, 'Open Telegram has no href before reveal');
+	assert.equal(ddOpen.attrs['aria-disabled'], 'true');
+	assert.equal(qrPayloads.length, 0, 'modal open must not generate a QR payload');
+
+	await modal.querySelector('#telego-proxy-dd-link-copy').attrs.click();
+	assert.equal(
+		clipboardValues.at(-1),
+		'tg://proxy?server=proxy.example.com&port=2443&secret=dd0123456789abcdef0123456789abcdef',
+		'Copy link derives the saved connection in memory without revealing it'
+	);
+	assert.equal(ddLinkOutput.value, '••••', 'successful Copy does not reveal the link');
+	assert.equal(modal.querySelector('#telego-proxy-dd-qr'), null, 'Copy does not mount a QR');
+
+	windowObject.navigator.clipboard.writeText = () => Promise.reject(new Error('permission denied'));
+	await modal.querySelector('#telego-proxy-dd-secret-copy').attrs.click();
+	assert.equal(
+		legacyClipboardValues.at(-1),
+		'dd0123456789abcdef0123456789abcdef',
+		'rejected Clipboard API falls back to a local textarea copy'
+	);
+	assert.equal(ddSecretOutput.value, '••••', 'successful legacy fallback keeps the secret masked');
+
+	legacyCopyAllowed = false;
+	await modal.querySelector('#telego-proxy-dd-secret-copy').attrs.click();
+	assert.equal(ddSecretOutput.value, 'dd0123456789abcdef0123456789abcdef', 'when both clipboard methods fail, explicit Copy reveals only the requested value for manual selection');
+	assert.equal(ddSecretOutput.selected, true, 'manual fallback selects the revealed value');
+
+	ddReveal.attrs.click();
 	assert.equal(ddSecretOutput.value, 'dd0123456789abcdef0123456789abcdef');
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=dd0123456789abcdef0123456789abcdef');
 	assert.equal(ddOpen.attrs.href, ddLinkOutput.value);
 	assert.equal(ddOpen.attrs['aria-disabled'], 'false');
-	assert.equal(ddQr.attrs['data-state'], 'ready');
+	assert.ok(modal.querySelector('#telego-proxy-dd-qr'), 'Reveal mounts the active DD QR');
 	assert.ok(qrPayloads.some(call => call.value === ddLinkOutput.value), 'DD QR payload is the complete Telegram link');
 	assert.equal(qrPayloads.find(call => call.value === ddLinkOutput.value).options.ecLevel, 'M');
-	if (tlsFrontingEnabled === '1') {
-		assert.equal(modal.querySelector('#telego-proxy-tab-ee').disabled, false, 'EE tab must remain clickable when TLS Fronting is enabled');
-		assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
-		assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
-		assert.equal(eeOpen.attrs.href, eeLinkOutput.value);
-		assert.equal(eeOpen.attrs['aria-disabled'], 'false');
-		assert.equal(eeQr.attrs['data-state'], 'ready');
-		assert.ok(qrPayloads.some(call => call.value === eeLinkOutput.value), 'EE QR payload is the complete Telegram link');
-	} else {
-		assert.equal(eeSecretOutput.value, '');
-		assert.equal(eeLinkOutput.value, '');
-		assert.equal(modal.querySelector('#telego-proxy-tab-ee').disabled, true);
-		assert.equal(eeOpen.attrs['aria-disabled'], 'true');
-		assert.equal(eeQr.attrs['data-state'], 'empty');
-	}
 
 	const ddPanel = modal.querySelector('#telego-proxy-panel-dd');
 	const eePanel = modal.querySelector('#telego-proxy-panel-ee');
@@ -367,18 +520,29 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 	assert.equal(eeTab.attrs.tabindex, '-1');
 
 	if (tlsFrontingEnabled === '1') {
+		assert.equal(eeTab.disabled, false, 'EE tab remains clickable when TLS Fronting is enabled');
 		let prevented = false;
 		ddTab.attrs.keydown({ key: 'ArrowRight', currentTarget: ddTab, preventDefault() { prevented = true; } });
 		assert.equal(prevented, true, 'ArrowRight is handled by the connection tablist');
 		assert.equal(ddPanel.hidden, true);
 		assert.equal(eePanel.hidden, false);
-		assert.equal(ddTab.attrs.tabindex, '-1');
-		assert.equal(eeTab.attrs.tabindex, '0');
+		assert.equal(ddSecretOutput.value, '••••', 'switching modes clears previously revealed DD secret');
+		assert.equal(ddLinkOutput.value, '••••', 'switching modes clears previously revealed DD link');
+		assert.equal(modal.querySelector('#telego-proxy-dd-qr'), null, 'switching modes removes the DD QR from DOM');
+		assert.equal(ddOpen.attrs.href, undefined, 'switching modes clears the DD Telegram href');
 		assert.equal(eeTab.focused, true, 'keyboard tab switch moves focus to the selected tab');
+
+		eeReveal.attrs.click();
+		assert.equal(eeSecretOutput.value, 'ee0123456789abcdef0123456789abcdef79612e7275');
+		assert.equal(eeLinkOutput.value, 'tg://proxy?server=proxy.example.com&port=2443&secret=ee0123456789abcdef0123456789abcdef79612e7275');
+		assert.equal(eeOpen.attrs.href, eeLinkOutput.value);
+		assert.ok(modal.querySelector('#telego-proxy-ee-qr'), 'Reveal mounts the active EE QR');
 
 		eeTab.attrs.keydown({ key: 'ArrowRight', currentTarget: eeTab, preventDefault() {} });
 		assert.equal(ddPanel.hidden, false, 'ArrowRight wraps from EE back to DD');
 		assert.equal(eePanel.hidden, true);
+		assert.equal(eeSecretOutput.value, '••••', 'leaving EE clears sensitive EE output');
+		assert.equal(modal.querySelector('#telego-proxy-ee-qr'), null, 'leaving EE removes its QR');
 
 		ddTab.attrs.keydown({ key: 'ArrowLeft', currentTarget: ddTab, preventDefault() {} });
 		assert.equal(ddPanel.hidden, true, 'ArrowLeft wraps from DD to EE');
@@ -391,49 +555,55 @@ async function check(initialStatus, ingressMode = 'disabled', tlsFrontingEnabled
 		assert.equal(ddTab.attrs['aria-selected'], 'true');
 	}
 	else {
+		assert.equal(eeTab.disabled, true);
+		assert.equal(eeReveal.disabled, true);
 		ddTab.attrs.keydown({ key: 'ArrowRight', currentTarget: ddTab, preventDefault() {} });
 		assert.equal(ddPanel.hidden, false);
 		assert.equal(eePanel.hidden, true);
 		assert.equal(eeTab.attrs.tabindex, '-1', 'disabled EE tab stays out of the roving tab order');
 	}
 
-	eeTab.attrs.click();
-	assert.equal(ddPanel.hidden, tlsFrontingEnabled === '1' ? true : false);
-	assert.equal(eePanel.hidden, tlsFrontingEnabled === '1' ? false : true);
-	assert.equal(ddTab.attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'false' : 'true');
-	assert.equal(eeTab.attrs['aria-selected'], tlsFrontingEnabled === '1' ? 'true' : 'false');
-
 	const serverInput = modal.querySelector('#telego-proxy-public-server');
 	const portInput = modal.querySelector('#telego-proxy-public-port');
-	assert.equal(serverInput.attrs['aria-describedby'], 'telego-proxy-session-note telego-proxy-endpoint-error');
-	assert.equal(portInput.attrs['aria-describedby'], 'telego-proxy-session-note telego-proxy-endpoint-error');
+	assert.equal(serverInput.attrs['aria-describedby'], 'telego-proxy-session-note telego-proxy-pending-note telego-proxy-endpoint-error');
+	assert.equal(portInput.attrs['aria-describedby'], 'telego-proxy-session-note telego-proxy-pending-note telego-proxy-endpoint-error');
+
 	serverInput.value = '203.0.113.10';
 	portInput.value = '443';
 	serverInput.attrs.input();
+	assert.equal(ddLinkOutput.value, '••••', 'endpoint edits re-mask sensitive values');
+	assert.equal(ddOpen.attrs.href, undefined, 'endpoint edits invalidate the revealed Telegram href');
+	assert.equal(modal.querySelector('#telego-proxy-dd-qr'), null, 'endpoint edits remove the previous QR');
+	ddReveal.attrs.click();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=203.0.113.10&port=443&secret=dd0123456789abcdef0123456789abcdef');
-	assert.equal(ddOpen.attrs.href, ddLinkOutput.value, 'Open Telegram follows session-only endpoint edits');
-	assert.ok(qrPayloads.some(call => call.value === ddLinkOutput.value), 'QR refreshes after session-only endpoint edit');
+	assert.equal(ddOpen.attrs.href, ddLinkOutput.value);
+	assert.ok(qrPayloads.some(call => call.value === ddLinkOutput.value), 'QR regenerates only after explicit reveal');
 
 	serverInput.value = '2001:db8::1';
 	serverInput.attrs.input();
+	ddReveal.attrs.click();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=2001%3Adb8%3A%3A1&port=443&secret=dd0123456789abcdef0123456789abcdef');
 
 	serverInput.value = '[2001:db8::1]';
 	serverInput.attrs.input();
+	ddReveal.attrs.click();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=2001%3Adb8%3A%3A1&port=443&secret=dd0123456789abcdef0123456789abcdef');
 
 	serverInput.value = 'пример.рф';
 	serverInput.attrs.input();
+	ddReveal.attrs.click();
 	assert.equal(ddLinkOutput.value, 'tg://proxy?server=xn--e1afmkfd.xn--p1ai&port=443&secret=dd0123456789abcdef0123456789abcdef');
 
 	for (const invalidServer of ['https://proxy.example.com', 'proxy.example.com/path', 'bad host', 'user@proxy.example.com']) {
 		serverInput.value = invalidServer;
 		serverInput.attrs.input();
-		assert.equal(ddLinkOutput.value, '', 'invalid public server must not generate a DD link: ' + invalidServer);
+		ddReveal.attrs.click();
+		assert.equal(ddLinkOutput.value, '••••', 'invalid public server must not reveal a DD link: ' + invalidServer);
 		assert.equal(modal.querySelector('#telego-proxy-endpoint-error').hidden, false);
-		assert.equal(ddOpen.attrs['aria-disabled'], 'true', 'invalid endpoint disables Open Telegram');
-		assert.equal(ddQr.attrs['data-state'], 'empty', 'invalid endpoint clears the QR payload');
+		assert.equal(ddOpen.attrs['aria-disabled'], 'true', 'invalid endpoint keeps Open Telegram disabled');
+		assert.equal(modal.querySelector('#telego-proxy-dd-qr'), null, 'invalid endpoint never mounts a QR');
 	}
+
 
 	deleteButton.attrs.click({ preventDefault() {} });
 	assert.deepEqual(modal.attrs.title, ['Delete user — aiser'], 'Delete requires an explicit confirmation dialog');
@@ -597,6 +767,8 @@ const healthyStatus = {
 	await check({ ...healthyStatus, metrics_available: false, metrics_error: 'fetch-failed' });
 	await check(healthyStatus, 'disabled', '0');
 	await check(healthyStatus, 'disabled', '1', '1200', '5ms');
+	await check(healthyStatus, 'disabled', '1', '0', '0s', 2);
+	await check(healthyStatus, 'disabled', '1', '0', '0s', 0, 'draft.example.com');
 	const connectionCss = fs.readFileSync('package/luci-app-telego/htdocs/css/telego.css', 'utf8');
 assert.match(connectionCss, /\.telego-connection-layout\s*\{/);
 assert.match(connectionCss, /@media screen and \(max-width: 640px\)/);

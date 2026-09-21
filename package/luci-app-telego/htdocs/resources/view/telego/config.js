@@ -103,10 +103,7 @@ function buildTelegramProxyLink(server, port, secret) {
 		'&secret=' + secret;
 }
 
-function copyText(value) {
-	if (window.navigator && window.navigator.clipboard && window.navigator.clipboard.writeText)
-		return window.navigator.clipboard.writeText(value);
-
+function fallbackCopyText(value) {
 	return new Promise(function (resolve, reject) {
 		const textarea = document.createElement('textarea');
 		textarea.value = value;
@@ -130,28 +127,117 @@ function copyText(value) {
 	});
 }
 
-function proxyOutputField(label, id, copyLabel) {
+function copyText(value) {
+	if (window.navigator && window.navigator.clipboard && window.navigator.clipboard.writeText) {
+		try {
+			return Promise.resolve(window.navigator.clipboard.writeText(value))
+				.catch(function () {
+					return fallbackCopyText(value);
+				});
+		}
+		catch (e) {
+			return fallbackCopyText(value);
+		}
+	}
+
+	return fallbackCopyText(value);
+}
+
+function connectionOptionDraft(map, sectionId, option) {
+	if (!map || typeof(map.lookupOption) !== 'function')
+		return null;
+
+	const found = map.lookupOption(option, sectionId, 'telego');
+	if (!found || !found[0] || typeof(found[0].formvalue) !== 'function')
+		return null;
+
+	try {
+		return found[0].formvalue(found[1]);
+	}
+	catch (e) {
+		return null;
+	}
+}
+
+function normalizeConnectionDraft(sectionId, option, value) {
+	if (value === null || value === undefined || value === '') {
+		if (sectionId === 'general' && option === 'bind_to')
+			return '0.0.0.0:443';
+		if (sectionId === 'tls_fronting' && option === 'enabled')
+			return '1';
+		if (sectionId === 'tls_fronting' && option === 'mask_host')
+			return 'www.google.com';
+		return '';
+	}
+	if (Array.isArray(value))
+		return value.map(String).join('\u0000');
+	return String(value);
+}
+
+function hasConnectionDraft(map, secretSectionId) {
+	const refs = [
+		['general', 'bind_to'],
+		['general', 'public_host'],
+		['general', 'public_port'],
+		['tls_fronting', 'enabled'],
+		['tls_fronting', 'mask_host'],
+		[secretSectionId, 'name']
+	];
+
+	for (const ref of refs) {
+		const draft = connectionOptionDraft(map, ref[0], ref[1]);
+		if (draft === null)
+			continue;
+
+		const saved = uci.get('telego', ref[0], ref[1]);
+		if (normalizeConnectionDraft(ref[0], ref[1], draft) !== normalizeConnectionDraft(ref[0], ref[1], saved))
+			return true;
+	}
+
+	return false;
+}
+
+const CONNECTION_MASK = '••••';
+
+function proxyOutputField(label, id, copyLabel, resolveValue, onError) {
 	const input = E('input', {
 		'id': id,
-		'type': 'text',
+		'type': 'password',
 		'class': 'cbi-input-text telego-connection-output-input',
 		'readonly': 'readonly',
-		'spellcheck': 'false'
+		'spellcheck': 'false',
+		'value': CONNECTION_MASK,
+		'data-revealed': 'false'
 	});
 	const button = E('button', {
 		'id': id + '-copy',
 		'type': 'button',
 		'class': 'btn cbi-button cbi-button-action',
 		'click': function () {
-			if (!input.value)
+			let value;
+			try {
+				value = resolveValue();
+			}
+			catch (e) {
+				if (onError)
+					onError(e);
 				return;
+			}
 
-			return copyText(input.value).then(function () {
+			return copyText(value).then(function () {
 				ui.addNotification(null, E('p', {}, _('Copied to clipboard.')), 'info');
 			}, function () {
+				input.type = 'text';
+				input.value = value;
+				input.setAttribute('data-revealed', 'true');
+				if (input.focus)
+					input.focus();
+				if (input.select)
+					input.select();
+
 				ui.addNotification(
 					null,
-					E('p', {}, _('Unable to copy automatically. Select the field and copy it manually.')),
+					E('p', {}, _('Clipboard access failed. The requested value was revealed so you can copy it manually.')),
 					'warning'
 				);
 			});
@@ -161,6 +247,16 @@ function proxyOutputField(label, id, copyLabel) {
 	return {
 		input: input,
 		button: button,
+		reveal: function (value) {
+			input.type = 'text';
+			input.value = value;
+			input.setAttribute('data-revealed', 'true');
+		},
+		mask: function () {
+			input.type = 'password';
+			input.value = CONNECTION_MASK;
+			input.setAttribute('data-revealed', 'false');
+		},
 		node: E('div', { 'class': 'telego-connection-output' }, [
 			E('label', { 'for': id }, label),
 			E('div', { 'class': 'telego-connection-output-row' }, [input, button])
@@ -179,7 +275,6 @@ function proxyOpenLink(id) {
 	return E('a', {
 		'id': id,
 		'class': 'btn cbi-button cbi-button-positive telego-connection-open disabled',
-		'href': '#',
 		'aria-disabled': 'true',
 		'click': function (event) {
 			if (this.getAttribute('aria-disabled') === 'true' && event && event.preventDefault)
@@ -195,55 +290,59 @@ function setProxyOpenLink(node, value) {
 		node.classList.remove('disabled');
 	}
 	else {
-		node.setAttribute('href', '#');
+		node.removeAttribute('href');
 		node.setAttribute('aria-disabled', 'true');
 		node.classList.add('disabled');
 	}
 }
 
-function renderProxyQr(node, link) {
-	node.innerHTML = '';
-	node.textContent = '';
+function clearProxyQr(slot) {
+	slot.innerHTML = '';
+	slot.setAttribute('data-state', 'hidden');
+	slot.appendChild(E('p', {
+		'class': 'telego-connection-qr-placeholder'
+	}, _('Reveal connection details to generate the QR code.')));
+}
 
-	if (!link) {
-		node.setAttribute('data-state', 'empty');
-		node.textContent = _('Enter a valid public server and port to generate the QR code.');
-		return;
-	}
+function renderProxyQr(slot, id, link) {
+	slot.innerHTML = '';
+
+	const qr = E('div', {
+		'id': id,
+		'class': 'telego-connection-qr',
+		'role': 'img',
+		'aria-label': _('QR code for Telegram link'),
+		'data-state': 'ready'
+	});
 
 	try {
-		node.innerHTML = uqr.renderSVG(link, {
+		qr.innerHTML = uqr.renderSVG(link, {
 			pixelSize: 4,
 			margin: 2,
 			ecLevel: 'M',
 			whiteColor: 'white',
 			blackColor: 'black'
 		});
-		node.setAttribute('data-state', 'ready');
+		slot.setAttribute('data-state', 'ready');
+		slot.appendChild(qr);
+		slot.appendChild(E('p', { 'class': 'telego-connection-qr-caption' },
+			_('The QR code contains the complete Telegram link shown here.')));
 	}
 	catch (e) {
-		node.setAttribute('data-state', 'error');
-		node.textContent = _('QR code could not be generated.');
+		slot.setAttribute('data-state', 'error');
+		slot.appendChild(E('p', { 'class': 'telego-connection-qr-placeholder' },
+			_('QR code could not be generated.')));
 	}
 }
 
-function proxyQrCard(id) {
-	const qr = E('div', {
-		'id': id,
-		'class': 'telego-connection-qr',
-		'role': 'img',
-		'aria-label': _('QR code for Telegram link'),
-		'data-state': 'empty'
-	}, _('Enter a valid public server and port to generate the QR code.'));
-
-	return {
-		qr: qr,
-		node: E('aside', { 'class': 'telego-connection-qr-card' }, [
-			qr,
-			E('p', { 'class': 'telego-connection-qr-caption' },
-				_('The QR code contains the complete Telegram link shown here.'))
-		])
-	};
+function proxyQrSlot(id) {
+	const slot = E('aside', {
+		'id': id + '-slot',
+		'class': 'telego-connection-qr-card',
+		'data-state': 'hidden'
+	});
+	clearProxyQr(slot);
+	return slot;
 }
 
 function displayProxyEndpoint(server, port) {
@@ -259,14 +358,15 @@ function displayProxyEndpoint(server, port) {
 	}
 }
 
-function showProxyLinks(sectionId) {
+function showProxyLinks(sectionId, map) {
 	const username = uci.get('telego', sectionId, 'name') || sectionId;
-	const baseSecret = uci.get('telego', sectionId, 'secret') || '';
+	let baseSecret = uci.get('telego', sectionId, 'secret') || '';
 	const tlsFrontingEnabled = uci.get('telego', 'tls_fronting', 'enabled') !== '0';
-	const maskHost = uci.get('telego', 'tls_fronting', 'mask_host') || '';
-	const bindTo = uci.get('telego', 'general', 'bind_to') || '';
+	let maskHost = uci.get('telego', 'tls_fronting', 'mask_host') || 'www.google.com';
+	const bindTo = uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443';
 	const publicHost = uci.get('telego', 'general', 'public_host') || '';
 	const publicPort = uci.get('telego', 'general', 'public_port') || listenPort(bindTo);
+	let closed = false;
 
 	const serverInput = E('input', {
 		'id': 'telego-proxy-public-server',
@@ -276,7 +376,7 @@ function showProxyLinks(sectionId) {
 		'placeholder': 'proxy.example.com',
 		'autocomplete': 'off',
 		'spellcheck': 'false',
-		'aria-describedby': 'telego-proxy-session-note telego-proxy-endpoint-error'
+		'aria-describedby': 'telego-proxy-session-note telego-proxy-pending-note telego-proxy-endpoint-error'
 	});
 	const portInput = E('input', {
 		'id': 'telego-proxy-public-port',
@@ -286,9 +386,14 @@ function showProxyLinks(sectionId) {
 		'min': '1',
 		'max': '65535',
 		'inputmode': 'numeric',
-		'aria-describedby': 'telego-proxy-session-note telego-proxy-endpoint-error'
+		'aria-describedby': 'telego-proxy-session-note telego-proxy-pending-note telego-proxy-endpoint-error'
 	});
-
+	const pendingNote = E('div', {
+		'id': 'telego-proxy-pending-note',
+		'class': 'alert-message warning telego-connection-pending',
+		'hidden': true,
+		'role': 'status'
+	});
 	const endpointError = E('div', {
 		'id': 'telego-proxy-endpoint-error',
 		'class': 'alert-message warning',
@@ -308,14 +413,159 @@ function showProxyLinks(sectionId) {
 		'role': 'alert'
 	});
 
-	const ddSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-dd-secret', _('Copy secret'));
-	const ddLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-dd-link', _('Copy link'));
-	const eeSecret = proxyOutputField(_('Derived Secret'), 'telego-proxy-ee-secret', _('Copy secret'));
-	const eeLink = proxyOutputField(_('Telegram Link'), 'telego-proxy-ee-link', _('Copy link'));
+	function setError(node, error) {
+		uiFoundation.setText(node, error ? String(error.message || error) : '');
+		node.hidden = !error;
+	}
+
+	function derive(mode) {
+		const secret = mode === 'ee'
+			? buildEESecret(baseSecret, maskHost)
+			: buildDDSecret(baseSecret);
+		return {
+			secret: secret,
+			link: buildTelegramProxyLink(serverInput.value, portInput.value, secret)
+		};
+	}
+
+	function resolveCopy(mode, kind) {
+		if (closed)
+			throw new Error(_('Connection dialog is closed.'));
+		const value = derive(mode);
+		setError(mode === 'ee' ? eeError : ddError, null);
+		return kind === 'secret' ? value.secret : value.link;
+	}
+
+	const ddSecret = proxyOutputField(
+		_('Derived Secret'),
+		'telego-proxy-dd-secret',
+		_('Copy secret'),
+		function () { return resolveCopy('dd', 'secret'); },
+		function (e) { setError(ddError, e); }
+	);
+	const ddLink = proxyOutputField(
+		_('Telegram Link'),
+		'telego-proxy-dd-link',
+		_('Copy link'),
+		function () { return resolveCopy('dd', 'link'); },
+		function (e) { setError(ddError, e); }
+	);
+	const eeSecret = proxyOutputField(
+		_('Derived Secret'),
+		'telego-proxy-ee-secret',
+		_('Copy secret'),
+		function () { return resolveCopy('ee', 'secret'); },
+		function (e) { setError(eeError, e); }
+	);
+	const eeLink = proxyOutputField(
+		_('Telegram Link'),
+		'telego-proxy-ee-link',
+		_('Copy link'),
+		function () { return resolveCopy('ee', 'link'); },
+		function (e) { setError(eeError, e); }
+	);
 	const ddOpen = proxyOpenLink('telego-proxy-dd-open');
 	const eeOpen = proxyOpenLink('telego-proxy-ee-open');
-	const ddQr = proxyQrCard('telego-proxy-dd-qr');
-	const eeQr = proxyQrCard('telego-proxy-ee-qr');
+	const ddQrSlot = proxyQrSlot('telego-proxy-dd-qr');
+	const eeQrSlot = proxyQrSlot('telego-proxy-ee-qr');
+
+	const modeState = {
+		dd: {
+			secret: ddSecret,
+			link: ddLink,
+			open: ddOpen,
+			qrSlot: ddQrSlot,
+			qrId: 'telego-proxy-dd-qr',
+			error: ddError,
+			revealButton: null,
+			revealed: false
+		},
+		ee: {
+			secret: eeSecret,
+			link: eeLink,
+			open: eeOpen,
+			qrSlot: eeQrSlot,
+			qrId: 'telego-proxy-ee-qr',
+			error: eeError,
+			revealButton: null,
+			revealed: false
+		}
+	};
+
+	function hideConnection(mode) {
+		const state = modeState[mode];
+		if (!state)
+			return;
+
+		state.secret.mask();
+		state.link.mask();
+		setProxyOpenLink(state.open, '');
+		clearProxyQr(state.qrSlot);
+		state.revealed = false;
+
+		if (state.revealButton) {
+			state.revealButton.textContent = _('Reveal connection');
+			state.revealButton.setAttribute('aria-pressed', 'false');
+		}
+	}
+
+	function revealConnection(mode) {
+		if (closed)
+			return;
+
+		const state = modeState[mode];
+		if (!state)
+			return;
+
+		if (mode === 'ee' && !tlsFrontingEnabled) {
+			setError(eeError, new Error(_('TLS Fronting is disabled. EE / FakeTLS links are unavailable.')));
+			return;
+		}
+
+		const otherMode = mode === 'dd' ? 'ee' : 'dd';
+		hideConnection(otherMode);
+
+		try {
+			const value = derive(mode);
+			state.secret.reveal(value.secret);
+			state.link.reveal(value.link);
+			setProxyOpenLink(state.open, value.link);
+			renderProxyQr(state.qrSlot, state.qrId, value.link);
+			setError(state.error, null);
+			state.revealed = true;
+			state.revealButton.textContent = _('Hide connection');
+			state.revealButton.setAttribute('aria-pressed', 'true');
+		}
+		catch (e) {
+			hideConnection(mode);
+			setError(state.error, e);
+		}
+	}
+
+	function toggleConnection(mode) {
+		if (modeState[mode].revealed)
+			hideConnection(mode);
+		else
+			revealConnection(mode);
+	}
+
+	const ddReveal = E('button', {
+		'id': 'telego-proxy-dd-reveal',
+		'type': 'button',
+		'class': 'btn cbi-button cbi-button-action telego-connection-reveal',
+		'aria-pressed': 'false',
+		'click': function () { toggleConnection('dd'); }
+	}, _('Reveal connection'));
+	const eeReveal = E('button', {
+		'id': 'telego-proxy-ee-reveal',
+		'type': 'button',
+		'class': 'btn cbi-button cbi-button-action telego-connection-reveal',
+		'aria-pressed': 'false',
+		'disabled': tlsFrontingEnabled ? null : 'disabled',
+		'click': function () { toggleConnection('ee'); }
+	}, _('Reveal connection'));
+	modeState.dd.revealButton = ddReveal;
+	modeState.ee.revealButton = eeReveal;
 
 	const ddSummary = [];
 	ddSummary.push.apply(ddSummary, proxySummaryRow(_('Username'), 'telego-proxy-dd-user', username));
@@ -336,14 +586,14 @@ function showProxyLinks(sectionId) {
 	}, [
 		E('div', { 'class': 'telego-connection-layout' }, [
 			E('div', { 'class': 'telego-connection-details' }, [
-				E('p', {}, _('Raw Obfuscated2. The generated secret is dd + the saved 32-hex base secret.')),
+				E('p', {}, _('Raw Obfuscated2. Sensitive values remain masked until you explicitly reveal or copy them.')),
 				E('dl', { 'class': 'telego-connection-summary' }, ddSummary),
 				ddError,
 				ddSecret.node,
 				ddLink.node,
-				E('div', { 'class': 'telego-connection-actions' }, [ddOpen])
+				E('div', { 'class': 'telego-connection-actions' }, [ddReveal, ddOpen])
 			]),
-			ddQr.node
+			ddQrSlot
 		])
 	]);
 
@@ -356,14 +606,14 @@ function showProxyLinks(sectionId) {
 	}, [
 		E('div', { 'class': 'telego-connection-layout' }, [
 			E('div', { 'class': 'telego-connection-details' }, [
-				E('p', {}, _('FakeTLS + Obfuscated2. The EE secret uses the saved TLS Fronting mask domain.')),
+				E('p', {}, _('FakeTLS + Obfuscated2. Sensitive values remain masked until you explicitly reveal or copy them.')),
 				E('dl', { 'class': 'telego-connection-summary' }, eeSummary),
 				eeError,
 				eeSecret.node,
 				eeLink.node,
-				E('div', { 'class': 'telego-connection-actions' }, [eeOpen])
+				E('div', { 'class': 'telego-connection-actions' }, [eeReveal, eeOpen])
 			]),
-			eeQr.node
+			eeQrSlot
 		])
 	]);
 
@@ -371,6 +621,7 @@ function showProxyLinks(sectionId) {
 	let eeTab;
 	function selectTab(mode, focusTab) {
 		const dd = mode === 'dd';
+		hideConnection(dd ? 'ee' : 'dd');
 		ddPanel.hidden = !dd;
 		eePanel.hidden = dd;
 		ddTab.setAttribute('aria-selected', dd ? 'true' : 'false');
@@ -442,12 +693,10 @@ function showProxyLinks(sectionId) {
 		}
 	}, _('EE / FakeTLS'));
 
-	function setError(node, error) {
-		node.textContent = error ? String(error.message || error) : '';
-		node.hidden = !error;
-	}
+	function refreshEndpoint() {
+		if (closed)
+			return;
 
-	function refresh() {
 		const server = serverInput.value;
 		const port = portInput.value;
 		const endpoint = displayProxyEndpoint(server, port);
@@ -459,75 +708,68 @@ function showProxyLinks(sectionId) {
 		catch (e) {
 			endpointFailure = e;
 		}
+
 		setError(endpointError, endpointFailure);
+		uiFoundation.setText(ddPanel.querySelector('#telego-proxy-dd-endpoint'), endpoint, _('—'));
+		uiFoundation.setText(eePanel.querySelector('#telego-proxy-ee-endpoint'), endpoint, _('—'));
 
-		const ddEndpointNode = ddPanel.querySelector('#telego-proxy-dd-endpoint');
-		const eeEndpointNode = eePanel.querySelector('#telego-proxy-ee-endpoint');
-		if (ddEndpointNode)
-			ddEndpointNode.textContent = endpoint;
-		if (eeEndpointNode)
-			eeEndpointNode.textContent = endpoint;
+		hideConnection('dd');
+		hideConnection('ee');
 
-		try {
-			const secret = buildDDSecret(baseSecret);
-			const link = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
-			ddSecret.input.value = secret;
-			ddLink.input.value = link;
-			ddSecret.button.disabled = false;
-			ddLink.button.disabled = !link;
-			setProxyOpenLink(ddOpen, link);
-			renderProxyQr(ddQr.qr, link);
-			setError(ddError, null);
-		}
-		catch (e) {
-			ddSecret.input.value = '';
-			ddLink.input.value = '';
-			ddSecret.button.disabled = true;
-			ddLink.button.disabled = true;
-			setProxyOpenLink(ddOpen, '');
-			renderProxyQr(ddQr.qr, '');
-			setError(ddError, e);
-		}
-
-		if (!tlsFrontingEnabled) {
-			eeSecret.input.value = '';
-			eeLink.input.value = '';
-			eeSecret.button.disabled = true;
-			eeLink.button.disabled = true;
-			setProxyOpenLink(eeOpen, '');
-			renderProxyQr(eeQr.qr, '');
+		if (!tlsFrontingEnabled)
 			setError(eeError, new Error(_('TLS Fronting is disabled. EE / FakeTLS links are unavailable.')));
-			return;
-		}
-
-		try {
-			const secret = buildEESecret(baseSecret, maskHost);
-			const link = endpointFailure ? '' : buildTelegramProxyLink(server, port, secret);
-			eeSecret.input.value = secret;
-			eeLink.input.value = link;
-			eeSecret.button.disabled = false;
-			eeLink.button.disabled = !link;
-			setProxyOpenLink(eeOpen, link);
-			renderProxyQr(eeQr.qr, link);
-			setError(eeError, null);
-		}
-		catch (e) {
-			eeSecret.input.value = '';
-			eeLink.input.value = '';
-			eeSecret.button.disabled = true;
-			eeLink.button.disabled = true;
-			setProxyOpenLink(eeOpen, '');
-			renderProxyQr(eeQr.qr, '');
-			setError(eeError, e);
-		}
 	}
 
-	serverInput.addEventListener('input', refresh);
-	portInput.addEventListener('input', refresh);
+	function updatePendingNote() {
+		const draft = hasConnectionDraft(map, sectionId);
+		return uiFoundation.pendingChanges(['telego']).then(function (count) {
+			if (closed)
+				return;
+
+			if (draft && count > 0) {
+				uiFoundation.setText(
+					pendingNote,
+					_('This form has unsaved edits and saved changes waiting for Apply. Connection details use saved UCI values, while the running service may still use the previously applied configuration.')
+				);
+				pendingNote.hidden = false;
+			}
+			else if (draft) {
+				uiFoundation.setText(
+					pendingNote,
+					_('This form has unsaved edits. Connection details use saved UCI values, not the unsaved fields.')
+				);
+				pendingNote.hidden = false;
+			}
+			else if (count > 0) {
+				uiFoundation.setText(
+					pendingNote,
+					_('There are saved telEgo changes waiting for Apply. Connection details use those saved UCI values, while the running service may still use the previously applied configuration.')
+				);
+				pendingNote.hidden = false;
+			}
+			else {
+				uiFoundation.setText(pendingNote, '');
+				pendingNote.hidden = true;
+			}
+		});
+	}
+
+	function cleanupAndClose() {
+		hideConnection('dd');
+		hideConnection('ee');
+		baseSecret = '';
+		maskHost = '';
+		closed = true;
+		ui.hideModal();
+	}
+
+	serverInput.addEventListener('input', refreshEndpoint);
+	portInput.addEventListener('input', refreshEndpoint);
 
 	ui.showModal([_('Connection Links') + ' — ' + username], [
 		E('div', { 'class': 'telego-connection-modal' }, [
-			E('p', {}, _('Links are generated locally in your browser. This dialog does not change telEgo runtime settings.')),
+			E('p', {}, _('Links are generated locally in your browser. Sensitive values are not rendered until you explicitly reveal them.')),
+			pendingNote,
 			E('div', {
 				'id': 'telego-proxy-session-note',
 				'class': 'alert-message notice'
@@ -550,17 +792,18 @@ function showProxyLinks(sectionId) {
 			}, [ddTab, eeTab]),
 			ddPanel,
 			eePanel,
-			E('div', { 'class': 'telego-connection-footer' }, [
+			E('div', { 'class': 'right telego-connection-footer' }, [
 				E('button', {
 					'type': 'button',
 					'class': 'btn cbi-button',
-					'click': ui.hideModal
+					'click': cleanupAndClose
 				}, _('Close'))
 			])
 		])
 	]);
 
-	refresh();
+	refreshEndpoint();
+	updatePendingNote();
 }
 
 function formatBytes(value) {
@@ -944,7 +1187,7 @@ function makeConfigMap() {
 		form.GridSection,
 		'secret',
 		_('Users'),
-		_('Manage MTProxy users without exposing their secrets in the users table. Use Connect for client links and Edit to change credentials.')
+		_('Manage MTProxy users without exposing their secrets in the users table. Use Connect for client links and Edit to change credentials. Reordering changes configuration order only; it is not routing priority.')
 	);
 	s.anonymous = true;
 	s.addremove = true;
@@ -991,12 +1234,93 @@ function makeConfigMap() {
 			])
 		]);
 	};
+	s.moveUser = function (section_id, direction, event, statusNode, moveUpButton, moveDownButton) {
+		if (event && event.preventDefault)
+			event.preventDefault();
+
+		const order = this.cfgsections();
+		const index = order.indexOf(section_id);
+		const targetIndex = index + direction;
+		if (index < 0 || targetIndex < 0 || targetIndex >= order.length)
+			return false;
+
+		const targetSectionId = order[targetIndex];
+		const configName = this.uciconfig ?? this.map.config;
+		if (!this.map.data || typeof(this.map.data.move) !== 'function')
+			return false;
+
+		this.map.data.move(configName, section_id, targetSectionId, direction > 0);
+
+		const button = event && event.currentTarget;
+		const row = button && button.closest ? button.closest('.cbi-section-table-row') : null;
+		const targetRow = row
+			? (direction < 0 ? row.previousElementSibling : row.nextElementSibling)
+			: null;
+
+		if (row && targetRow && row.parentNode) {
+			const parent = row.parentNode;
+			parent.insertBefore(row, direction < 0 ? targetRow : targetRow.nextElementSibling);
+
+			const targetUp = targetRow.querySelector('.telego-user-move-up');
+			const targetDown = targetRow.querySelector('.telego-user-move-down');
+			const targetNewIndex = index;
+			if (targetUp)
+				targetUp.disabled = this.map.readonly || targetNewIndex <= 0;
+			if (targetDown)
+				targetDown.disabled = this.map.readonly || targetNewIndex >= order.length - 1;
+		}
+
+		if (moveUpButton)
+			moveUpButton.disabled = this.map.readonly || targetIndex <= 0;
+		if (moveDownButton)
+			moveDownButton.disabled = this.map.readonly || targetIndex >= order.length - 1;
+
+		uiFoundation.setText(
+			statusNode,
+			_('User moved.') + ' ' + _('Position') + ': ' + (targetIndex + 1) + ' / ' + order.length + '.'
+		);
+
+		if (button && button.focus)
+			button.focus();
+
+		return true;
+	};
+
 	s.renderRowActions = function (section_id) {
 		const td = this.super('renderRowActions', [section_id, _('Edit')]);
 		const actions = td.lastElementChild;
 		const edit = actions ? actions.querySelector('.cbi-button-edit') : null;
 		const remove = actions ? actions.querySelector('.cbi-button-remove') : null;
 		const drag = actions ? actions.querySelector('.drag-handle') : null;
+		const order = this.cfgsections();
+		const index = order.indexOf(section_id);
+		const usersSection = this;
+		const reorderStatus = E('span', {
+			'class': 'telego-sr-only telego-user-reorder-status',
+			'aria-live': 'polite'
+		});
+		let moveUp;
+		let moveDown;
+		moveUp = E('button', {
+			'type': 'button',
+			'class': 'btn cbi-button telego-user-move telego-user-move-up',
+			'title': _('Move user up'),
+			'aria-label': _('Move user up'),
+			'disabled': this.map.readonly || index <= 0 || null,
+			'click': function (event) {
+				return usersSection.moveUser(section_id, -1, event, reorderStatus, moveUp, moveDown);
+			}
+		}, _('Up'));
+		moveDown = E('button', {
+			'type': 'button',
+			'class': 'btn cbi-button telego-user-move telego-user-move-down',
+			'title': _('Move user down'),
+			'aria-label': _('Move user down'),
+			'disabled': this.map.readonly || index < 0 || index >= order.length - 1 || null,
+			'click': function (event) {
+				return usersSection.moveUser(section_id, 1, event, reorderStatus, moveUp, moveDown);
+			}
+		}, _('Down'));
 		const connect = E('button', {
 			'type': 'button',
 			'class': 'btn cbi-button cbi-button-positive telego-user-connect',
@@ -1004,7 +1328,7 @@ function makeConfigMap() {
 			'click': function (event) {
 				if (event && event.preventDefault)
 					event.preventDefault();
-				showProxyLinks(section_id);
+				showProxyLinks(section_id, usersSection.map);
 			}
 		}, _('Connect'));
 
@@ -1020,8 +1344,12 @@ function makeConfigMap() {
 			edit.classList.add('telego-user-edit');
 		}
 
-		if (actions)
+		if (actions) {
+			actions.insertBefore(moveUp, edit || remove || null);
+			actions.insertBefore(moveDown, edit || remove || null);
 			actions.insertBefore(connect, edit || remove || null);
+			actions.appendChild(reorderStatus);
+		}
 
 		if (remove && remove.parentNode) {
 			const confirmDelete = E('button', {
@@ -1098,11 +1426,17 @@ function makeConfigMap() {
 		}, _('Copy'));
 
 		const generate = E('button', {
+			'id': 'telego-secret-generate-' + section_id,
 			'type': 'button',
 			'class': 'btn cbi-button cbi-button-action',
 			'title': _('Generate random secret'),
 			'aria-label': _('Generate random secret'),
 			'click': function () {
+				const configured = /^[0-9a-fA-F]{32}$/.test(String(input.value || '').trim());
+				if (configured && window.confirm &&
+				    !window.confirm(_('Replace the configured secret with a new random secret?')))
+					return;
+
 				input.value = randomSecret();
 				input.dispatchEvent(new Event('change', { bubbles: true }));
 			}

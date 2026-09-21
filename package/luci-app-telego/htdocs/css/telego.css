@@ -878,6 +878,59 @@ P5.3 PROFESSIONAL USERS GRID
 
 
 /* ==========================================================================
+P6.2 CONNECTION UX V2
+=========================================================================== */
+.telego-connection-pending {
+	margin: var(--telego-spacing-md) 0;
+}
+
+.telego-connection-output-input[data-revealed="false"] {
+	letter-spacing: .14em;
+}
+
+.telego-connection-qr-card[data-state="hidden"] {
+	display: flex;
+	min-height: 220px;
+	align-items: center;
+	justify-content: center;
+}
+
+.telego-connection-qr-placeholder {
+	margin: 0;
+	color: var(--telego-text-secondary);
+	font-size: .9em;
+	line-height: 1.4;
+}
+
+.telego-connection-reveal[aria-pressed="true"] {
+	border-color: var(--telego-warning-color);
+}
+
+#cbi-telego-secret .telego-user-move {
+	min-width: 44px;
+}
+
+.telego-sr-only {
+	position: absolute !important;
+	width: 1px !important;
+	height: 1px !important;
+	padding: 0 !important;
+	margin: -1px !important;
+	overflow: hidden !important;
+	clip: rect(0, 0, 0, 0) !important;
+	white-space: nowrap !important;
+	border: 0 !important;
+}
+
+@media screen and (max-width: 640px) {
+	.telego-connection-actions .btn {
+		flex: 1 1 100%;
+		box-sizing: border-box;
+		text-align: center;
+	}
+}
+
+/* ==========================================================================
 P5.5 PERFORMANCE PROFILES
 =========================================================================== */
 .telego-performance-profile-picker {

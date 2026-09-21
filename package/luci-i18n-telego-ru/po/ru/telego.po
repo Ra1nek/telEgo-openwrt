@@ -1264,3 +1264,60 @@ msgstr "Данные устарели"
 
 msgid "Pending changes"
 msgstr "Ожидающие изменения"
+
+msgid "Clipboard access failed. The requested value was revealed so you can copy it manually."
+msgstr "Не удалось получить доступ к буферу обмена. Запрошенное значение показано, чтобы вы могли скопировать его вручную."
+
+msgid "Reveal connection details to generate the QR code."
+msgstr "Покажите данные подключения, чтобы сгенерировать QR-код."
+
+msgid "Connection dialog is closed."
+msgstr "Окно подключения закрыто."
+
+msgid "Reveal connection"
+msgstr "Показать подключение"
+
+msgid "Hide connection"
+msgstr "Скрыть подключение"
+
+msgid "Raw Obfuscated2. Sensitive values remain masked until you explicitly reveal or copy them."
+msgstr "Raw Obfuscated2. Конфиденциальные значения остаются скрытыми, пока вы явно не покажете или не скопируете их."
+
+msgid "FakeTLS + Obfuscated2. Sensitive values remain masked until you explicitly reveal or copy them."
+msgstr "FakeTLS + Obfuscated2. Конфиденциальные значения остаются скрытыми, пока вы явно не покажете или не скопируете их."
+
+msgid "This form has unsaved edits and saved changes waiting for Apply. Connection details use saved UCI values, while the running service may still use the previously applied configuration."
+msgstr "В форме есть несохранённые правки и сохранённые изменения, ожидающие применения. Данные подключения берутся из сохранённых значений UCI, а запущенная служба всё ещё может использовать ранее применённую конфигурацию."
+
+msgid "This form has unsaved edits. Connection details use saved UCI values, not the unsaved fields."
+msgstr "В форме есть несохранённые правки. Данные подключения берутся из сохранённых значений UCI, а не из несохранённых полей."
+
+msgid "There are saved telEgo changes waiting for Apply. Connection details use those saved UCI values, while the running service may still use the previously applied configuration."
+msgstr "Есть сохранённые изменения telEgo, ожидающие применения. Данные подключения используют эти сохранённые значения UCI, а запущенная служба всё ещё может использовать ранее применённую конфигурацию."
+
+msgid "Links are generated locally in your browser. Sensitive values are not rendered until you explicitly reveal them."
+msgstr "Ссылки генерируются локально в браузере. Конфиденциальные значения не отображаются, пока вы явно не запросите их показ."
+
+msgid "Manage MTProxy users without exposing their secrets in the users table. Use Connect for client links and Edit to change credentials. Reordering changes configuration order only; it is not routing priority."
+msgstr "Управляйте пользователями MTProxy без отображения их секретов в таблице. «Подключить» открывает клиентские ссылки, а «Изменить» позволяет изменить учётные данные. Изменение порядка влияет только на порядок конфигурации и не является приоритетом маршрутизации."
+
+msgid "Move user up"
+msgstr "Переместить пользователя выше"
+
+msgid "Move user down"
+msgstr "Переместить пользователя ниже"
+
+msgid "Up"
+msgstr "Выше"
+
+msgid "Down"
+msgstr "Ниже"
+
+msgid "User moved."
+msgstr "Пользователь перемещён."
+
+msgid "Position"
+msgstr "Позиция"
+
+msgid "Replace the configured secret with a new random secret?"
+msgstr "Заменить настроенный секрет новым случайным секретом?"
