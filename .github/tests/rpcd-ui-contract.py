@@ -41,6 +41,8 @@ assert "request.args.package" not in source
 assert "LIFECYCLE_HELPER = '/usr/libexec/telego-ui-lifecycle'" in source
 assert "serviceLifecycle: true" in source
 assert "ingressWizard: true" in source
+assert "candidateIngressPreflight: true" in source
+assert "candidateNginxValidation: false" in source
 assert "invalid-action" in source
 assert "invalid-request-id" in source
 assert "invalid-revision" in source
@@ -53,7 +55,7 @@ assert "runtime-config-parse-failed" in source
 assert '"[REDACTED]"' in source
 assert "SAFE_LOG_MESSAGES" in source
 
-assert "PKG_RELEASE:=31" in makefile
+assert "PKG_RELEASE:=32" in makefile
 assert "./root/usr/share/rpcd/ucode/telego-ui" in makefile
 assert "$(1)/usr/share/rpcd/ucode/telego-ui" in makefile
 assert "./root/usr/libexec/telego-ui-lifecycle" in makefile
@@ -71,4 +73,4 @@ assert 'chmod 0600 "$tmp"' in helper
 assert '"$INIT_SCRIPT" "$action"' not in helper
 assert "eval " not in helper
 
-print("P6.3/P6.4 rpcd ACL/security contract tests passed")
+print("P6.3-P6.6 rpcd ACL/security contract tests passed")
