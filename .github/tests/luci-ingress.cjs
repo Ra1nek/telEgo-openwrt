@@ -218,6 +218,10 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.equal(notifications.at(-1).style, 'info');
 	assert.equal(store.nginx_telego.direct_https.enabled, '1');
 	assert.equal(store.telego.web_proxy.bind_to, '127.0.0.1:8080');
+	store.nginx_telego.direct_https.enabled = '0';
+	store.nginx_telego.cloudflare.enabled = '0';
+	store.nginx_telego.shared.enabled = '0';
+	store.telego.general.bind_to = '0.0.0.0:443';
 	assert.deepEqual(sections, [
 		{ section: 'shared', title: 'Ingress Wizard' },
 		{ section: 'shared', title: 'Ingress Profile' }
