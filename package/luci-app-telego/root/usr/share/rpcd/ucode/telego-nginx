@@ -310,6 +310,13 @@ function run_render(args) {
 	return { ok: true, output: output, error: '' };
 }
 
+function candidate_nginx_validate() {
+	const result = run_render(['validate', '--no-reload']);
+	return result.ok
+		? { ok: true, message: trim(result.output), error: '' }
+		: { ok: false, message: '', error: result.error };
+}
+
 function preflight_check(name, result) {
 	return {
 		name: name,
@@ -337,6 +344,11 @@ function apply_preflight() {
 	push(checks, preflight_check('candidate', render));
 	if (!render.ok)
 		return apply_preflight_failure('unknown', checks, render.error);
+
+	const nginx_candidate = candidate_nginx_validate();
+	push(checks, preflight_check('nginx', nginx_candidate));
+	if (!nginx_candidate.ok)
+		return apply_preflight_failure('unknown', checks, nginx_candidate.error);
 
 	const status = certificate_status();
 	if (!status.ok) {
@@ -580,6 +592,7 @@ const methods = {
 	firewall_preflight: { call: function () { return firewall_preflight(); } },
 	certificate_status: { call: function () { return certificate_status(); } },
 	certificate_preflight: { call: function () { return certificate_preflight(); } },
+	candidate_nginx_validate: { call: function () { return candidate_nginx_validate(); } },
 	apply_preflight: { call: function () { return apply_preflight(); } },
 	managed_content: {
 		args: { role: '', side: '' },
