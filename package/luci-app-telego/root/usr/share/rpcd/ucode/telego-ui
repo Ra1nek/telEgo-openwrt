@@ -269,7 +269,7 @@ function capabilities() {
 			redactedRuntimeConfig: true,
 			componentVersions: true,
 			candidateIngressPreflight: true,
-			candidateNginxValidation: false
+			candidateNginxValidation: true
 		}
 	};
 }
