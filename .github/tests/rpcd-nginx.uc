@@ -39,15 +39,22 @@ const certificatePreflight = nginx.certificate_preflight.call();
 assert(certificatePreflight.ok && index(certificatePreflight.message, 'nginx -t succeeded') >= 0, 'certificate preflight RPC');
 assert(global.certificate_command == "/usr/libexec/nginx-telego-cert 'preflight' 2>&1", 'certificate preflight uses dedicated helper');
 
+global.render_commands = [];
+const candidateNginx = nginx.candidate_nginx_validate.call();
+assert(candidateNginx.ok && index(candidateNginx.message, 'candidate Nginx validation passed') >= 0, 'P6.7 candidate Nginx validation succeeds');
+assert(global.render_command == "/usr/libexec/nginx-telego-render 'validate' '--no-reload' 2>&1", 'P6.7 uses renderer validate mode');
+
 const applyPreflight = nginx.apply_preflight.call();
 assert(applyPreflight.ok && applyPreflight.ready, 'P6.6 Apply Preflight succeeds');
 assert(applyPreflight.profile == 'direct_https', 'P6.6 reports the pending managed profile');
-assert(length(applyPreflight.checks) == 4, 'Direct HTTPS Apply Preflight runs candidate/platform/firewall/certificate checks');
+assert(length(applyPreflight.checks) == 5, 'Direct HTTPS Apply Preflight runs candidate/nginx/platform/firewall/certificate checks');
 assert(applyPreflight.checks[0].name == 'candidate' && applyPreflight.checks[0].ok, 'candidate render contract check');
-assert(applyPreflight.checks[1].name == 'platform' && applyPreflight.checks[1].ok, 'platform check');
-assert(applyPreflight.checks[2].name == 'firewall' && applyPreflight.checks[2].ok, 'firewall check');
-assert(applyPreflight.checks[3].name == 'certificate' && applyPreflight.checks[3].ok, 'certificate check');
-assert(global.render_command == "/usr/libexec/nginx-telego-render 'check' '--no-reload' 2>&1", 'Apply Preflight uses read-only renderer check mode');
+assert(applyPreflight.checks[1].name == 'nginx' && applyPreflight.checks[1].ok, 'P6.7 candidate Nginx check');
+assert(applyPreflight.checks[2].name == 'platform' && applyPreflight.checks[2].ok, 'platform check');
+assert(applyPreflight.checks[3].name == 'firewall' && applyPreflight.checks[3].ok, 'firewall check');
+assert(applyPreflight.checks[4].name == 'certificate' && applyPreflight.checks[4].ok, 'certificate check');
+assert(index(global.render_commands, "/usr/libexec/nginx-telego-render 'check' '--no-reload' 2>&1") >= 0, 'Apply Preflight keeps P6.6 candidate contract check');
+assert(index(global.render_commands, "/usr/libexec/nginx-telego-render 'validate' '--no-reload' 2>&1") >= 0, 'Apply Preflight includes P6.7 candidate Nginx validation');
 
 const inventory = nginx.inventory.call();
 assert(inventory.ok && length(inventory.files) == 3, 'inventory rows');
@@ -123,10 +130,17 @@ const applyRenderFailed = nginx.apply_preflight.call();
 assert(!applyRenderFailed.ok && !applyRenderFailed.ready, 'Apply Preflight fails closed on candidate render rejection');
 assert(length(applyRenderFailed.checks) == 1 && !applyRenderFailed.checks[0].ok, 'Apply Preflight stops after failed candidate contract');
 
+global.fixture.mode = 'candidate-nginx-failed';
+const candidateNginxFailed = nginx.candidate_nginx_validate.call();
+assert(!candidateNginxFailed.ok && index(candidateNginxFailed.error, 'candidate Nginx validation rejected') >= 0, 'standalone P6.7 failure is explicit');
+const applyCandidateNginxFailed = nginx.apply_preflight.call();
+assert(!applyCandidateNginxFailed.ok && !applyCandidateNginxFailed.ready, 'Apply Preflight fails closed on P6.7 candidate Nginx rejection');
+assert(length(applyCandidateNginxFailed.checks) == 2 && applyCandidateNginxFailed.checks[1].name == 'nginx' && !applyCandidateNginxFailed.checks[1].ok, 'Apply Preflight stops before platform/firewall/certificate after P6.7 failure');
+
 global.fixture.mode = 'platform-failed';
 const applyPlatformFailed = nginx.apply_preflight.call();
 assert(!applyPlatformFailed.ok && applyPlatformFailed.profile == 'direct_https', 'Apply Preflight propagates Direct HTTPS platform failure');
-assert(length(applyPlatformFailed.checks) == 2 && !applyPlatformFailed.checks[1].ok, 'Apply Preflight stops before firewall/certificate after platform failure');
+assert(length(applyPlatformFailed.checks) == 3 && applyPlatformFailed.checks[2].name == 'platform' && !applyPlatformFailed.checks[2].ok, 'Apply Preflight stops before firewall/certificate after platform failure');
 
 const platformFailed = nginx.platform_preflight.call();
 assert(!platformFailed.ok && index(platformFailed.error, 'preflight rejected') >= 0, 'platform preflight failure explicit');
@@ -158,4 +172,4 @@ assert(!revisionUnavailable.ok && revisionUnavailable.error == 'editor-helper-un
 const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
 assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 
-print('rpcd Nginx P6.6/P12.6 ingress preflight and foreign lifecycle tests passed\n');
+print('rpcd Nginx P6.7/P12.6 ingress validation and foreign lifecycle tests passed\n');
