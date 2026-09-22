@@ -7,7 +7,7 @@ global.fixture = {
 	openwrt_release: "DISTRIB_RELEASE='25.12.4'\nDISTRIB_DESCRIPTION='OpenWrt 25.12.4 r-test'\nDISTRIB_ARCH='x86_64'\n",
 	packages: {
 		'telego-pkg': '0.6.5-r13',
-		'luci-app-telego': '0.6.5-r33',
+		'luci-app-telego': '0.6.5-r34',
 		'nginx-telego': '0.6.5-r11',
 		'nginx-ssl': '1.27.5-r1',
 		'luci-lib-uqr': '1.0-r1'
@@ -78,7 +78,7 @@ assert(info.ok && info.error == '', 'system_info success');
 assert(info.openwrt_release == 'OpenWrt 25.12.4 r-test', 'OpenWrt release parsing');
 assert(info.architecture == 'x86_64', 'architecture parsing');
 assert(info.packages['telego-pkg'] == '0.6.5-r13', 'telego package version');
-assert(info.packages['luci-app-telego'] == '0.6.5-r33', 'LuCI package version');
+assert(info.packages['luci-app-telego'] == '0.6.5-r34', 'LuCI package version');
 assert(info.packages['nginx-telego'] == '0.6.5-r11', 'nginx package version');
 assert(info.packages['acme-acmesh'] == null, 'missing optional package is reported as null');
 assert(info.core_version == 'v0.6.5', 'core version parser');
@@ -228,4 +228,4 @@ const failed_logs = ui.logs.call({ args: { limit: 20 } });
 assert(!failed_logs.ok && failed_logs.error == 'logread-failed' && failed_logs.content == '', 'logread failure is stable and empty');
 assert(index(sprintf('%.J', failed_logs), secret_canary) < 0, 'logread error never forwards captured output');
 
-print('rpcd P6.3-P6.7 UI backend tests passed\n');
+print('rpcd P6.3-P6.8 UI backend tests passed\n');
