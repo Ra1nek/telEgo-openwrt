@@ -24,7 +24,8 @@
           "firewall_preflight",
           "certificate_status",
           "certificate_preflight",
-          "apply_preflight"
+          "apply_preflight",
+          "candidate_nginx_validate"
         ]
       }
     },
