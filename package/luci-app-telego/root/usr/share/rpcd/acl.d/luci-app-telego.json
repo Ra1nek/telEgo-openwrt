@@ -23,7 +23,8 @@
           "firewall_status",
           "firewall_preflight",
           "certificate_status",
-          "certificate_preflight"
+          "certificate_preflight",
+          "apply_preflight"
         ]
       }
     },
