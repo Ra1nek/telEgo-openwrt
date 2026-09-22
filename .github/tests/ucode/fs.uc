@@ -4,11 +4,99 @@ function open(path, mode) {
 		data = '123.50 456.00';
 	else if (path == '/proc/42/stat')
 		data = '42 (telego worker) S 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 2350';
-	return { read: function() { return data; }, close: function() {} };
+	else if (path == '/etc/openwrt_release')
+		data = global.fixture?.openwrt_release || "DISTRIB_RELEASE='25.12.4'\nDISTRIB_DESCRIPTION='OpenWrt 25.12.4 r-test'\nDISTRIB_ARCH='x86_64'\n";
+	else if (path == '/var/etc/telego.toml') {
+		if (global.fixture?.runtime_missing)
+			return null;
+		data = global.fixture?.runtime_config || '';
+	}
+
+	let offset = 0;
+	return {
+		read: function(mode) {
+			if (type(mode) == 'int') {
+				const chunk = substr(data, offset, mode);
+				offset += length(chunk);
+				return chunk;
+			}
+			const chunk = substr(data, offset);
+			offset = length(data);
+			return chunk;
+		},
+		close: function() {}
+	};
+}
+
+function lstat(path) {
+	if (path == '/var/etc/telego.toml') {
+		if (global.fixture?.runtime_missing)
+			return null;
+		if (global.fixture?.runtime_symlink)
+			return { type: 'link', size: 0 };
+		return {
+			type: 'file',
+			size: global.fixture?.runtime_size != null ? global.fixture.runtime_size : length(global.fixture?.runtime_config || '')
+		};
+	}
+	if (path == '/etc/openwrt_release')
+		return { type: 'file', size: length(global.fixture?.openwrt_release || '') };
+	return { type: 'file', size: 0 };
+}
+
+function buffered_proc(content, exit_code) {
+	let offset = 0;
+	content = content || '';
+	return {
+		read: function(mode) {
+			if (mode == 'line') {
+				if (offset >= length(content))
+					return '';
+				const rest = substr(content, offset);
+				const newline = index(rest, '\n');
+				const chunk = newline < 0 ? rest : substr(rest, 0, newline + 1);
+				offset += length(chunk);
+				return chunk;
+			}
+			if (type(mode) == 'int') {
+				const chunk = substr(content, offset, mode);
+				offset += length(chunk);
+				return chunk;
+			}
+			const rest = substr(content, offset);
+			offset = length(content);
+			return rest;
+		},
+		close: function() { return exit_code || 0; }
+	};
 }
 
 function popen(command, mode) {
 	global.fetched = command;
+
+	const apk_prefixes = ['/usr/bin/apk info -e -v ', '/sbin/apk info -e -v '];
+	for (let apk_prefix in apk_prefixes) {
+		if (substr(command, 0, length(apk_prefix)) == apk_prefix) {
+			const package_name = substr(command, length(apk_prefix));
+			const packages = global.fixture?.packages || {};
+			const version = packages[package_name];
+			return buffered_proc(version ? package_name + '-' + version + '\n' : '', version ? 0 : 1);
+		}
+	}
+
+	if (command == '/usr/bin/telego version 2>&1')
+		return buffered_proc(global.fixture?.core_version_output || '', global.fixture?.core_version_exit || 0);
+
+	if (command == '/bin/uname -m')
+		return buffered_proc((global.fixture?.uname || 'x86_64') + '\n', 0);
+
+	const log_prefix = '/sbin/logread -e telego -l ';
+	if (substr(command, 0, length(log_prefix)) == log_prefix) {
+		global.logread_command = command;
+		if (global.fixture?.logs_mode == 'popen-failed')
+			return null;
+		return buffered_proc(global.fixture?.logs_output || '', global.fixture?.logs_mode == 'failed' ? 1 : 0);
+	}
 
 	if (global.fixture?.metrics_mode == 'popen-failed')
 		return null;
@@ -66,4 +154,4 @@ function popen(command, mode) {
 		}
 	};
 }
-export { open, popen };
+export { open, popen, lstat };

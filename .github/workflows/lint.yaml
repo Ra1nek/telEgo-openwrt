@@ -43,6 +43,9 @@ jobs:
           node .github/tests/luci-advanced.cjs
           node .github/tests/luci-p5-acceptance.cjs
 
+      - name: Validate P6.3 RPC/ACL contracts
+        run: python3 .github/tests/rpcd-ui-contract.py
+
       - name: Validate OpenWrt Makefiles
         run: python3 .github/scripts/check-openwrt-makefiles.py
 

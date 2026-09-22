@@ -104,6 +104,7 @@ bash .github/tests/service-definition.sh
 "${NODE:-node}" .github/tests/luci-nginx-files.cjs
 python3 .github/tests/test_installer.py
 python3 .github/scripts/check-luci-i18n.py
+python3 .github/tests/rpcd-ui-contract.py
 
 UCODE_REVISION=85922056ef7abeace3cca3ab28bc1ac2d88e31b1
 UCODE_CACHE_ROOT="${UCODE_CACHE_ROOT:-${XDG_CACHE_HOME:-$HOME/.cache/telego/ucode}}"
@@ -127,8 +128,10 @@ if [[ -z ${UCODE:-} ]]; then
 	fi
 
 	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$UCODE" .github/tests/rpcd-status.uc
+	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$UCODE" .github/tests/rpcd-ui.uc
 	LD_LIBRARY_PATH="$runtime_dir${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" "$UCODE" .github/tests/rpcd-nginx.uc
 else
 	"$UCODE" .github/tests/rpcd-status.uc
+	"$UCODE" .github/tests/rpcd-ui.uc
 	"$UCODE" .github/tests/rpcd-nginx.uc
 fi

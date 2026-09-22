@@ -1,0 +1,516 @@
+'use strict';
+
+import { open, popen, lstat } from 'fs';
+
+const API_VERSION = 2;
+const LOG_MAX_BYTES = 65536;
+const RUNTIME_MAX_BYTES = 131072;
+const RUNTIME_PATH = '/var/etc/telego.toml';
+
+const PACKAGE_NAMES = [
+	'telego-pkg',
+	'luci-app-telego',
+	'nginx-telego',
+	'nginx-ssl',
+	'acme-acmesh',
+	'luci-lib-uqr'
+];
+
+const SAFE_LOG_MESSAGES = [
+	'failed to load config',
+	'invalid config',
+	'invalid Middle-End config',
+	'Telegram links not available for Unix socket binding',
+	'failed to generate Telegram links',
+	'telego proxy started',
+	'Middle-End runtime unavailable; starting with direct fallback',
+	'Middle-End startup unavailable; starting with direct fallback',
+	'Middle-End service started; direct fallback remains active until an active generation is ready',
+	'failed to start WEB proxy',
+	'WEB proxy started',
+	'gnet proxy started',
+	'Connection limiter enabled',
+	'User IP limiter enabled',
+	'metrics server started',
+	'Middle-End generation repair started',
+	'Middle-End admission unavailable; new clients use direct fallback',
+	'Middle-End direct fallback sessions cleared',
+	'Middle-End client sessions committed to direct fallback; they remain direct until clients reconnect',
+	'Middle-End unused-link refresh failed. The current link remains available unless it fails independently',
+	'Middle-End could not read the process file-descriptor limit',
+	'Middle-End direct-fallback capacity exceeds the process file-descriptor limit; increase the limit or reduce middle-end.max-connections',
+	'Middle-End response-pressure client output evidence',
+	'Middle-End response pressure evicted a client binding'
+];
+
+const RUNTIME_KEYS = {
+	'general': {
+		'bind-to': true,
+		'log-level': true,
+		'proxy-protocol': true,
+		'max-connections-per-ip': true,
+		'max-ips-per-user': true,
+		'ip-block-timeout': true,
+		'handshake-timeout': true,
+		'clock-sync-url': true
+	},
+	'tls-fronting': {
+		'enabled': true,
+		'mask-host': true,
+		'mask-port': true,
+		'cert-host': true,
+		'cert-port': true,
+		'fake-cert-size': true,
+		'mask-sni-safelist': true,
+		'splice-host': true,
+		'splice-port': true,
+		'splice-proxy-protocol': true,
+		'splice-idle-timeout': true,
+		'enable-drs': true,
+		'enable-split-tls': true
+	},
+	'performance': {
+		'tcp-buffer-kb': true,
+		'num-event-loops': true,
+		'prefer-ip': true,
+		'idle-timeout': true,
+		'max-write-buffer-mb': true,
+		'dd-downlink-chunk': true,
+		'dd-downlink-delay': true,
+		'client-silence-close': true
+	},
+	'upstream': {
+		'socks5': true
+	},
+	'metrics': {
+		'bind-to': true,
+		'path': true,
+		'diagnostics': true
+	},
+	'web-proxy': {
+		'enabled': true,
+		'carrier': true,
+		'bind-to': true,
+		'hostname': true,
+		'backend': true,
+		'num-event-loops': true,
+		'trusted-proxy-cidrs': true
+	},
+	'middle-end': {
+		'enabled': true,
+		'proxy-tag': true,
+		'socks5': true,
+		'socks5-username': true,
+		'socks5-password': true,
+		'artifact-proxy': true,
+		'nat-ip': true,
+		'max-connections': true,
+		'queue-budget-mb': true
+	},
+	'secrets': {}
+};
+
+const ALWAYS_REDACT = {
+	'general.clock-sync-url': true,
+	'upstream.socks5': true,
+	'web-proxy.backend': true,
+	'middle-end.proxy-tag': true,
+	'middle-end.socks5': true,
+	'middle-end.socks5-username': true,
+	'middle-end.socks5-password': true,
+	'middle-end.artifact-proxy': true
+};
+
+function captured_at() {
+	return int(time());
+}
+
+function stable_failure(error, truncated) {
+	return {
+		ok: false,
+		error: error,
+		content: '',
+		redacted: true,
+		truncated: !!truncated,
+		omitted_entries: 0,
+		captured_at: captured_at()
+	};
+}
+
+function read_bounded(handle, max_bytes) {
+	let output = '';
+	let truncated = false;
+
+	while (true) {
+		const chunk = handle.read(4096);
+		if (!chunk || !length(chunk))
+			break;
+
+		const remaining = max_bytes - length(output);
+		if (remaining > 0)
+			output += substr(chunk, 0, remaining);
+		if (length(chunk) > remaining)
+			truncated = true;
+	}
+
+	return { output: output, truncated: truncated };
+}
+
+function capture(command, max_bytes) {
+	const proc = popen(command, 'r');
+	if (!proc)
+		return { ok: false, output: '', truncated: false };
+
+	const captured = read_bounded(proc, max_bytes);
+	const exit_code = proc.close();
+	return {
+		ok: exit_code == 0,
+		output: captured.output,
+		truncated: captured.truncated
+	};
+}
+
+function read_bounded_regular(path, max_bytes) {
+	const info = lstat(path);
+	if (!info)
+		return { ok: false, error: 'unavailable', data: '', truncated: false };
+	if (info.type != 'file')
+		return { ok: false, error: 'unsafe', data: '', truncated: false };
+	if (+info.size > max_bytes)
+		return { ok: false, error: 'too-large', data: '', truncated: true };
+
+	const file = open(path, 'r');
+	if (!file)
+		return { ok: false, error: 'unavailable', data: '', truncated: false };
+
+	const captured = read_bounded(file, max_bytes);
+	file.close();
+
+	if (captured.truncated)
+		return { ok: false, error: 'too-large', data: '', truncated: true };
+
+	return { ok: true, error: '', data: captured.output, truncated: false };
+}
+
+function release_value(text, key) {
+	const prefix = key == 'description'
+		? 'DISTRIB_DESCRIPTION='
+		: key == 'release'
+			? 'DISTRIB_RELEASE='
+			: key == 'arch'
+				? 'DISTRIB_ARCH='
+				: '';
+	if (!prefix)
+		return '';
+
+	for (let line in split(text || '', '\n')) {
+		line = rtrim(line, '\r');
+		if (substr(line, 0, length(prefix)) != prefix)
+			continue;
+
+		const raw = substr(line, length(prefix));
+		if (length(raw) >= 2 && substr(raw, 0, 1) == "'" && substr(raw, length(raw) - 1, 1) == "'")
+			return substr(raw, 1, length(raw) - 2);
+	}
+
+	return '';
+}
+
+function package_version(package_name) {
+	let allowed = false;
+	for (let item in PACKAGE_NAMES) {
+		if (item == package_name) {
+			allowed = true;
+			break;
+		}
+	}
+	if (!allowed)
+		return null;
+
+	let result = capture('/usr/bin/apk info -e -v ' + package_name, 512);
+	if (!result.ok)
+		result = capture('/sbin/apk info -e -v ' + package_name, 512);
+	if (!result.ok)
+		return null;
+
+	const line = trim(split(result.output, '\n')[0] || '');
+	const prefix = package_name + '-';
+	if (!length(line) || substr(line, 0, length(prefix)) != prefix)
+		return null;
+
+	const version = substr(line, length(prefix));
+	return match(version, /^[A-Za-z0-9._+~:-]+$/) ? version : null;
+}
+
+function core_build_info() {
+	const result = capture('/usr/bin/telego version 2>&1', 4096);
+	if (!result.ok)
+		return { version: null, go_version: null };
+
+	const version_match = match(result.output, /(^|[ \t])version=([A-Za-z0-9._+~:-]+)/);
+	const go_match = match(result.output, /(^|[ \t])go(_version)?=([A-Za-z0-9._+~:-]+)/);
+
+	return {
+		version: version_match ? version_match[2] : null,
+		go_version: go_match ? go_match[3] : null
+	};
+}
+
+function capabilities() {
+	return {
+		ok: true,
+		error: '',
+		api_version: API_VERSION,
+		features: {
+			serviceLifecycle: false,
+			redactedLogs: true,
+			redactedRuntimeConfig: true,
+			componentVersions: true,
+			candidateIngressPreflight: false,
+			candidateNginxValidation: false
+		}
+	};
+}
+
+function system_info() {
+	const release = read_bounded_regular('/etc/openwrt_release', 8192);
+	const release_text = release.ok ? release.data : '';
+	let architecture = release_value(release_text, 'arch');
+
+	if (!architecture) {
+		const uname = capture('/bin/uname -m', 128);
+		if (uname.ok)
+			architecture = trim(uname.output);
+	}
+
+	const packages = {};
+	for (let package_name in PACKAGE_NAMES)
+		packages[package_name] = package_version(package_name);
+
+	const core = core_build_info();
+	return {
+		ok: true,
+		error: '',
+		openwrt_release: release_value(release_text, 'description') || release_value(release_text, 'release'),
+		architecture: architecture || '',
+		packages: packages,
+		core_version: core.version,
+		build_go_version: core.go_version
+	};
+}
+
+function safe_log_line(line) {
+	if (!length(line))
+		return null;
+
+	let selected = null;
+	for (let message in SAFE_LOG_MESSAGES) {
+		if (index(line, message) >= 0) {
+			selected = message;
+			break;
+		}
+	}
+	if (!selected)
+		return null;
+
+	const level_match = match(line, /(^|[ \t])(TRC|DBG|INF|WRN|ERR|FTL)([ \t]|$)/);
+	return (level_match ? level_match[2] + ' ' : '') + selected;
+}
+
+function logs(limit) {
+	if (type(limit) != 'int' || limit < 1 || limit > 200)
+		return stable_failure('invalid-limit', false);
+
+	const result = capture('/sbin/logread -e telego -l ' + limit, LOG_MAX_BYTES);
+	if (!result.ok)
+		return stable_failure('logread-failed', result.truncated);
+
+	const entries = [];
+	let omitted = 0;
+	for (let line in split(result.output, '\n')) {
+		line = rtrim(line, '\r');
+		if (!length(line))
+			continue;
+
+		const safe = safe_log_line(line);
+		if (!safe) {
+			omitted++;
+			continue;
+		}
+
+		if (length(entries) < limit)
+			push(entries, safe);
+		else
+			omitted++;
+	}
+
+	return {
+		ok: true,
+		error: '',
+		content: join('\n', entries),
+		redacted: true,
+		truncated: result.truncated,
+		omitted_entries: omitted,
+		captured_at: captured_at()
+	};
+}
+
+function generated_value_valid(value) {
+	value = trim(value || '');
+	if (!length(value))
+		return false;
+
+	if (value == 'true' || value == 'false' || match(value, /^[0-9]+$/))
+		return true;
+
+	if (substr(value, 0, 1) == '"' && substr(value, length(value) - 1, 1) == '"')
+		return true;
+
+	if (substr(value, 0, 1) == '[' && substr(value, length(value) - 1, 1) == ']')
+		return true;
+
+	return false;
+}
+
+function sensitive_value(section, key, value) {
+	if (ALWAYS_REDACT[section + '.' + key])
+		return true;
+
+	if (match(value || '', /[0-9A-Fa-f]{32}/))
+		return true;
+
+	if (match(value || '', /:\/\/[^\/ \t]+@/))
+		return true;
+
+	return false;
+}
+
+function sanitize_runtime_config(data) {
+	const lines = split(data || '', '\n');
+	const output = [];
+	let current = '';
+	let known_section = false;
+	let saw_header = false;
+	let omitted = 0;
+	let secret_index = 0;
+
+	for (let raw in lines) {
+		let line = rtrim(raw, '\r');
+		if (!length(trim(line))) {
+			if (saw_header)
+				push(output, '');
+			continue;
+		}
+
+		if (!saw_header) {
+			if (line != '# Generated from /etc/config/telego. Do not edit.')
+				return { ok: false, content: '', omitted: 0 };
+			saw_header = true;
+			push(output, line);
+			continue;
+		}
+
+		if (substr(line, 0, 1) == '#') {
+			omitted++;
+			continue;
+		}
+
+		const section_match = match(line, /^\[([A-Za-z0-9-]+)\]$/);
+		if (section_match) {
+			current = section_match[1];
+			known_section = RUNTIME_KEYS[current] != null;
+			if (known_section)
+				push(output, line);
+			else
+				omitted++;
+			continue;
+		}
+
+		if (!current)
+			return { ok: false, content: '', omitted: 0 };
+
+		if (!known_section) {
+			omitted++;
+			continue;
+		}
+
+		if (current == 'secrets') {
+			const secret_match = match(line, /^"[^"]*"[ \t]*=[ \t]*".*"$/);
+			if (!secret_match)
+				return { ok: false, content: '', omitted: 0 };
+			secret_index++;
+			push(output, '"secret-' + secret_index + '" = "[REDACTED]"');
+			continue;
+		}
+
+		const assignment = match(line, /^([A-Za-z0-9-]+)[ \t]*=[ \t]*(.+)$/);
+		if (!assignment)
+			return { ok: false, content: '', omitted: 0 };
+
+		const key = assignment[1];
+		const value = assignment[2];
+		if (!RUNTIME_KEYS[current][key]) {
+			omitted++;
+			continue;
+		}
+		if (!generated_value_valid(value))
+			return { ok: false, content: '', omitted: 0 };
+
+		if (sensitive_value(current, key, value))
+			push(output, key + ' = "[REDACTED]"');
+		else
+			push(output, key + ' = ' + value);
+	}
+
+	if (!saw_header)
+		return { ok: false, content: '', omitted: 0 };
+
+	return {
+		ok: true,
+		content: join('\n', output),
+		omitted: omitted
+	};
+}
+
+function runtime_config() {
+	const source = read_bounded_regular(RUNTIME_PATH, RUNTIME_MAX_BYTES);
+	if (!source.ok) {
+		if (source.error == 'unsafe')
+			return stable_failure('runtime-config-unsafe', false);
+		if (source.error == 'too-large')
+			return stable_failure('runtime-config-too-large', true);
+		return stable_failure('runtime-config-unavailable', false);
+	}
+
+	const sanitized = sanitize_runtime_config(source.data);
+	if (!sanitized.ok)
+		return stable_failure('runtime-config-parse-failed', false);
+
+	return {
+		ok: true,
+		error: '',
+		content: sanitized.content,
+		redacted: true,
+		truncated: false,
+		omitted_entries: sanitized.omitted,
+		captured_at: captured_at()
+	};
+}
+
+const methods = {
+	capabilities: {
+		call: function () { return capabilities(); }
+	},
+	system_info: {
+		call: function () { return system_info(); }
+	},
+	logs: {
+		args: { limit: 0 },
+		call: function (request) { return logs(request.args.limit); }
+	},
+	runtime_config: {
+		call: function () { return runtime_config(); }
+	}
+};
+
+return { 'telego.ui': methods };

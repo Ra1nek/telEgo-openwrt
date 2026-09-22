@@ -2,17 +2,69 @@
   "luci-app-telego": {
     "description": "Grant access to telEgo configuration, Nginx ingress/file administration and service telemetry",
     "read": {
-      "uci": ["telego", "nginx_telego"],
+      "uci": [
+        "telego",
+        "nginx_telego"
+      ],
       "ubus": {
-        "service": ["list"],
-        "telego": ["status"],
-        "telego.nginx": ["inventory", "managed_content", "foreign_content", "foreign_revision", "platform_status", "platform_preflight", "firewall_status", "firewall_preflight", "certificate_status", "certificate_preflight"]
+        "service": [
+          "list"
+        ],
+        "telego": [
+          "status"
+        ],
+        "telego.nginx": [
+          "inventory",
+          "managed_content",
+          "foreign_content",
+          "foreign_revision",
+          "platform_status",
+          "platform_preflight",
+          "firewall_status",
+          "firewall_preflight",
+          "certificate_status",
+          "certificate_preflight"
+        ]
       }
     },
     "write": {
-      "uci": ["telego", "nginx_telego"],
+      "uci": [
+        "telego",
+        "nginx_telego"
+      ],
       "ubus": {
-        "telego.nginx": ["quarantine", "restore", "delete_active", "delete_quarantined", "replace_active", "create_foreign", "rename_active", "repair"]
+        "telego.nginx": [
+          "quarantine",
+          "restore",
+          "delete_active",
+          "delete_quarantined",
+          "replace_active",
+          "create_foreign",
+          "rename_active",
+          "repair"
+        ]
+      }
+    }
+  },
+  "telego-ui-read": {
+    "description": "Read telEgo UI capability and version metadata",
+    "read": {
+      "ubus": {
+        "telego.ui": [
+          "capabilities",
+          "system_info"
+        ]
+      }
+    }
+  },
+  "telego-ui-diagnostics": {
+    "description": "Read bounded and server-redacted telEgo diagnostics",
+    "read": {
+      "ubus": {
+        "telego.ui": [
+          "logs",
+          "runtime_config"
+        ]
       }
     }
   }

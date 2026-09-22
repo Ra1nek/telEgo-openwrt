@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-telego
 PKG_VERSION:=0.6.5
-PKG_RELEASE:=28
+PKG_RELEASE:=29
 PKG_BUILD_DEPENDS:=luci-base/host
 
 include $(INCLUDE_DIR)/package.mk
@@ -49,6 +49,8 @@ define Package/luci-app-telego/install
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/ucode
 	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/telego \
 		$(1)/usr/share/rpcd/ucode/telego
+	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/telego-ui \
+		$(1)/usr/share/rpcd/ucode/telego-ui
 	$(INSTALL_BIN) ./root/usr/share/rpcd/ucode/telego-nginx \
 		$(1)/usr/share/rpcd/ucode/telego-nginx
 endef
