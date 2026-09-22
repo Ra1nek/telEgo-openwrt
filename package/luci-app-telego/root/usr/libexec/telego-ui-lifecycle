@@ -1,0 +1,401 @@
+#!/bin/sh
+set -u
+
+INIT_SCRIPT=/etc/init.d/telego
+UCI=/sbin/uci
+STATE_DIR=/tmp/telego-ui-lifecycle
+LOCK_FILE=/var/lock/telego-ui-lifecycle.lock
+MAX_OPERATIONS=64
+
+umask 077
+
+is_true() {
+	case "$1" in
+		1|true|yes|on) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+running_state() {
+	if "$INIT_SCRIPT" status >/dev/null 2>&1; then
+		printf '1'
+	else
+		printf '0'
+	fi
+}
+
+autostart_state() {
+	if "$INIT_SCRIPT" enabled >/dev/null 2>&1; then
+		printf '1'
+	else
+		printf '0'
+	fi
+}
+
+config_enabled_state() {
+	local value
+	value="$("$UCI" -q get telego.general.enabled 2>/dev/null || true)"
+	if is_true "$value"; then
+		printf '1'
+	else
+		printf '0'
+	fi
+}
+
+state_revision() {
+	local running autostart config_enabled
+	running="$(running_state)"
+	autostart="$(autostart_state)"
+	config_enabled="$(config_enabled_state)"
+
+	printf 'running=%s\nautostart=%s\nconfig_enabled=%s\n' 		"$running" "$autostart" "$config_enabled" |
+		sha256sum | awk '{print $1}'
+}
+
+busy_state() {
+	mkdir -p "$(dirname "$LOCK_FILE")" 2>/dev/null || return 1
+	exec 8>"$LOCK_FILE" || return 1
+	if flock -n 8; then
+		flock -u 8
+		exec 8>&-
+		printf '0'
+	else
+		exec 8>&-
+		printf '1'
+	fi
+}
+
+valid_request_id() {
+	[ "${#1}" -ge 8 ] && [ "${#1}" -le 64 ] || return 1
+	case "$1" in
+		*[!A-Za-z0-9._:-]*) return 1 ;;
+	esac
+	return 0
+}
+
+valid_revision() {
+	[ "${#1}" -eq 64 ] || return 1
+	case "$1" in
+		*[!0-9a-f]*) return 1 ;;
+	esac
+	return 0
+}
+
+valid_action() {
+	case "$1" in
+		start|restart|stop|enable_autostart|disable_autostart) return 0 ;;
+	esac
+	return 1
+}
+
+operation_hash() {
+	printf '%s' "$1" | sha256sum | awk '{print $1}'
+}
+
+operation_path() {
+	printf '%s/op-%s' "$STATE_DIR" "$(operation_hash "$1")"
+}
+
+read_field() {
+	local file="$1" key="$2" line
+	[ -f "$file" ] || return 1
+	while IFS= read -r line; do
+		case "$line" in
+			"$key="*)
+				printf '%s' "${line#*=}"
+				return 0
+				;;
+		esac
+	done < "$file"
+	return 1
+}
+
+write_operation() {
+	local request_id="$1" action="$2" expected_revision="$3" state="$4" message="$5"
+	local path tmp
+	path="$(operation_path "$request_id")"
+	tmp="${path}.$$"
+
+	mkdir -p "$STATE_DIR" || return 1
+	chmod 0700 "$STATE_DIR" || return 1
+
+	{
+		printf 'request_id=%s\n' "$request_id"
+		printf 'action=%s\n' "$action"
+		printf 'expected_revision=%s\n' "$expected_revision"
+		printf 'state=%s\n' "$state"
+		printf 'message=%s\n' "$message"
+	} > "$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+	chmod 0600 "$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+	mv -f "$tmp" "$path"
+}
+
+prune_operations() {
+	local count=0 file
+	[ -d "$STATE_DIR" ] || return 0
+
+	for file in $(ls -1t "$STATE_DIR"/op-* 2>/dev/null); do
+		count=$((count + 1))
+		[ "$count" -le "$MAX_OPERATIONS" ] || rm -f -- "$file"
+	done
+}
+
+emit_action_result() {
+	local ok="$1" error="$2" operation_id="$3" state="$4"
+	printf 'ok=%s\n' "$ok"
+	printf 'error=%s\n' "$error"
+	printf 'operation_id=%s\n' "$operation_id"
+	printf 'state=%s\n' "$state"
+}
+
+emit_existing_operation() {
+	local request_id="$1" action="$2" expected_revision="$3" path
+	local stored_request stored_action stored_revision state message
+	path="$(operation_path "$request_id")"
+	[ -f "$path" ] || return 1
+
+	stored_request="$(read_field "$path" request_id || true)"
+	stored_action="$(read_field "$path" action || true)"
+	stored_revision="$(read_field "$path" expected_revision || true)"
+	state="$(read_field "$path" state || true)"
+	message="$(read_field "$path" message || true)"
+
+	if [ "$stored_request" != "$request_id" ] ||
+	   [ "$stored_action" != "$action" ] ||
+	   [ "$stored_revision" != "$expected_revision" ]; then
+		emit_action_result 0 request-id-conflict "$request_id" failed
+		return 0
+	fi
+
+	case "$state" in
+		queued|running|completed|failed) ;;
+		*) emit_action_result 0 operation-corrupt "$request_id" failed; return 0 ;;
+	esac
+
+	if [ "$state" = completed ]; then
+		emit_action_result 1 "" "$request_id" "$state"
+	elif [ "$state" = failed ]; then
+		emit_action_result 0 "${message:-action-failed}" "$request_id" "$state"
+	else
+		emit_action_result 1 "" "$request_id" "$state"
+	fi
+	return 0
+}
+
+wait_running() {
+	local expected="$1" remaining=10 current
+	while [ "$remaining" -gt 0 ]; do
+		current="$(running_state)"
+		[ "$current" = "$expected" ] && return 0
+		sleep 1
+		remaining=$((remaining - 1))
+	done
+	return 1
+}
+
+perform_action() {
+	local action="$1"
+	case "$action" in
+		start)
+			[ "$(config_enabled_state)" = 1 ] || return 20
+			"$INIT_SCRIPT" start >/dev/null 2>&1 || return 21
+			wait_running 1 || return 21
+			;;
+		restart)
+			[ "$(config_enabled_state)" = 1 ] || return 20
+			"$INIT_SCRIPT" restart >/dev/null 2>&1 || return 22
+			wait_running 1 || return 22
+			;;
+		stop)
+			"$INIT_SCRIPT" stop >/dev/null 2>&1 || return 23
+			wait_running 0 || return 23
+			;;
+		enable_autostart)
+			"$INIT_SCRIPT" enable >/dev/null 2>&1 || return 24
+			[ "$(autostart_state)" = 1 ] || return 24
+			;;
+		disable_autostart)
+			"$INIT_SCRIPT" disable >/dev/null 2>&1 || return 25
+			[ "$(autostart_state)" = 0 ] || return 25
+			;;
+	esac
+	return 0
+}
+
+message_for_success() {
+	case "$1" in
+		start) printf 'service-started' ;;
+		restart) printf 'service-restarted' ;;
+		stop) printf 'service-stopped' ;;
+		enable_autostart) printf 'autostart-enabled' ;;
+		disable_autostart) printf 'autostart-disabled' ;;
+	esac
+}
+
+message_for_failure() {
+	case "$1" in
+		20) printf 'config-disabled' ;;
+		21) printf 'start-failed' ;;
+		22) printf 'restart-failed' ;;
+		23) printf 'stop-failed' ;;
+		24) printf 'enable-autostart-failed' ;;
+		25) printf 'disable-autostart-failed' ;;
+		*) printf 'action-failed' ;;
+	esac
+}
+
+command_status() {
+	local running autostart config_enabled revision busy
+	running="$(running_state)"
+	autostart="$(autostart_state)"
+	config_enabled="$(config_enabled_state)"
+	revision="$(state_revision)" || exit 1
+	busy="$(busy_state)" || busy=1
+
+	printf 'ok=1\n'
+	printf 'error=\n'
+	printf 'running=%s\n' "$running"
+	printf 'autostart=%s\n' "$autostart"
+	printf 'config_enabled=%s\n' "$config_enabled"
+	printf 'state_revision=%s\n' "$revision"
+	printf 'busy=%s\n' "$busy"
+}
+
+command_action() {
+	local action="${1:-}" request_id="${2:-}" expected_revision="${3:-}"
+	local current_revision result message
+
+	valid_action "$action" || {
+		emit_action_result 0 invalid-action "$request_id" failed
+		return 0
+	}
+	valid_request_id "$request_id" || {
+		emit_action_result 0 invalid-request-id "" failed
+		return 0
+	}
+	valid_revision "$expected_revision" || {
+		emit_action_result 0 invalid-revision "$request_id" failed
+		return 0
+	}
+
+	if emit_existing_operation "$request_id" "$action" "$expected_revision"; then
+		return 0
+	fi
+
+	mkdir -p "$(dirname "$LOCK_FILE")" "$STATE_DIR" || {
+		emit_action_result 0 state-unavailable "$request_id" failed
+		return 0
+	}
+	chmod 0700 "$STATE_DIR" || {
+		emit_action_result 0 state-unavailable "$request_id" failed
+		return 0
+	}
+
+	exec 9>"$LOCK_FILE" || {
+		emit_action_result 0 lock-unavailable "$request_id" failed
+		return 0
+	}
+	if ! flock -n 9; then
+		exec 9>&-
+		emit_action_result 0 busy "$request_id" running
+		return 0
+	fi
+
+	if emit_existing_operation "$request_id" "$action" "$expected_revision"; then
+		flock -u 9
+		exec 9>&-
+		return 0
+	fi
+
+	current_revision="$(state_revision)" || {
+		flock -u 9
+		exec 9>&-
+		emit_action_result 0 state-revision-unavailable "$request_id" failed
+		return 0
+	}
+	if [ "$current_revision" != "$expected_revision" ]; then
+		write_operation "$request_id" "$action" "$expected_revision" failed revision-conflict || true
+		prune_operations
+		flock -u 9
+		exec 9>&-
+		emit_action_result 0 revision-conflict "$request_id" failed
+		return 0
+	fi
+
+	if ! write_operation "$request_id" "$action" "$expected_revision" running ""; then
+		flock -u 9
+		exec 9>&-
+		emit_action_result 0 state-unavailable "$request_id" failed
+		return 0
+	fi
+
+	perform_action "$action"
+	result=$?
+	if [ "$result" -eq 0 ]; then
+		message="$(message_for_success "$action")"
+		write_operation "$request_id" "$action" "$expected_revision" completed "$message" || true
+		prune_operations
+		flock -u 9
+		exec 9>&-
+		emit_action_result 1 "" "$request_id" completed
+	else
+		message="$(message_for_failure "$result")"
+		write_operation "$request_id" "$action" "$expected_revision" failed "$message" || true
+		prune_operations
+		flock -u 9
+		exec 9>&-
+		emit_action_result 0 "$message" "$request_id" failed
+	fi
+}
+
+command_operation_status() {
+	local operation_id="${1:-}" path state message
+	valid_request_id "$operation_id" || {
+		printf 'ok=0\nerror=invalid-operation-id\nstate=unknown\nmessage=\n'
+		return 0
+	}
+
+	path="$(operation_path "$operation_id")"
+	if [ ! -f "$path" ]; then
+		printf 'ok=1\nerror=\nstate=unknown\nmessage=\n'
+		return 0
+	fi
+
+	state="$(read_field "$path" state || true)"
+	message="$(read_field "$path" message || true)"
+	case "$state" in
+		queued|running|completed|failed) ;;
+		*) printf 'ok=0\nerror=operation-corrupt\nstate=unknown\nmessage=\n'; return 0 ;;
+	esac
+
+	case "$message" in
+		''|service-started|service-restarted|service-stopped|autostart-enabled|autostart-disabled|config-disabled|start-failed|restart-failed|stop-failed|enable-autostart-failed|disable-autostart-failed|action-failed|revision-conflict) ;;
+		*) message=operation-failed ;;
+	esac
+
+	printf 'ok=1\nerror=\nstate=%s\nmessage=%s\n' "$state" "$message"
+}
+
+case "${1:-}" in
+	status)
+		[ "$#" -eq 1 ] || exit 2
+		command_status
+		;;
+	action)
+		[ "$#" -eq 4 ] || exit 2
+		command_action "$2" "$3" "$4"
+		;;
+	operation-status)
+		[ "$#" -eq 2 ] || exit 2
+		command_operation_status "$2"
+		;;
+	*)
+		exit 2
+		;;
+esac

@@ -90,6 +90,45 @@ function popen(command, mode) {
 	if (command == '/bin/uname -m')
 		return buffered_proc((global.fixture?.uname || 'x86_64') + '\n', 0);
 
+	if (substr(command, 0, length('/usr/libexec/telego-ui-lifecycle ')) == '/usr/libexec/telego-ui-lifecycle ') {
+		if (!global.lifecycle_calls)
+			global.lifecycle_calls = [];
+		push(global.lifecycle_calls, command);
+
+		if (global.fixture?.lifecycle_popen_failed)
+			return null;
+
+		if (command == '/usr/libexec/telego-ui-lifecycle status 2>/dev/null') {
+			return buffered_proc(
+				global.fixture?.lifecycle_status_output ||
+				'ok=1\nerror=\nrunning=1\nautostart=1\nconfig_enabled=1\n' +
+				'state_revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n' +
+				'busy=0\n',
+				global.fixture?.lifecycle_exit || 0
+			);
+		}
+
+		const action_prefix = '/usr/libexec/telego-ui-lifecycle action ';
+		if (substr(command, 0, length(action_prefix)) == action_prefix) {
+			return buffered_proc(
+				global.fixture?.lifecycle_action_output ||
+				'ok=1\nerror=\noperation_id=request-1234\nstate=completed\n',
+				global.fixture?.lifecycle_exit || 0
+			);
+		}
+
+		const operation_prefix = '/usr/libexec/telego-ui-lifecycle operation-status ';
+		if (substr(command, 0, length(operation_prefix)) == operation_prefix) {
+			return buffered_proc(
+				global.fixture?.lifecycle_operation_output ||
+				'ok=1\nerror=\nstate=completed\nmessage=service-restarted\n',
+				global.fixture?.lifecycle_exit || 0
+			);
+		}
+
+		return buffered_proc('', 1);
+	}
+
 	const log_prefix = '/sbin/logread -e telego -l ';
 	if (substr(command, 0, length(log_prefix)) == log_prefix) {
 		global.logread_command = command;

@@ -37,6 +37,40 @@ const callNginxInventory = rpc.declare({
 	expect: { '': {} }
 });
 
+const callUiCapabilities = rpc.declare({
+	object: 'telego.ui',
+	method: 'capabilities',
+	expect: { '': {} }
+});
+
+const callServiceStatus = rpc.declare({
+	object: 'telego.admin',
+	method: 'service_status',
+	expect: { '': {} }
+});
+
+const callServiceAction = rpc.declare({
+	object: 'telego.admin',
+	method: 'service_action',
+	params: ['action', 'request_id', 'expected_revision'],
+	expect: { '': {} }
+});
+
+const callOperationStatus = rpc.declare({
+	object: 'telego.admin',
+	method: 'operation_status',
+	params: ['operation_id'],
+	expect: { '': {} }
+});
+
+const callSessionAccess = rpc.declare({
+	object: 'session',
+	method: 'access',
+	params: ['scope', 'object', 'function'],
+	expect: { 'access': false }
+});
+
+
 const maxDDDownlinkDelayUs = 1000000;
 
 const PERFORMANCE_PROFILE_KEYS = [
@@ -310,7 +344,354 @@ function setDiagnosticGroupVisible(root, key, visible) {
 		node.hidden = !visible;
 }
 
-function buildDiagnosticsView() {
+function lifecycleRequestId() {
+	if (window.crypto && typeof(window.crypto.randomUUID) === 'function')
+		return window.crypto.randomUUID();
+
+	const bytes = new Uint8Array(16);
+	window.crypto.getRandomValues(bytes);
+	bytes[6] = (bytes[6] & 0x0f) | 0x40;
+	bytes[8] = (bytes[8] & 0x3f) | 0x80;
+	const hex = Array.from(bytes, function (value) {
+		return value.toString(16).padStart(2, '0');
+	}).join('');
+	return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' +
+		hex.slice(16, 20) + '-' + hex.slice(20);
+}
+
+function lifecycleMessage(code) {
+	switch (code) {
+	case 'service-started':
+		return _('telEgo started.');
+	case 'service-restarted':
+		return _('telEgo restarted.');
+	case 'service-stopped':
+		return _('telEgo stopped.');
+	case 'autostart-enabled':
+		return _('Autostart enabled.');
+	case 'autostart-disabled':
+		return _('Autostart disabled.');
+	case 'config-disabled':
+		return _('Enable telEgo in MTProxy configuration before starting or restarting the service.');
+	case 'revision-conflict':
+		return _('Service state changed before the action could run. Refresh the status and try again.');
+	case 'busy':
+		return _('Another telEgo lifecycle operation is already running.');
+	case 'start-failed':
+		return _('telEgo could not be started.');
+	case 'restart-failed':
+		return _('telEgo could not be restarted.');
+	case 'stop-failed':
+		return _('telEgo could not be stopped.');
+	case 'enable-autostart-failed':
+		return _('Autostart could not be enabled.');
+	case 'disable-autostart-failed':
+		return _('Autostart could not be disabled.');
+	case 'action-failed':
+	case 'operation-failed':
+		return _('The lifecycle operation failed.');
+	default:
+		return '';
+	}
+}
+
+function lifecycleActionLabel(action) {
+	switch (action) {
+	case 'start':
+		return _('Start');
+	case 'restart':
+		return _('Restart');
+	case 'stop':
+		return _('Stop');
+	case 'enable_autostart':
+		return _('Enable Autostart');
+	case 'disable_autostart':
+		return _('Disable Autostart');
+	default:
+		return _('Service Action');
+	}
+}
+
+function lifecycleConfirmation(action, runtimeStatus, pendingChanges) {
+	const lines = [
+		_('Target: telEgo'),
+		_('Action:') + ' ' + lifecycleActionLabel(action)
+	];
+
+	if (action === 'restart')
+		lines.push(_('Restarting telEgo interrupts active proxy sessions.'));
+	else if (action === 'stop')
+		lines.push(_('Stopping telEgo interrupts active proxy sessions and leaves the proxy unavailable.'));
+	else if (action === 'start')
+		lines.push(_('Starting telEgo uses the currently saved configuration.'));
+	else
+		lines.push(_('Autostart changes boot-time behavior only; it does not start or stop telEgo now.'));
+
+	if (action === 'restart' || action === 'stop') {
+		const sessions = runtimeStatus && runtimeStatus.metrics_available
+			? String(Number(runtimeStatus.connections) || 0)
+			: _('unknown');
+		lines.push(_('Active sessions:') + ' ' + sessions);
+	}
+
+	if (pendingChanges > 0)
+		lines.push(_('There are saved telEgo changes waiting for Apply. This lifecycle action will not apply them.'));
+
+	lines.push(_('Unsaved form edits are not saved or applied by lifecycle actions.'));
+	return lines.join('\n\n');
+}
+
+function buildLifecyclePanel(context) {
+	const panel = E('section', {
+		'id': 'telego-lifecycle-panel',
+		'class': 'telego-lifecycle-panel'
+	}, [
+		E('div', { 'class': 'telego-lifecycle-heading' }, [
+			E('div', {}, [
+				E('h3', {}, _('Service Lifecycle')),
+				E('p', {}, _('Service state, boot autostart and explicit lifecycle controls. Configuration Enabled is independent from the running process and autostart.'))
+			])
+		]),
+		E('dl', { 'class': 'telego-lifecycle-summary' }, [
+			E('dt', {}, _('Process')),
+			E('dd', { 'id': 'telego-lifecycle-running' }, _('Unavailable')),
+			E('dt', {}, _('Autostart')),
+			E('dd', { 'id': 'telego-lifecycle-autostart' }, _('Unavailable')),
+			E('dt', {}, _('Configuration Enabled')),
+			E('dd', { 'id': 'telego-lifecycle-config-enabled' }, _('Unavailable'))
+		]),
+		E('div', { 'class': 'telego-lifecycle-actions' }, [
+			E('button', {
+				'id': 'telego-lifecycle-start',
+				'type': 'button',
+				'class': 'btn cbi-button cbi-button-positive',
+				'click': function () { return runLifecycleAction(context, 'start'); }
+			}, _('Start')),
+			E('button', {
+				'id': 'telego-lifecycle-restart',
+				'type': 'button',
+				'class': 'btn cbi-button cbi-button-action',
+				'click': function () { return runLifecycleAction(context, 'restart'); }
+			}, _('Restart')),
+			E('button', {
+				'id': 'telego-lifecycle-stop',
+				'type': 'button',
+				'class': 'btn cbi-button cbi-button-negative',
+				'click': function () { return runLifecycleAction(context, 'stop'); }
+			}, _('Stop')),
+			E('button', {
+				'id': 'telego-lifecycle-autostart-action',
+				'type': 'button',
+				'class': 'btn cbi-button cbi-button-neutral',
+				'click': function () {
+					const status = context.serviceStatus;
+					return runLifecycleAction(
+						context,
+						status && status.autostart ? 'disable_autostart' : 'enable_autostart'
+					);
+				}
+			}, _('Enable Autostart'))
+		]),
+		E('a', {
+			'id': 'telego-lifecycle-config-link',
+			'class': 'telego-lifecycle-config-link',
+			'href': L.url('admin/services/telego/configuration') + '#mtproxy',
+			'hidden': true
+		}, _('Open MTProxy configuration')),
+		E('p', {
+			'id': 'telego-lifecycle-status',
+			'class': 'telego-lifecycle-status',
+			'aria-live': 'polite'
+		})
+	]);
+	return panel;
+}
+
+function updateLifecyclePanel(context) {
+	const root = context.root;
+	if (!root)
+		return;
+
+	const status = context.serviceStatus;
+	const available = !!(context.capabilities && context.capabilities.ok &&
+		context.capabilities.features && context.capabilities.features.serviceLifecycle);
+	const canWrite = available && context.canWrite === true;
+	const statusNode = root.querySelector('#telego-lifecycle-status');
+	const start = root.querySelector('#telego-lifecycle-start');
+	const restart = root.querySelector('#telego-lifecycle-restart');
+	const stop = root.querySelector('#telego-lifecycle-stop');
+	const autostart = root.querySelector('#telego-lifecycle-autostart-action');
+	const configLink = root.querySelector('#telego-lifecycle-config-link');
+	const buttons = [start, restart, stop, autostart];
+	const pending = !!context.operationPending;
+
+	if (!available || !status || !status.ok) {
+		uiFoundation.setText(root.querySelector('#telego-lifecycle-running'), _('Unavailable'));
+		uiFoundation.setText(root.querySelector('#telego-lifecycle-autostart'), _('Unavailable'));
+		uiFoundation.setText(root.querySelector('#telego-lifecycle-config-enabled'), _('Unavailable'));
+		for (const button of buttons)
+			if (button)
+				button.disabled = true;
+		if (configLink)
+			configLink.hidden = true;
+		if (!context.operationMessage)
+			uiFoundation.setText(statusNode, _('Service lifecycle controls are unavailable for this session.'));
+		return;
+	}
+
+	uiFoundation.setText(root.querySelector('#telego-lifecycle-running'), status.running ? _('Running') : _('Stopped'));
+	uiFoundation.setText(root.querySelector('#telego-lifecycle-autostart'), status.autostart ? _('Enabled') : _('Disabled'));
+	uiFoundation.setText(root.querySelector('#telego-lifecycle-config-enabled'), status.config_enabled ? _('Enabled') : _('Disabled'));
+
+	const blocked = pending || status.busy || !canWrite;
+	start.disabled = blocked || status.running || !status.config_enabled;
+	restart.disabled = blocked || !status.running || !status.config_enabled;
+	stop.disabled = blocked || !status.running;
+	autostart.disabled = blocked;
+	uiFoundation.setText(autostart, status.autostart ? _('Disable Autostart') : _('Enable Autostart'));
+
+	if (configLink)
+		configLink.hidden = !!status.config_enabled;
+
+	if (context.operationMessage)
+		uiFoundation.setText(statusNode, context.operationMessage);
+	else if (!canWrite)
+		uiFoundation.setText(statusNode, _('This session has read-only lifecycle access. Service actions are disabled.'));
+	else if (status.busy)
+		uiFoundation.setText(statusNode, _('Another telEgo lifecycle operation is already running.'));
+	else if (!status.config_enabled)
+		uiFoundation.setText(statusNode, _('Configuration is disabled. Start and Restart are unavailable until telEgo is enabled in MTProxy configuration.'));
+	else
+		uiFoundation.setText(statusNode, '');
+}
+
+function refreshLifecycleStatus(context) {
+	return L.resolveDefault(callServiceStatus(), null).then(function (status) {
+		context.serviceStatus = status && status.ok ? status : null;
+		updateLifecyclePanel(context);
+		return context.serviceStatus;
+	});
+}
+
+function finishLifecycleObservation(context, state, message) {
+	uiFoundation.removePoll('telego', 'lifecycle-operation');
+	context.operationPending = false;
+	context.operationId = null;
+
+	if (state === 'completed')
+		context.operationMessage = lifecycleMessage(message) || _('Lifecycle operation completed.');
+	else if (state === 'failed')
+		context.operationMessage = lifecycleMessage(message) || _('The lifecycle operation failed.');
+	else
+		context.operationMessage = _('Lifecycle result is unknown. Refresh service status before issuing another action.');
+
+	return refreshLifecycleStatus(context);
+}
+
+function observeLifecycleOperation(context, operationId) {
+	context.operationId = operationId;
+	context.operationPending = true;
+	context.operationDeadline = Date.now() + 30000;
+	context.operationMessage = _('Lifecycle operation in progress…');
+	updateLifecyclePanel(context);
+
+	function check(isCurrent) {
+		return L.resolveDefault(callOperationStatus(operationId), null).then(function (result) {
+			if (isCurrent && !isCurrent())
+				return;
+			if (!context.operationPending || context.operationId !== operationId)
+				return;
+
+			if (result && result.ok && (result.state === 'completed' || result.state === 'failed'))
+				return finishLifecycleObservation(context, result.state, result.message);
+
+			if (Date.now() >= context.operationDeadline)
+				return finishLifecycleObservation(context, 'unknown', '');
+
+			context.operationMessage = result && result.state === 'running'
+				? _('Lifecycle operation in progress…')
+				: _('Waiting for lifecycle operation status…');
+			updateLifecyclePanel(context);
+		});
+	}
+
+	check(function () { return true; });
+	uiFoundation.addPoll('telego', 'lifecycle-operation', check, 5);
+}
+
+function runLifecycleAction(context, action) {
+	return Promise.all([
+		L.resolveDefault(callServiceStatus(), null),
+		L.resolveDefault(callTelegoStatus(), null),
+		uiFoundation.pendingChanges(['telego'])
+	]).then(function (fresh) {
+		const status = fresh[0];
+		const runtimeStatus = fresh[1];
+		const pendingChanges = Number(fresh[2]) || 0;
+
+		if (!status || !status.ok) {
+			context.operationMessage = _('Unable to read current service state.');
+			updateLifecyclePanel(context);
+			return;
+		}
+		context.serviceStatus = status;
+
+		if (context.canWrite !== true) {
+			context.operationMessage = _('This session has read-only lifecycle access. Service actions are disabled.');
+			updateLifecyclePanel(context);
+			return;
+		}
+
+		if ((action === 'start' || action === 'restart') && !status.config_enabled) {
+			context.operationMessage = lifecycleMessage('config-disabled');
+			updateLifecyclePanel(context);
+			return;
+		}
+		if (status.busy) {
+			context.operationMessage = lifecycleMessage('busy');
+			updateLifecyclePanel(context);
+			return;
+		}
+
+		if (!window.confirm(lifecycleConfirmation(action, runtimeStatus, pendingChanges)))
+			return;
+
+		const requestId = lifecycleRequestId();
+		context.operationPending = true;
+		context.operationId = requestId;
+		context.operationMessage = _('Submitting lifecycle operation…');
+		updateLifecyclePanel(context);
+
+		return callServiceAction(action, requestId, status.state_revision).then(function (result) {
+			if (result && result.error === 'busy') {
+				context.operationPending = false;
+				context.operationId = null;
+				context.operationMessage = lifecycleMessage('busy');
+				return refreshLifecycleStatus(context);
+			}
+			if (result && result.state === 'completed') {
+				context.operationPending = false;
+				context.operationId = null;
+				context.operationMessage = _('Lifecycle operation completed.');
+				return refreshLifecycleStatus(context);
+			}
+			if (result && result.state === 'failed') {
+				context.operationPending = false;
+				context.operationId = null;
+				context.operationMessage = lifecycleMessage(result.error) || _('The lifecycle operation failed.');
+				return refreshLifecycleStatus(context);
+			}
+
+			observeLifecycleOperation(context, (result && result.operation_id) || requestId);
+		}, function () {
+			/* Never retry the mutation after a transport error. The request ID is
+			 * also the operation ID, so only observe the original intent. */
+			observeLifecycleOperation(context, requestId);
+		});
+	});
+}
+
+function buildDiagnosticsView(context) {
 	const service = diagnosticGroup(_('Service Runtime'), [
 		diagnosticCard(_('Service State'), 'state'),
 		diagnosticCard(_('PID'), 'pid'),
@@ -383,6 +764,7 @@ function buildDiagnosticsView() {
 			])
 		]),
 		service,
+		buildLifecyclePanel(context),
 		listeners,
 		mtproxy,
 		web,
@@ -719,15 +1101,29 @@ return view.extend({
 			L.resolveDefault(callPlatformStatus(), null),
 			L.resolveDefault(callFirewallStatus(), null),
 			L.resolveDefault(callCertificateStatus(), null),
-			L.resolveDefault(callNginxInventory(), null)
+			L.resolveDefault(callNginxInventory(), null),
+			L.resolveDefault(callUiCapabilities(), null),
+			L.resolveDefault(callServiceStatus(), null),
+			L.resolveDefault(callSessionAccess('ubus', 'telego.admin', 'service_action'), false)
 		]).then(function (data) {
-			const dashboard = buildDiagnosticsView();
+			const lifecycleContext = {
+				root: null,
+				capabilities: data[6],
+				serviceStatus: data[7] && data[7].ok ? data[7] : null,
+				canWrite: data[8] === true,
+				operationPending: false,
+				operationId: null,
+				operationMessage: ''
+			};
+			const dashboard = buildDiagnosticsView(lifecycleContext);
 			const root = appShell.wrap('diagnostics', E('div', {}, [
 				dashboard,
 				E('div', { 'class': 'telego-diagnostics-runtime' }, data[0])
 			]));
+			lifecycleContext.root = root;
 
 			updateDiagnostics(data[1], data[2], data[3], data[4], data[5], root);
+			updateLifecyclePanel(lifecycleContext);
 
 			uiFoundation.addPoll('telego', 'runtime-status', function (isCurrent) {
 				return L.resolveDefault(callTelegoStatus(), null).then(function (status) {
@@ -754,6 +1150,15 @@ return view.extend({
 						if (isCurrent())
 							updateDiagnostics(status, data[2], data[3], data[4], data[5], root);
 					});
+				});
+			}, 30);
+
+			uiFoundation.addPoll('telego', 'service-state', function (isCurrent) {
+				return L.resolveDefault(callServiceStatus(), null).then(function (status) {
+					if (!isCurrent())
+						return;
+					lifecycleContext.serviceStatus = status && status.ok ? status : null;
+					updateLifecyclePanel(lifecycleContext);
 				});
 			}, 30);
 

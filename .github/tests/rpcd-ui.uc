@@ -7,7 +7,7 @@ global.fixture = {
 	openwrt_release: "DISTRIB_RELEASE='25.12.4'\nDISTRIB_DESCRIPTION='OpenWrt 25.12.4 r-test'\nDISTRIB_ARCH='x86_64'\n",
 	packages: {
 		'telego-pkg': '0.6.5-r13',
-		'luci-app-telego': '0.6.5-r29',
+		'luci-app-telego': '0.6.5-r30',
 		'nginx-telego': '0.6.5-r9',
 		'nginx-ssl': '1.27.5-r1',
 		'luci-lib-uqr': '1.0-r1'
@@ -64,10 +64,11 @@ const plugin = loadfile('package/luci-app-telego/root/usr/share/rpcd/ucode/teleg
 	module_search_path: [getenv('PWD') + '/.github/tests/ucode/*.uc']
 })();
 const ui = plugin['telego.ui'];
+const admin = plugin['telego.admin'];
 
 const caps = ui.capabilities.call();
 assert(caps.ok && caps.error == '' && caps.api_version == 2, 'capability API version');
-assert(!caps.features.serviceLifecycle, 'lifecycle remains capability-gated');
+assert(caps.features.serviceLifecycle, 'P6.4 lifecycle capability advertised');
 assert(caps.features.redactedLogs && caps.features.redactedRuntimeConfig, 'diagnostic viewers advertised');
 assert(caps.features.componentVersions, 'version discovery advertised');
 assert(!caps.features.candidateIngressPreflight && !caps.features.candidateNginxValidation, 'future mutation/preflight APIs stay unavailable');
@@ -77,12 +78,94 @@ assert(info.ok && info.error == '', 'system_info success');
 assert(info.openwrt_release == 'OpenWrt 25.12.4 r-test', 'OpenWrt release parsing');
 assert(info.architecture == 'x86_64', 'architecture parsing');
 assert(info.packages['telego-pkg'] == '0.6.5-r13', 'telego package version');
-assert(info.packages['luci-app-telego'] == '0.6.5-r29', 'LuCI package version');
+assert(info.packages['luci-app-telego'] == '0.6.5-r30', 'LuCI package version');
 assert(info.packages['nginx-telego'] == '0.6.5-r9', 'nginx package version');
 assert(info.packages['acme-acmesh'] == null, 'missing optional package is reported as null');
 assert(info.core_version == 'v0.6.5', 'core version parser');
 assert(info.build_go_version == null, 'missing Go build metadata is allowed');
 assert(index(sprintf('%.J', info), 'secret-commit-canary') < 0, 'system_info never forwards raw version command metadata');
+
+const service = admin.service_status.call();
+assert(service.ok && service.error == '', 'service_status success');
+assert(service.running && service.autostart && service.config_enabled, 'service status keeps running/autostart/config separate');
+assert(!service.busy, 'service status reports lifecycle lock state');
+assert(service.state_revision == 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'state revision passthrough');
+
+global.lifecycle_calls = [];
+const bad_action = admin.service_action.call({
+	args: {
+		action: 'reload',
+		request_id: 'request-1234',
+		expected_revision: service.state_revision
+	}
+});
+assert(!bad_action.ok && bad_action.error == 'invalid-action', 'unknown lifecycle action rejected before helper');
+assert(length(global.lifecycle_calls) == 0, 'invalid action never reaches helper');
+
+const bad_request = admin.service_action.call({
+	args: {
+		action: 'restart',
+		request_id: '../../etc/passwd',
+		expected_revision: service.state_revision
+	}
+});
+assert(!bad_request.ok && bad_request.error == 'invalid-request-id', 'unsafe request ID rejected before helper');
+assert(length(global.lifecycle_calls) == 0, 'unsafe request ID never reaches helper');
+
+const bad_revision = admin.service_action.call({
+	args: {
+		action: 'restart',
+		request_id: 'request-1234',
+		expected_revision: 'abcd'
+	}
+});
+assert(!bad_revision.ok && bad_revision.error == 'invalid-revision', 'invalid revision rejected before helper');
+assert(length(global.lifecycle_calls) == 0, 'invalid revision never reaches helper');
+
+global.fixture.lifecycle_action_output =
+	'ok=1\nerror=\noperation_id=request-1234\nstate=completed\n';
+const action = admin.service_action.call({
+	args: {
+		action: 'restart',
+		request_id: 'request-1234',
+		expected_revision: service.state_revision
+	}
+});
+assert(action.ok && action.error == '' && action.state == 'completed', 'valid lifecycle action accepted');
+assert(action.operation_id == 'request-1234', 'operation ID is stable across transport ambiguity');
+assert(global.lifecycle_calls[length(global.lifecycle_calls) - 1] ==
+	'/usr/libexec/telego-ui-lifecycle action restart request-1234 ' +
+	service.state_revision + ' 2>/dev/null', 'RPC invokes only the fixed lifecycle helper');
+
+global.fixture.lifecycle_operation_output =
+	'ok=1\nerror=\nstate=completed\nmessage=service-restarted\n';
+const operation = admin.operation_status.call({ args: { operation_id: 'request-1234' } });
+assert(operation.ok && operation.state == 'completed' && operation.message == 'service-restarted', 'operation status response');
+
+const invalid_operation = admin.operation_status.call({ args: { operation_id: '../request' } });
+assert(!invalid_operation.ok && invalid_operation.error == 'invalid-operation-id', 'unsafe operation ID rejected');
+
+global.fixture.lifecycle_status_output =
+	'ok=1\nerror=\nrunning=0\nautostart=0\nconfig_enabled=1\n' +
+	'state_revision=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n' +
+	'busy=1\n';
+const busy = admin.service_status.call();
+assert(busy.ok && !busy.running && !busy.autostart && busy.config_enabled && busy.busy, 'service_status exposes busy independently');
+
+global.fixture.lifecycle_popen_failed = true;
+const unavailable_status = admin.service_status.call();
+assert(!unavailable_status.ok && unavailable_status.error == 'service-status-unavailable', 'helper failure is stable and non-reflective');
+const unavailable_action = admin.service_action.call({
+	args: {
+		action: 'stop',
+		request_id: 'request-5678',
+		expected_revision: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+	}
+});
+assert(!unavailable_action.ok && unavailable_action.error == 'lifecycle-helper-unavailable', 'mutation helper failure is stable');
+assert(unavailable_action.operation_id == 'request-5678' && unavailable_action.state == 'unknown', 'timeout ambiguity retains observable operation ID');
+global.fixture.lifecycle_popen_failed = false;
+global.fixture.lifecycle_status_output = null;
 
 const invalid_low = ui.logs.call({ args: { limit: 0 } });
 const invalid_high = ui.logs.call({ args: { limit: 201 } });
@@ -145,4 +228,4 @@ const failed_logs = ui.logs.call({ args: { limit: 20 } });
 assert(!failed_logs.ok && failed_logs.error == 'logread-failed' && failed_logs.content == '', 'logread failure is stable and empty');
 assert(index(sprintf('%.J', failed_logs), secret_canary) < 0, 'logread error never forwards captured output');
 
-print('rpcd P6.3 diagnostics backend tests passed\n');
+print('rpcd P6.3/P6.4 UI backend tests passed\n');

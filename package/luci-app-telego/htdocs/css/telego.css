@@ -1103,6 +1103,67 @@ P5.6 DIAGNOSTICS CLEANUP
 	border-top: 1px solid var(--telego-border-light);
 }
 
+.telego-lifecycle-panel {
+	margin: 0 0 var(--telego-spacing-xl);
+	padding: var(--telego-spacing-md);
+	border: 1px solid var(--telego-border-light);
+	border-radius: var(--telego-radius-lg);
+	background: var(--telego-bg-secondary);
+}
+
+.telego-lifecycle-heading h3 {
+	margin: 0 0 var(--telego-spacing-xs);
+}
+
+.telego-lifecycle-heading p {
+	margin: 0;
+	color: var(--telego-text-secondary);
+}
+
+.telego-lifecycle-summary {
+	display: grid;
+	grid-template-columns: max-content minmax(0, 1fr);
+	gap: var(--telego-spacing-xs) var(--telego-spacing-md);
+	margin: var(--telego-spacing-md) 0;
+}
+
+.telego-lifecycle-summary dt {
+	font-weight: 600;
+	color: var(--telego-text-secondary);
+}
+
+.telego-lifecycle-summary dd {
+	margin: 0;
+	min-width: 0;
+	overflow-wrap: anywhere;
+}
+
+.telego-lifecycle-actions {
+	display: flex;
+	flex-wrap: wrap;
+	gap: var(--telego-spacing-sm);
+}
+
+.telego-lifecycle-actions .btn {
+	min-height: 44px;
+}
+
+.telego-lifecycle-config-link {
+	display: inline-block;
+	margin-top: var(--telego-spacing-md);
+}
+
+.telego-lifecycle-config-link[hidden] {
+	display: none;
+}
+
+.telego-lifecycle-status {
+	min-height: 1.4em;
+	margin: var(--telego-spacing-md) 0 0;
+	color: var(--telego-text-secondary);
+}
+
+
 @media screen and (max-width: 900px) {
 	.telego-status-grid,
 	.telego-diagnostic-grid {
@@ -1126,6 +1187,16 @@ P5.6 DIAGNOSTICS CLEANUP
 	.telego-status-grid,
 	.telego-diagnostic-grid {
 		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.telego-lifecycle-summary {
+		grid-template-columns: minmax(0, 1fr);
+	}
+
+	.telego-lifecycle-actions,
+	.telego-lifecycle-actions .btn {
+		width: 100%;
+		box-sizing: border-box;
 	}
 }
 

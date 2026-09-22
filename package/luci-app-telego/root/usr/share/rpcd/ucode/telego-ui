@@ -6,6 +6,7 @@ const API_VERSION = 2;
 const LOG_MAX_BYTES = 65536;
 const RUNTIME_MAX_BYTES = 131072;
 const RUNTIME_PATH = '/var/etc/telego.toml';
+const LIFECYCLE_HELPER = '/usr/libexec/telego-ui-lifecycle';
 
 const PACKAGE_NAMES = [
 	'telego-pkg',
@@ -262,7 +263,7 @@ function capabilities() {
 		error: '',
 		api_version: API_VERSION,
 		features: {
-			serviceLifecycle: false,
+			serviceLifecycle: true,
 			redactedLogs: true,
 			redactedRuntimeConfig: true,
 			componentVersions: true,
@@ -497,6 +498,187 @@ function runtime_config() {
 	};
 }
 
+const LIFECYCLE_ACTIONS = {
+	start: true,
+	restart: true,
+	stop: true,
+	enable_autostart: true,
+	disable_autostart: true
+};
+
+const LIFECYCLE_STATES = {
+	queued: true,
+	running: true,
+	completed: true,
+	failed: true,
+	unknown: true
+};
+
+const LIFECYCLE_ERRORS = {
+	'': true,
+	'request-id-conflict': true,
+	'operation-corrupt': true,
+	'state-unavailable': true,
+	'lock-unavailable': true,
+	'busy': true,
+	'state-revision-unavailable': true,
+	'revision-conflict': true,
+	'config-disabled': true,
+	'start-failed': true,
+	'restart-failed': true,
+	'stop-failed': true,
+	'enable-autostart-failed': true,
+	'disable-autostart-failed': true,
+	'action-failed': true
+};
+
+const LIFECYCLE_MESSAGES = {
+	'': true,
+	'service-started': true,
+	'service-restarted': true,
+	'service-stopped': true,
+	'autostart-enabled': true,
+	'autostart-disabled': true,
+	'config-disabled': true,
+	'start-failed': true,
+	'restart-failed': true,
+	'stop-failed': true,
+	'enable-autostart-failed': true,
+	'disable-autostart-failed': true,
+	'action-failed': true,
+	'revision-conflict': true,
+	'operation-failed': true
+};
+
+function lifecycle_request_id_valid(value) {
+	return type(value) == 'string' &&
+		length(value) >= 8 &&
+		length(value) <= 64 &&
+		!!match(value, /^[A-Za-z0-9._:-]+$/);
+}
+
+function lifecycle_revision_valid(value) {
+	return type(value) == 'string' && !!match(value, /^[0-9a-f]{64}$/);
+}
+
+function lifecycle_fields(output) {
+	const fields = {};
+	for (let line in split(output || '', '\n')) {
+		line = rtrim(line, '\r');
+		if (!length(line))
+			continue;
+
+		const item = match(line, /^([a-z_]+)=(.*)$/);
+		if (!item)
+			return null;
+		fields[item[1]] = item[2];
+	}
+	return fields;
+}
+
+function lifecycle_capture(args) {
+	const result = capture(LIFECYCLE_HELPER + ' ' + args + ' 2>/dev/null', 4096);
+	return result.ok && !result.truncated ? lifecycle_fields(result.output) : null;
+}
+
+function service_status() {
+	const fields = lifecycle_capture('status');
+	if (!fields || fields.ok != '1' || !lifecycle_revision_valid(fields.state_revision))
+		return { ok: false, error: 'service-status-unavailable' };
+
+	for (let key in ['running', 'autostart', 'config_enabled', 'busy'])
+		if (fields[key] != '0' && fields[key] != '1')
+			return { ok: false, error: 'service-status-unavailable' };
+
+	return {
+		ok: true,
+		error: '',
+		running: fields.running == '1',
+		autostart: fields.autostart == '1',
+		config_enabled: fields.config_enabled == '1',
+		state_revision: fields.state_revision,
+		busy: fields.busy == '1'
+	};
+}
+
+function service_action(action, request_id, expected_revision) {
+	if (type(action) != 'string' || !LIFECYCLE_ACTIONS[action])
+		return { ok: false, error: 'invalid-action' };
+	if (!lifecycle_request_id_valid(request_id))
+		return { ok: false, error: 'invalid-request-id' };
+	if (!lifecycle_revision_valid(expected_revision))
+		return { ok: false, error: 'invalid-revision' };
+
+	const fields = lifecycle_capture('action ' + action + ' ' + request_id + ' ' + expected_revision);
+	if (!fields)
+		return {
+			ok: false,
+			error: 'lifecycle-helper-unavailable',
+			operation_id: request_id,
+			state: 'unknown'
+		};
+
+	const state = fields.state;
+	const operation_id = fields.operation_id;
+	const error = fields.error || '';
+	if ((fields.ok != '0' && fields.ok != '1') ||
+	    !lifecycle_request_id_valid(operation_id) ||
+	    !LIFECYCLE_STATES[state] || state == 'unknown' ||
+	    !LIFECYCLE_ERRORS[error])
+		return {
+			ok: false,
+			error: 'lifecycle-helper-invalid-response',
+			operation_id: request_id,
+			state: 'unknown'
+		};
+
+	return {
+		ok: fields.ok == '1',
+		error: error,
+		operation_id: operation_id,
+		state: state
+	};
+}
+
+function operation_status(operation_id) {
+	if (!lifecycle_request_id_valid(operation_id))
+		return {
+			ok: false,
+			error: 'invalid-operation-id',
+			state: 'unknown',
+			message: ''
+		};
+
+	const fields = lifecycle_capture('operation-status ' + operation_id);
+	if (!fields)
+		return {
+			ok: false,
+			error: 'lifecycle-helper-unavailable',
+			state: 'unknown',
+			message: ''
+		};
+
+	const state = fields.state;
+	const message = fields.message || '';
+	const error = fields.error || '';
+	if ((fields.ok != '0' && fields.ok != '1') ||
+	    !LIFECYCLE_STATES[state] || !LIFECYCLE_MESSAGES[message] ||
+	    !LIFECYCLE_ERRORS[error])
+		return {
+			ok: false,
+			error: 'lifecycle-helper-invalid-response',
+			state: 'unknown',
+			message: ''
+		};
+
+	return {
+		ok: fields.ok == '1',
+		error: error,
+		state: state,
+		message: message
+	};
+}
+
 const methods = {
 	capabilities: {
 		call: function () { return capabilities(); }
@@ -513,4 +695,27 @@ const methods = {
 	}
 };
 
-return { 'telego.ui': methods };
+const admin_methods = {
+	service_status: {
+		call: function () { return service_status(); }
+	},
+	service_action: {
+		args: { action: '', request_id: '', expected_revision: '' },
+		call: function (request) {
+			return service_action(
+				request.args.action,
+				request.args.request_id,
+				request.args.expected_revision
+			);
+		}
+	},
+	operation_status: {
+		args: { operation_id: '' },
+		call: function (request) { return operation_status(request.args.operation_id); }
+	}
+};
+
+return {
+	'telego.ui': methods,
+	'telego.admin': admin_methods
+};

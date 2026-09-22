@@ -67,6 +67,7 @@ bash -n .github/scripts/verify-nginx-telego-apk.sh
 python3 .github/tests/test_router_installer.py
 BUSYBOX="${BUSYBOX:-$(command -v busybox)}" python3 .github/tests/test_router_installer.py
 sh -n package/telego-pkg/files/init.d/telego
+sh -n package/luci-app-telego/root/usr/libexec/telego-ui-lifecycle
 sh -n package/telego-pkg/files/usr/libexec/telego-package-reconcile
 sh -n package/nginx-telego/files/init.d/nginx-telego
 sh -n package/nginx-telego/files/usr/libexec/nginx-telego-render
@@ -95,6 +96,7 @@ sh .github/tests/telego-config-render.sh
 sh .github/tests/package-reconcile.sh
 bash .github/tests/patched-go-format.sh
 bash .github/tests/service-definition.sh
+bash .github/tests/telego-ui-lifecycle.sh
 "${NODE:-node}" .github/tests/luci-app-shell.cjs
 "${NODE:-node}" .github/tests/luci-ui-foundation.cjs
 "${NODE:-node}" .github/tests/luci-config.cjs

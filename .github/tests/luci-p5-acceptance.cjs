@@ -7,6 +7,7 @@ const config = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/te
 const advanced = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/advanced.js', 'utf8');
 const nginx = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/nginx-files.js', 'utf8');
 const css = fs.readFileSync('package/luci-app-telego/htdocs/css/telego.css', 'utf8');
+const lifecycle = fs.readFileSync('package/luci-app-telego/root/usr/libexec/telego-ui-lifecycle', 'utf8');
 
 // Top-level application controls are mixed navigation (buttons + links), not an
 // ARIA tab widget. This avoids promising arrow-key tab behavior that does not
@@ -103,4 +104,26 @@ assert.match(css, /\.telego-sr-only\s*\{/);
 assert.match(css, /\.telego-connection-qr-card\[data-state="hidden"\]/);
 assert.match(css, /#cbi-telego-secret \.telego-user-move\s*\{/);
 
-console.log('LuCI P6.2 connection UX acceptance tests passed');
+// P6.4 lifecycle: capability/ACL gated UI, revision-checked fixed helper,
+// idempotent request IDs and observation after an ambiguous transport failure.
+assert.match(advanced, /object: 'telego\.admin'[\s\S]*method: 'service_action'[\s\S]*params: \['action', 'request_id', 'expected_revision'\]/);
+assert.match(advanced, /object: 'telego\.admin'[\s\S]*method: 'operation_status'[\s\S]*params: \['operation_id'\]/);
+assert.match(advanced, /window\.confirm\(lifecycleConfirmation\(action, runtimeStatus, pendingChanges\)\)/);
+assert.match(advanced, /callSessionAccess\('ubus', 'telego\.admin', 'service_action'\)/);
+assert.match(advanced, /observeLifecycleOperation\(context, requestId\)/);
+assert.match(advanced, /uiFoundation\.addPoll\('telego', 'lifecycle-operation', check, 5\)/);
+assert.match(advanced, /context\.operationDeadline = Date\.now\(\) \+ 30000/);
+assert.match(advanced, /telego-lifecycle-config-link/);
+assert.match(css, /\.telego-lifecycle-panel\s*\{/);
+assert.match(css, /\.telego-lifecycle-actions \.btn\s*\{[\s\S]*min-height:\s*44px/);
+
+assert.match(lifecycle, /start\|restart\|stop\|enable_autostart\|disable_autostart/);
+assert.match(lifecycle, /flock -n 9/);
+assert.match(lifecycle, /request-id-conflict/);
+assert.match(lifecycle, /revision-conflict/);
+assert.match(lifecycle, /config-disabled/);
+assert.match(lifecycle, /operation_hash\(\)/);
+assert.doesNotMatch(lifecycle, /"\$INIT_SCRIPT" "\$action"/);
+assert.doesNotMatch(lifecycle, /\beval\b/);
+
+console.log('LuCI P6.4 service lifecycle acceptance tests passed');

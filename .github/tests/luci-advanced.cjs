@@ -91,6 +91,10 @@ async function renderAdvanced(state = {}) {
 		client_silence_close: '0s'
 	};
 	const pollers = [];
+	const removedPolls = [];
+	const rpcCalls = [];
+	const confirmations = [];
+	let requestSequence = 0;
 	let shellActive = null;
 
 	class Map {
@@ -194,10 +198,42 @@ async function renderAdvanced(state = {}) {
 			ok: true,
 			unsafe_count: 1,
 			files: [{ name: '20-telego-core.conf' }, { name: '80-telego-ingress.conf' }]
-		} : state.inventory
+		} : state.inventory,
+		capabilities: state.capabilities === undefined ? {
+			ok: true,
+			features: { serviceLifecycle: true }
+		} : state.capabilities,
+		service_status: state.serviceStatus === undefined ? {
+			ok: true,
+			error: '',
+			running: true,
+			autostart: true,
+			config_enabled: true,
+			state_revision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+			busy: false
+		} : state.serviceStatus,
+		service_action: state.serviceAction === undefined ? {
+			ok: true,
+			error: '',
+			operation_id: 'request-0001',
+			state: 'completed'
+		} : state.serviceAction,
+		operation_status: state.operationStatus === undefined ? {
+			ok: true,
+			error: '',
+			state: 'completed',
+			message: 'service-restarted'
+		} : state.operationStatus
 	};
 	const rpc = {
-		declare: spec => () => Promise.resolve(rpcState[spec.method] ?? null)
+		declare: spec => (...args) => {
+			rpcCalls.push({ method: spec.method, args });
+			if (spec.method === 'access')
+				return Promise.resolve(state.canWrite !== false);
+			if (spec.method === 'service_action' && state.serviceActionReject)
+				return Promise.reject(new Error('transport failure'));
+			return Promise.resolve(rpcState[spec.method] ?? null);
+		}
 	};
 
 	const source = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/advanced.js', 'utf8');
@@ -242,7 +278,13 @@ async function renderAdvanced(state = {}) {
 			const wrapped = () => fn(() => true);
 			pollers.push({ key, fn: wrapped, interval });
 			return wrapped;
-		}
+		},
+		removePoll: (namespace, key) => {
+			assert.equal(namespace, 'telego');
+			removedPolls.push(key);
+			return true;
+		},
+		pendingChanges: () => Promise.resolve(state.pendingChanges || 0)
 	};
 	const L = {
 		url: path => '/cgi-bin/luci/' + path,
@@ -250,14 +292,24 @@ async function renderAdvanced(state = {}) {
 		toArray: value => value == null ? [] : (Array.isArray(value) ? value : [value])
 	};
 
-	const view = new Function('form', 'rpc', 'uci', 'view', '_', 'L', 'appShell', 'uiFoundation', 'E', source)(
+	const windowObject = {
+		crypto: {
+			randomUUID: () => 'request-' + String(++requestSequence).padStart(4, '0'),
+			getRandomValues: bytes => bytes
+		},
+		confirm: message => {
+			confirmations.push(message);
+			return state.confirmResult !== false;
+		}
+	};
+	const view = new Function('form', 'rpc', 'uci', 'view', '_', 'L', 'appShell', 'uiFoundation', 'E', 'window', source)(
 		form, rpc, uci, { extend: x => x }, x => x, L, appShell, uiFoundation,
-		(tag, attrs, children) => new Element(tag, attrs, children)
+		(tag, attrs, children) => new Element(tag, attrs, children), windowObject
 	);
 
 	assert.equal(await view.load(), 'telego');
 	const root = await view.render();
-	return { options, sections, root, shellActive, source, pollers, rpcState };
+	return { options, sections, root, shellActive, source, pollers, removedPolls, rpcState, rpcCalls, confirmations };
 }
 
 function option(options, section, name) {
@@ -289,11 +341,34 @@ function option(options, section, name) {
 	assert.equal(result.root.querySelector('#telego-diagnostic-group-middleend').hidden, false);
 	assert.match(result.source, /admin\/services\/telego\/nginx-files/);
 	assert.match(result.source, /admin\/status\/logs/);
-	assert.equal(result.pollers.length, 2, 'Diagnostics uses fast runtime and slower infrastructure polling');
-	assert.deepEqual(result.pollers.map(p => p.interval), [5, 30]);
-	assert.deepEqual(result.pollers.map(p => p.key), ['runtime-status', 'infrastructure-status']);
+	assert.equal(result.pollers.length, 3, 'Diagnostics uses runtime, infrastructure and service-state polling');
+	assert.deepEqual(result.pollers.map(p => p.interval), [5, 30, 30]);
+	assert.deepEqual(result.pollers.map(p => p.key), ['runtime-status', 'infrastructure-status', 'service-state']);
 	assert.equal(result.root.querySelector('#telego-app-service-value').textContent, 'Running');
 	assert.equal(result.root.querySelector('#telego-app-freshness').attrs['data-stale'], 'false');
+
+	const lifecycle = result.root.querySelector('#telego-lifecycle-panel');
+	assert.ok(lifecycle, 'P6.4 renders lifecycle controls in Diagnostics');
+	assert.equal(result.root.querySelector('#telego-lifecycle-running').textContent, 'Running');
+	assert.equal(result.root.querySelector('#telego-lifecycle-autostart').textContent, 'Enabled');
+	assert.equal(result.root.querySelector('#telego-lifecycle-config-enabled').textContent, 'Enabled');
+	assert.equal(result.root.querySelector('#telego-lifecycle-start').disabled, true, 'Start disabled while already running');
+	assert.equal(result.root.querySelector('#telego-lifecycle-restart').disabled, false);
+	assert.equal(result.root.querySelector('#telego-lifecycle-stop').disabled, false);
+	assert.equal(result.root.querySelector('#telego-lifecycle-autostart-action').textContent, 'Disable Autostart');
+
+	await result.root.querySelector('#telego-lifecycle-restart').attrs.click();
+	const lifecycleRpc = result.rpcCalls.find(call => call.method === 'service_action');
+	assert.deepEqual(
+		lifecycleRpc.args,
+		['restart', 'request-0001', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'],
+		'lifecycle action uses fixed action, fresh request ID and service state revision'
+	);
+	assert.equal(result.confirmations.length, 1, 'restart requires explicit confirmation');
+	assert.match(result.confirmations[0], /Target: telEgo/);
+	assert.match(result.confirmations[0], /Active sessions: 5/);
+	assert.match(result.confirmations[0], /Unsaved form edits are not saved or applied/);
+	assert.equal(result.root.querySelector('#telego-lifecycle-status').textContent, 'Lifecycle operation completed.');
 
 	for (const section of ['general', 'tls_fronting', 'web_proxy', 'middle_end'])
 		assert.equal(result.sections.some(entry => entry.section === section), false,
@@ -365,12 +440,62 @@ function option(options, section, name) {
 	assert.equal(result.root.querySelector('#telego-diagnostic-metrics').textContent, 'Error');
 	assert.match(result.root.querySelector('#telego-diagnostic-error').textContent, /fetch-failed/);
 
+	result = await renderAdvanced({
+		status: { ...healthyStatus, running: false, pid: 0, connections: 0 },
+		serviceStatus: {
+			ok: true,
+			error: '',
+			running: false,
+			autostart: false,
+			config_enabled: false,
+			state_revision: 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+			busy: false
+		}
+	});
+	assert.equal(result.root.querySelector('#telego-lifecycle-start').disabled, true, 'config disabled blocks Start');
+	assert.equal(result.root.querySelector('#telego-lifecycle-restart').disabled, true, 'config disabled blocks Restart');
+	assert.equal(result.root.querySelector('#telego-lifecycle-stop').disabled, true, 'stopped service blocks Stop');
+	assert.equal(result.root.querySelector('#telego-lifecycle-config-link').hidden, false, 'disabled config links back to MTProxy settings');
+	assert.match(result.root.querySelector('#telego-lifecycle-status').textContent, /Configuration is disabled/);
+
+	result = await renderAdvanced({
+		capabilities: { ok: true, features: { serviceLifecycle: false } }
+	});
+	assert.equal(result.root.querySelector('#telego-lifecycle-restart').disabled, true, 'capability gate disables lifecycle mutations');
+	assert.match(result.root.querySelector('#telego-lifecycle-status').textContent, /unavailable for this session/);
+
+	result = await renderAdvanced({ canWrite: false });
+	assert.equal(result.root.querySelector('#telego-lifecycle-restart').disabled, true, 'read-only ACL disables lifecycle mutations');
+	assert.equal(result.root.querySelector('#telego-lifecycle-stop').disabled, true, 'read-only ACL disables Stop');
+	assert.equal(result.root.querySelector('#telego-lifecycle-autostart-action').disabled, true, 'read-only ACL disables autostart mutation');
+	assert.match(result.root.querySelector('#telego-lifecycle-status').textContent, /read-only lifecycle access/);
+	assert.ok(result.rpcCalls.some(call => call.method === 'access' &&
+		call.args.join('|') === 'ubus|telego.admin|service_action'), 'UI checks exact session write ACL');
+
+	result = await renderAdvanced({
+		pendingChanges: 2
+	});
+	await result.root.querySelector('#telego-lifecycle-restart').attrs.click();
+	assert.match(result.confirmations[0], /saved telEgo changes waiting for Apply/);
+	assert.match(result.confirmations[0], /will not apply them/);
+
+	result = await renderAdvanced({ serviceActionReject: true });
+	await result.root.querySelector('#telego-lifecycle-restart').attrs.click();
+	await Promise.resolve();
+	const mutationCalls = result.rpcCalls.filter(call => call.method === 'service_action');
+	const observeCalls = result.rpcCalls.filter(call => call.method === 'operation_status');
+	assert.equal(mutationCalls.length, 1, 'transport failure never retries the lifecycle mutation');
+	assert.ok(observeCalls.length >= 1, 'transport failure observes operation status by request ID');
+	assert.equal(observeCalls[0].args[0], 'request-0001');
+
 	const css = fs.readFileSync('package/luci-app-telego/htdocs/css/telego.css', 'utf8');
 	assert.match(css, /\.telego-diagnostic-grid\s*\{/);
 	assert.match(css, /\.telego-diagnostics-actions\s*\{/);
 	assert.match(css, /\.telego-performance-profile-grid\s*\{/);
 	assert.match(css, /var\(--background-color-high, Canvas\)/);
 	assert.match(css, /\.telego-app-meta-item\s*\{/);
+	assert.match(css, /\.telego-lifecycle-panel\s*\{/);
+	assert.match(css, /\.telego-lifecycle-actions \.btn\s*\{[\s\S]*min-height:\s*44px/);
 
-	console.log('LuCI P5.6 Diagnostics cleanup tests passed');
+	console.log('LuCI P5.6/P6.4 Diagnostics lifecycle tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

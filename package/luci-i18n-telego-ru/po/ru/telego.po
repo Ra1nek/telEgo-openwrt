@@ -1321,3 +1321,135 @@ msgstr "Позиция"
 
 msgid "Replace the configured secret with a new random secret?"
 msgstr "Заменить настроенный секрет новым случайным секретом?"
+
+msgid "telEgo started."
+msgstr "telEgo запущен."
+
+msgid "telEgo restarted."
+msgstr "telEgo перезапущен."
+
+msgid "telEgo stopped."
+msgstr "telEgo остановлен."
+
+msgid "Autostart enabled."
+msgstr "Автозапуск включён."
+
+msgid "Autostart disabled."
+msgstr "Автозапуск выключен."
+
+msgid "Enable telEgo in MTProxy configuration before starting or restarting the service."
+msgstr "Включите telEgo в настройках MTProxy перед запуском или перезапуском службы."
+
+msgid "Service state changed before the action could run. Refresh the status and try again."
+msgstr "Состояние службы изменилось до выполнения действия. Обновите состояние и повторите попытку."
+
+msgid "Another telEgo lifecycle operation is already running."
+msgstr "Уже выполняется другая операция управления службой telEgo."
+
+msgid "telEgo could not be started."
+msgstr "Не удалось запустить telEgo."
+
+msgid "telEgo could not be restarted."
+msgstr "Не удалось перезапустить telEgo."
+
+msgid "telEgo could not be stopped."
+msgstr "Не удалось остановить telEgo."
+
+msgid "Autostart could not be enabled."
+msgstr "Не удалось включить автозапуск."
+
+msgid "Autostart could not be disabled."
+msgstr "Не удалось выключить автозапуск."
+
+msgid "The lifecycle operation failed."
+msgstr "Не удалось выполнить операцию управления службой."
+
+msgid "Start"
+msgstr "Запустить"
+
+msgid "Restart"
+msgstr "Перезапустить"
+
+msgid "Stop"
+msgstr "Остановить"
+
+msgid "Enable Autostart"
+msgstr "Включить автозапуск"
+
+msgid "Disable Autostart"
+msgstr "Выключить автозапуск"
+
+msgid "Service Action"
+msgstr "Действие со службой"
+
+msgid "Target: telEgo"
+msgstr "Цель: telEgo"
+
+msgid "Action:"
+msgstr "Действие:"
+
+msgid "Restarting telEgo interrupts active proxy sessions."
+msgstr "Перезапуск telEgo прервёт активные прокси-сессии."
+
+msgid "Stopping telEgo interrupts active proxy sessions and leaves the proxy unavailable."
+msgstr "Остановка telEgo прервёт активные прокси-сессии и сделает прокси недоступным."
+
+msgid "Starting telEgo uses the currently saved configuration."
+msgstr "При запуске telEgo используется текущая сохранённая конфигурация."
+
+msgid "Autostart changes boot-time behavior only; it does not start or stop telEgo now."
+msgstr "Автозапуск влияет только на поведение при загрузке и не запускает и не останавливает telEgo сейчас."
+
+msgid "Active sessions:"
+msgstr "Активные сессии:"
+
+msgid "There are saved telEgo changes waiting for Apply. This lifecycle action will not apply them."
+msgstr "Есть сохранённые изменения telEgo, ожидающие применения. Это действие со службой не применит их."
+
+msgid "Unsaved form edits are not saved or applied by lifecycle actions."
+msgstr "Несохранённые правки формы не сохраняются и не применяются действиями со службой."
+
+msgid "Service Lifecycle"
+msgstr "Управление службой"
+
+msgid "Service state, boot autostart and explicit lifecycle controls. Configuration Enabled is independent from the running process and autostart."
+msgstr "Состояние службы, автозапуск при загрузке и явные команды управления. Параметр «Конфигурация включена» не зависит от запущенного процесса и автозапуска."
+
+msgid "Process"
+msgstr "Процесс"
+
+msgid "Autostart"
+msgstr "Автозапуск"
+
+msgid "Configuration Enabled"
+msgstr "Конфигурация включена"
+
+msgid "Open MTProxy configuration"
+msgstr "Открыть настройки MTProxy"
+
+msgid "Service lifecycle controls are unavailable for this session."
+msgstr "Управление службой недоступно для этой сессии."
+
+msgid "Configuration is disabled. Start and Restart are unavailable until telEgo is enabled in MTProxy configuration."
+msgstr "Конфигурация выключена. Запуск и перезапуск недоступны, пока telEgo не будет включён в настройках MTProxy."
+
+msgid "Lifecycle operation completed."
+msgstr "Операция управления службой завершена."
+
+msgid "Lifecycle result is unknown. Refresh service status before issuing another action."
+msgstr "Результат операции неизвестен. Обновите состояние службы перед следующим действием."
+
+msgid "Lifecycle operation in progress…"
+msgstr "Выполняется операция управления службой…"
+
+msgid "Waiting for lifecycle operation status…"
+msgstr "Ожидание состояния операции управления службой…"
+
+msgid "Unable to read current service state."
+msgstr "Не удалось получить текущее состояние службы."
+
+msgid "Submitting lifecycle operation…"
+msgstr "Отправка операции управления службой…"
+
+msgid "This session has read-only lifecycle access. Service actions are disabled."
+msgstr "В этой сессии доступно только чтение состояния службы. Действия со службой отключены."

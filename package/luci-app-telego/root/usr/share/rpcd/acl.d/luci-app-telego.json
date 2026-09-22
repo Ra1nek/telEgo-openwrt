@@ -47,12 +47,15 @@
     }
   },
   "telego-ui-read": {
-    "description": "Read telEgo UI capability and version metadata",
+    "description": "Read telEgo UI capability, version and service-state metadata",
     "read": {
       "ubus": {
         "telego.ui": [
           "capabilities",
           "system_info"
+        ],
+        "telego.admin": [
+          "service_status"
         ]
       }
     }
@@ -64,6 +67,23 @@
         "telego.ui": [
           "logs",
           "runtime_config"
+        ]
+      }
+    }
+  },
+  "telego-ui-lifecycle": {
+    "description": "Control the telEgo service lifecycle with revision-checked operations",
+    "read": {
+      "ubus": {
+        "telego.admin": [
+          "operation_status"
+        ]
+      }
+    },
+    "write": {
+      "ubus": {
+        "telego.admin": [
+          "service_action"
         ]
       }
     }
