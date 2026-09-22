@@ -224,7 +224,21 @@ assert_installed() {
   grep -q '^\[secrets\]$' /var/etc/telego.toml
 
   test -s /www/luci-static/resources/view/telego/config.js
+  test -s /www/luci-static/resources/view/telego/ingress.js
+  test -s /www/luci-static/resources/view/telego/ingress-wizard.js
+  test -s /www/luci-static/resources/view/telego/advanced.js
   test -s /www/luci-static/resources/view/telego/nginx-files.js
+  test -s /www/luci-static/resources/css/telego.css
+  grep -Fq "'require baseclass';" /www/luci-static/resources/view/telego/ingress-wizard.js
+  grep -Fq 'return baseclass.extend({' /www/luci-static/resources/view/telego/ingress-wizard.js
+  grep -Fq 'candidateIngressPreflight: true' /usr/share/rpcd/ucode/telego-ui
+  grep -Fq 'candidateNginxValidation: true' /usr/share/rpcd/ucode/telego-ui
+  grep -Fq '"candidate_nginx_validate"' /usr/share/rpcd/acl.d/luci-app-telego.json
+  grep -Fq '"apply_preflight"' /usr/share/rpcd/acl.d/luci-app-telego.json
+  grep -Fq '.telego-app .cbi-button' /www/luci-static/resources/css/telego.css
+  grep -Fq '@media screen and (max-width: 420px)' /www/luci-static/resources/css/telego.css
+  grep -Fq '@media (prefers-reduced-motion: reduce)' /www/luci-static/resources/css/telego.css
+  grep -Fq '@media (forced-colors: active)' /www/luci-static/resources/css/telego.css
   test -s /usr/share/luci/menu.d/telego.menu.json
   test -s /usr/share/rpcd/acl.d/luci-app-telego.json
   test -x /usr/share/rpcd/ucode/telego
@@ -256,6 +270,19 @@ assert_installed() {
   /usr/libexec/nginx-telego-admin inventory >/tmp/nginx-telego-inventory.tsv
   grep -q '^managed.*20-telego-core.conf.*/etc/nginx/conf.d/20-telego-core.conf.*core.*package.*ok' /tmp/nginx-telego-inventory.tsv
   grep -q '^managed.*80-telego-ingress.conf.*/etc/nginx/conf.d/80-telego-ingress.conf.*ingress.*generated.*absent' /tmp/nginx-telego-inventory.tsv
+
+  # P6.8 router acceptance inside a real OpenWrt userspace: the default disabled
+  # ingress candidate must pass nginx -t without materializing generated files.
+  core_before=$(sha256sum /etc/nginx/conf.d/20-telego-core.conf | awk '{print $1}')
+  locations_before=$(sha256sum /etc/nginx/snippets/telego.locations | awk '{print $1}')
+  test ! -e /etc/nginx/conf.d/80-telego-ingress.conf
+  test ! -e /etc/nginx/conf.d/85-telego-fallback.conf
+  /usr/libexec/nginx-telego-render validate --no-reload >/tmp/p6-candidate-validation.txt
+  grep -q 'candidate Nginx validation passed for disabled' /tmp/p6-candidate-validation.txt
+  test "$core_before" = "$(sha256sum /etc/nginx/conf.d/20-telego-core.conf | awk '{print $1}')"
+  test "$locations_before" = "$(sha256sum /etc/nginx/snippets/telego.locations | awk '{print $1}')"
+  test ! -e /etc/nginx/conf.d/80-telego-ingress.conf
+  test ! -e /etc/nginx/conf.d/85-telego-fallback.conf
 }
 
 # Refresh the official package indexes once. Installer invocations below refresh
