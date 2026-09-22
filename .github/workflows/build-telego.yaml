@@ -14,6 +14,7 @@ on:
       - '.github/tests/**'
       - 'scripts/install-on-router.sh'
       - 'scripts/verify-direct-https-*.sh'
+      - 'scripts/verify-p6-router.sh'
       - 'install.sh'
       - '.github/openwrt-sdk.config'
   pull_request:
@@ -29,6 +30,7 @@ on:
       - '.github/tests/**'
       - 'scripts/install-on-router.sh'
       - 'scripts/verify-direct-https-*.sh'
+      - 'scripts/verify-p6-router.sh'
       - 'install.sh'
       - '.github/openwrt-sdk.config'
   workflow_dispatch:
