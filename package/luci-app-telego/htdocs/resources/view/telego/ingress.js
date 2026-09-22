@@ -44,6 +44,12 @@ const callCertificatePreflight = rpc.declare({
 	expect: { '': {} }
 });
 
+const callApplyPreflight = rpc.declare({
+	object: 'telego.nginx',
+	method: 'apply_preflight',
+	expect: { '': {} }
+});
+
 let platformState = null;
 let firewallState = null;
 let certificateState = null;
@@ -310,6 +316,44 @@ function notifyCertificatePreflight(result) {
 	);
 }
 
+function applyPreflightSummary(result) {
+	const labels = {
+		candidate: _('Candidate contract'),
+		platform: _('Platform'),
+		firewall: _('Firewall'),
+		certificate: _('Certificate'),
+		profile: _('Profile')
+	};
+	const parts = [];
+	if (result && result.profile)
+		parts.push(_('Profile') + ': ' + result.profile);
+	for (const check of (result && result.checks) || []) {
+		const label = labels[check.name] || check.name || _('Check');
+		parts.push(label + ': ' + (check.ok ? _('Passed') : _('Failed')));
+	}
+	return parts.join(' · ');
+}
+
+function notifyApplyPreflight(result) {
+	const summary = applyPreflightSummary(result);
+	if (result && result.ok && result.ready) {
+		ui.addNotification(
+			null,
+			E('p', {}, _('Apply Preflight passed. The pending ingress candidate is ready for Save & Apply.') +
+				(summary ? ' ' + summary : '')),
+			'info'
+		);
+		return;
+	}
+
+	const error = result && result.error ? String(result.error) : _('unknown error');
+	ui.addNotification(
+		null,
+		E('p', {}, _('Apply Preflight failed:') + ' ' + error + (summary ? ' · ' + summary : '')),
+		'danger'
+	);
+}
+
 return view.extend({
 	load: function () {
 		return Promise.all([
@@ -413,62 +457,103 @@ return view.extend({
 		};
 		wizardSplitDns.write = function () {};
 
+		function wizardField(option, sectionId, fallback) {
+			try {
+				const value = option.formvalue(sectionId);
+				return value == null ? fallback : value;
+			}
+			catch (e) {
+				return fallback;
+			}
+		}
+
+		function buildWizardCandidate(sectionId) {
+			return ingressWizard.buildCandidate({
+				trusted_proxy_cidrs: uci.get('telego', 'web_proxy', 'trusted_proxy_cidrs'),
+				mask_host: uci.get('telego', 'tls_fronting', 'mask_host')
+			}, {
+				mode: wizardField(wizardMode, sectionId, wizardMode.cfgvalue()),
+				hostname: wizardField(wizardHostname, sectionId, wizardHostname.cfgvalue()),
+				mtproxy_port: wizardField(wizardMtproxyPort, sectionId, wizardMtproxyPort.cfgvalue()),
+				certificate: wizardField(wizardCertificate, sectionId, wizardCertificate.cfgvalue()),
+				certificate_key: wizardField(wizardCertificateKey, sectionId, wizardCertificateKey.cfgvalue()),
+				luci_https_port: wizardField(wizardLuciPort, sectionId, wizardLuciPort.cfgvalue()),
+				split_dns_address: wizardField(wizardSplitDns, sectionId, wizardSplitDns.cfgvalue())
+			});
+		}
+
+		function wizardErrorMessage(error) {
+			const messages = {
+				'invalid-mode': _('Choose a supported ingress mode.'),
+				'invalid-hostname': _('Enter a valid public WEB hostname.'),
+				'invalid-mtproxy-port': _('Direct HTTPS requires an MTProxy port other than 443.'),
+				'invalid-luci-port': _('LuCI HTTPS management port must differ from both 443 and the MTProxy port.'),
+				'invalid-certificate-path': _('Certificate and key paths must be absolute safe paths.')
+			};
+			const code = String(error && error.message || error);
+			return messages[code] || _('Unable to prepare the ingress candidate.');
+		}
+
+		function stageWizardCandidate(sectionId) {
+			let candidate;
+			try {
+				candidate = buildWizardCandidate(sectionId);
+				ingressWizard.applyCandidate(uci, candidate);
+			}
+			catch (e) {
+				return Promise.reject(e);
+			}
+
+			return Promise.resolve(uci.save()).then(function () {
+				return candidate;
+			});
+		}
+
 		let wizardNotice = s.option(form.DummyValue, '_wizard_notice', _('Validation Boundary'),
-			_('P6.5 coordinates the pending candidate only. Existing Platform, Firewall and Certificate Preflight buttons validate saved UCI state, not unsaved wizard fields. Prepare the candidate first, then review and Save & Apply before relying on those checks.'));
-		wizardNotice.cfgvalue = function () { return _('No service is restarted by Prepare Candidate.'); };
+			_('P6.6 Apply Preflight validates the pending wizard candidate before LuCI applies it. Candidate rendering, profile contracts and mode-specific platform/firewall/certificate checks are read-only; no service is restarted.'));
+		wizardNotice.cfgvalue = function () { return _('Prepare Candidate only stages UCI changes. Apply Preflight also stages current wizard fields, then validates them without applying.'); };
 
 		let wizardPrepare = s.option(form.Button, '_wizard_prepare', _('Prepare Candidate'),
 			_('Stages the coordinated telEgo + nginx-telego draft in UCI pending changes and reloads this page for review. It does not Apply the configuration.'));
 		wizardPrepare.inputtitle = _('Prepare Candidate');
 		wizardPrepare.inputstyle = 'apply';
 		wizardPrepare.onclick = function (sectionId) {
-			function field(option, fallback) {
-				try {
-					const value = option.formvalue(sectionId);
-					return value == null ? fallback : value;
-				}
-				catch (e) {
-					return fallback;
-				}
-			}
-
-			let candidate;
-			try {
-				candidate = ingressWizard.buildCandidate({
-					trusted_proxy_cidrs: uci.get('telego', 'web_proxy', 'trusted_proxy_cidrs'),
-					mask_host: uci.get('telego', 'tls_fronting', 'mask_host')
-				}, {
-					mode: field(wizardMode, wizardMode.cfgvalue()),
-					hostname: field(wizardHostname, wizardHostname.cfgvalue()),
-					mtproxy_port: field(wizardMtproxyPort, wizardMtproxyPort.cfgvalue()),
-					certificate: field(wizardCertificate, wizardCertificate.cfgvalue()),
-					certificate_key: field(wizardCertificateKey, wizardCertificateKey.cfgvalue()),
-					luci_https_port: field(wizardLuciPort, wizardLuciPort.cfgvalue()),
-					split_dns_address: field(wizardSplitDns, wizardSplitDns.cfgvalue())
-				});
-				ingressWizard.applyCandidate(uci, candidate);
-			}
-			catch (e) {
-				const messages = {
-					'invalid-mode': _('Choose a supported ingress mode.'),
-					'invalid-hostname': _('Enter a valid public WEB hostname.'),
-					'invalid-mtproxy-port': _('Direct HTTPS requires an MTProxy port other than 443.'),
-					'invalid-luci-port': _('LuCI HTTPS management port must differ from both 443 and the MTProxy port.'),
-					'invalid-certificate-path': _('Certificate and key paths must be absolute safe paths.')
-				};
-				const code = String(e && e.message || e);
-				ui.addNotification(null, E('p', {}, messages[code] || _('Unable to prepare the ingress candidate.')), 'danger');
-				return Promise.resolve(false);
-			}
-
-			return Promise.resolve(uci.save()).then(function () {
+			return stageWizardCandidate(sectionId).then(function (candidate) {
 				ui.addNotification(null, E('p', {}, _('Ingress candidate prepared as pending UCI changes. Review it before Save & Apply.')), 'info');
-				if (window && window.location && typeof(window.location.reload) === 'function')
+				if (typeof window !== 'undefined' && window.location && typeof(window.location.reload) === 'function')
 					window.location.reload();
 				return candidate;
-			}, function () {
-				ui.addNotification(null, E('p', {}, _('Unable to save the ingress candidate as pending UCI changes.')), 'danger');
+			}, function (error) {
+				ui.addNotification(null, E('p', {}, wizardErrorMessage(error)), 'danger');
 				return false;
+			});
+		};
+
+		let wizardPreflight = s.option(form.Button, '_wizard_apply_preflight', _('Apply Preflight'),
+			_('Stages the current wizard fields as pending UCI changes, then validates the exact candidate with the read-only P6.6 preflight. Nothing is applied and no service is restarted.'));
+		wizardPreflight.inputtitle = _('Run Apply Preflight');
+		wizardPreflight.inputstyle = 'apply';
+		wizardPreflight.onclick = function (sectionId) {
+			return stageWizardCandidate(sectionId).then(function () {
+				return L.resolveDefault(callApplyPreflight(), {
+					ok: false,
+					ready: false,
+					profile: 'unknown',
+					checks: [],
+					error: 'rpc-failed'
+				});
+			}).then(function (result) {
+				notifyApplyPreflight(result);
+				return result;
+			}, function (error) {
+				ui.addNotification(null, E('p', {}, wizardErrorMessage(error)), 'danger');
+				return {
+					ok: false,
+					ready: false,
+					profile: 'unknown',
+					checks: [],
+					error: String(error && error.message || error)
+				};
 			});
 		};
 
