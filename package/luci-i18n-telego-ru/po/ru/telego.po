@@ -1568,3 +1568,30 @@ msgstr "Межсетевой экран"
 
 msgid "Profile"
 msgstr "Профиль"
+
+msgid "Candidate Nginx"
+msgstr "Кандидат Nginx"
+
+msgid "Candidate Nginx validation passed."
+msgstr "Проверка кандидата Nginx пройдена."
+
+msgid "Candidate Nginx validation failed:"
+msgstr "Проверка кандидата Nginx завершилась ошибкой:"
+
+msgid "P6.7 validates the generated candidate Nginx tree before LuCI applies it. Candidate rendering, candidate nginx -t, profile contracts and mode-specific platform/firewall/certificate checks are read-only; no service is restarted."
+msgstr "P6.7 проверяет сгенерированное дерево кандидата Nginx до его применения LuCI. Рендеринг кандидата, nginx -t для кандидата, контракты профиля и проверки платформы, межсетевого экрана и сертификата для выбранного режима выполняются только для чтения; службы не перезапускаются."
+
+msgid "Prepare Candidate only stages UCI changes. Candidate Nginx Validation and Apply Preflight stage current wizard fields, then validate them without applying."
+msgstr "«Подготовить кандидат» только создаёт ожидающие изменения UCI. «Проверка кандидата Nginx» и «Предварительная проверка применения» сохраняют текущие поля мастера, а затем проверяют их без применения."
+
+msgid "Candidate Nginx Validation"
+msgstr "Проверка кандидата Nginx"
+
+msgid "Stages the current wizard fields, builds the exact managed Nginx candidate in a temporary tree and runs nginx -t against that candidate. Active Nginx files are not replaced and no service is reloaded."
+msgstr "Сохраняет текущие поля мастера, строит точный управляемый кандидат Nginx во временном дереве и запускает nginx -t именно для него. Активные файлы Nginx не заменяются, служба не перезагружается."
+
+msgid "Validate Candidate Nginx"
+msgstr "Проверить кандидат Nginx"
+
+msgid "Stages the current wizard fields as pending UCI changes, then runs the complete read-only P6.7 preflight, including candidate Nginx validation. Nothing is applied and no service is restarted."
+msgstr "Сохраняет текущие поля мастера как ожидающие изменения UCI, затем запускает полную предварительную проверку P6.7 только для чтения, включая проверку кандидата Nginx. Ничего не применяется, службы не перезапускаются."
