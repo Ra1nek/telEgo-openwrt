@@ -349,7 +349,7 @@ function apply_preflight() {
 		return apply_preflight_failure(profile, checks, status.profile_error || 'multiple-managed-ingress-profiles');
 	if (profile == 'disabled')
 		return apply_preflight_failure(profile, checks, 'no-managed-ingress-profile');
-	if (!(profile in ['direct_https', 'shared', 'cloudflare']))
+	if (profile != 'direct_https' && profile != 'shared' && profile != 'cloudflare')
 		return apply_preflight_failure(profile, checks, 'unsupported-managed-ingress-profile');
 
 	if (profile == 'direct_https') {
