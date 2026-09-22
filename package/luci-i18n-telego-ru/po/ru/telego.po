@@ -1453,3 +1453,76 @@ msgstr "Отправка операции управления службой…
 
 msgid "This session has read-only lifecycle access. Service actions are disabled."
 msgstr "В этой сессии доступно только чтение состояния службы. Действия со службой отключены."
+
+
+msgid "Ingress Wizard"
+msgstr "Мастер входящего WEB-доступа"
+
+msgid "Target Mode"
+msgstr "Целевой режим"
+
+msgid "Prepare one coherent pending configuration across telEgo and nginx-telego. The wizard saves a draft only; it does not apply or restart services."
+msgstr "Подготавливает согласованный набор ожидающих изменений для telEgo и nginx-telego. Мастер сохраняет только черновик и не применяет конфигурацию и не перезапускает службы."
+
+msgid "Public WEB Hostname"
+msgstr "Публичное имя WEB"
+
+msgid "The same hostname is staged for telEgo WEB Proxy and the selected managed ingress profile."
+msgstr "Одно и то же имя будет подготовлено для WEB Proxy telEgo и выбранного управляемого профиля входящего доступа."
+
+msgid "MTProxy Public Port"
+msgstr "Публичный порт MTProxy"
+
+msgid "Direct HTTPS owns TCP/443, so the wizard moves MTProxy to this port and updates generated client links."
+msgstr "Direct HTTPS занимает TCP/443, поэтому мастер переносит MTProxy на этот порт и обновляет генерируемые ссылки подключения."
+
+msgid "Direct HTTPS and Native Shared-Port only. Leave empty to stage the OpenWrt ACME DNS-01 path derived from the hostname."
+msgstr "Только для Direct HTTPS и Native Shared-Port. Оставьте пустым, чтобы подготовить путь OpenWrt ACME DNS-01, сформированный из имени хоста."
+
+msgid "Direct HTTPS and Native Shared-Port only. Leave empty to stage the matching OpenWrt ACME DNS-01 key path."
+msgstr "Только для Direct HTTPS и Native Shared-Port. Оставьте пустым, чтобы подготовить путь к соответствующему ключу OpenWrt ACME DNS-01."
+
+msgid "Direct HTTPS only. TCP/443 remains dedicated to Nginx while LuCI HTTPS uses this management port."
+msgstr "Только для Direct HTTPS. TCP/443 остаётся выделенным для Nginx, а LuCI HTTPS использует этот порт управления."
+
+msgid "Optional Direct HTTPS LAN IPv4 address. Leave empty to preserve administrator-managed DNS."
+msgstr "Необязательный LAN IPv4-адрес для Direct HTTPS. Оставьте пустым, чтобы сохранить DNS, управляемый администратором."
+
+msgid "Validation Boundary"
+msgstr "Граница проверки"
+
+msgid "P6.5 coordinates the pending candidate only. Existing Platform, Firewall and Certificate Preflight buttons validate saved UCI state, not unsaved wizard fields. Prepare the candidate first, then review and Save & Apply before relying on those checks."
+msgstr "P6.5 только координирует ожидающий кандидат конфигурации. Существующие проверки платформы, межсетевого экрана и сертификата проверяют сохранённое состояние UCI, а не несохранённые поля мастера. Сначала подготовьте кандидат, затем проверьте его и выполните «Сохранить и применить» перед использованием этих проверок."
+
+msgid "No service is restarted by Prepare Candidate."
+msgstr "«Подготовить кандидат» не перезапускает службы."
+
+msgid "Prepare Candidate"
+msgstr "Подготовить кандидат"
+
+msgid "Stages the coordinated telEgo + nginx-telego draft in UCI pending changes and reloads this page for review. It does not Apply the configuration."
+msgstr "Сохраняет согласованный черновик telEgo + nginx-telego в ожидающие изменения UCI и перезагружает страницу для проверки. Конфигурация при этом не применяется."
+
+msgid "Choose a supported ingress mode."
+msgstr "Выберите поддерживаемый режим входящего доступа."
+
+msgid "Enter a valid public WEB hostname."
+msgstr "Введите корректное публичное имя WEB."
+
+msgid "Direct HTTPS requires an MTProxy port other than 443."
+msgstr "Для Direct HTTPS порт MTProxy должен отличаться от 443."
+
+msgid "LuCI HTTPS management port must differ from both 443 and the MTProxy port."
+msgstr "Порт управления LuCI HTTPS должен отличаться и от 443, и от порта MTProxy."
+
+msgid "Certificate and key paths must be absolute safe paths."
+msgstr "Пути к сертификату и ключу должны быть абсолютными и содержать только допустимые символы."
+
+msgid "Unable to prepare the ingress candidate."
+msgstr "Не удалось подготовить кандидат конфигурации входящего доступа."
+
+msgid "Ingress candidate prepared as pending UCI changes. Review it before Save & Apply."
+msgstr "Кандидат входящего доступа подготовлен как ожидающие изменения UCI. Проверьте его перед «Сохранить и применить»."
+
+msgid "Unable to save the ingress candidate as pending UCI changes."
+msgstr "Не удалось сохранить кандидат входящего доступа в ожидающие изменения UCI."
