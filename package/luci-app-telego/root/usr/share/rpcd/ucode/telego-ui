@@ -264,6 +264,7 @@ function capabilities() {
 		api_version: API_VERSION,
 		features: {
 			serviceLifecycle: true,
+			ingressWizard: true,
 			redactedLogs: true,
 			redactedRuntimeConfig: true,
 			componentVersions: true,
