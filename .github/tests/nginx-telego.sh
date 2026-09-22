@@ -110,6 +110,20 @@ grep -Fq 'add_header Cache-Control "no-store" always;' "$NGINX_TELEGO_FALLBACK_O
 grep -Fq 'return 200 "OK\n";' "$NGINX_TELEGO_FALLBACK_OUTPUT"
 ! grep -Fq 'Content-Security-Policy' "$NGINX_TELEGO_INGRESS_OUTPUT"
 ! grep -Fq 'Permissions-Policy' "$NGINX_TELEGO_INGRESS_OUTPUT"
+
+# P6.6 candidate check is strictly read-only: it validates the pending UCI
+# contract and candidate rendering without replacing files or touching nginx.
+cp "$NGINX_TELEGO_INGRESS_OUTPUT" "$work/before-check-ingress"
+cp "$NGINX_TELEGO_FALLBACK_OUTPUT" "$work/before-check-fallback"
+nginx_calls=$(wc -l <"$NGINX_LOG")
+reloads=$(wc -l <"$NGINX_RELOAD_LOG")
+"$RENDER" check --no-reload >"$work/check.out"
+grep -q 'candidate render preflight passed for cloudflare' "$work/check.out"
+cmp "$work/before-check-ingress" "$NGINX_TELEGO_INGRESS_OUTPUT"
+cmp "$work/before-check-fallback" "$NGINX_TELEGO_FALLBACK_OUTPUT"
+[[ $(wc -l <"$NGINX_LOG") == "$nginx_calls" ]]
+[[ $(wc -l <"$NGINX_RELOAD_LOG") == "$reloads" ]]
+
 reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 "$RENDER" apply
 [[ $(wc -l <"$NGINX_RELOAD_LOG") == "$reloads" ]]
