@@ -39,6 +39,16 @@ const certificatePreflight = nginx.certificate_preflight.call();
 assert(certificatePreflight.ok && index(certificatePreflight.message, 'nginx -t succeeded') >= 0, 'certificate preflight RPC');
 assert(global.certificate_command == "/usr/libexec/nginx-telego-cert 'preflight' 2>&1", 'certificate preflight uses dedicated helper');
 
+const applyPreflight = nginx.apply_preflight.call();
+assert(applyPreflight.ok && applyPreflight.ready, 'P6.6 Apply Preflight succeeds');
+assert(applyPreflight.profile == 'direct_https', 'P6.6 reports the pending managed profile');
+assert(length(applyPreflight.checks) == 4, 'Direct HTTPS Apply Preflight runs candidate/platform/firewall/certificate checks');
+assert(applyPreflight.checks[0].name == 'candidate' && applyPreflight.checks[0].ok, 'candidate render contract check');
+assert(applyPreflight.checks[1].name == 'platform' && applyPreflight.checks[1].ok, 'platform check');
+assert(applyPreflight.checks[2].name == 'firewall' && applyPreflight.checks[2].ok, 'firewall check');
+assert(applyPreflight.checks[3].name == 'certificate' && applyPreflight.checks[3].ok, 'certificate check');
+assert(global.render_command == "/usr/libexec/nginx-telego-render 'check' '--no-reload' 2>&1", 'Apply Preflight uses read-only renderer check mode');
+
 const inventory = nginx.inventory.call();
 assert(inventory.ok && length(inventory.files) == 3, 'inventory rows');
 assert(inventory.unsafe_count == 2, 'unsafe inventory warning');
@@ -108,7 +118,16 @@ assert(nginx.delete_active.call({ args: { name: '50-custom.conf' } }).ok, 'activ
 assert(nginx.delete_quarantined.call({ args: { name: '50-custom.conf' } }).ok, 'quarantine delete RPC');
 assert(nginx.repair.call().ok, 'repair RPC');
 
+global.fixture.mode = 'render-failed';
+const applyRenderFailed = nginx.apply_preflight.call();
+assert(!applyRenderFailed.ok && !applyRenderFailed.ready, 'Apply Preflight fails closed on candidate render rejection');
+assert(length(applyRenderFailed.checks) == 1 && !applyRenderFailed.checks[0].ok, 'Apply Preflight stops after failed candidate contract');
+
 global.fixture.mode = 'platform-failed';
+const applyPlatformFailed = nginx.apply_preflight.call();
+assert(!applyPlatformFailed.ok && applyPlatformFailed.profile == 'direct_https', 'Apply Preflight propagates Direct HTTPS platform failure');
+assert(length(applyPlatformFailed.checks) == 2 && !applyPlatformFailed.checks[1].ok, 'Apply Preflight stops before firewall/certificate after platform failure');
+
 const platformFailed = nginx.platform_preflight.call();
 assert(!platformFailed.ok && index(platformFailed.error, 'preflight rejected') >= 0, 'platform preflight failure explicit');
 
@@ -139,4 +158,4 @@ assert(!revisionUnavailable.ok && revisionUnavailable.error == 'editor-helper-un
 const createUnavailable = nginx.create_foreign.call({ args: { name: '55-created.conf', content: 'x\n' } });
 assert(!createUnavailable.ok && createUnavailable.error == 'editor-helper-unavailable', 'missing create helper explicit');
 
-print('rpcd Nginx P12.6 dedicated ingress and foreign lifecycle tests passed\n');
+print('rpcd Nginx P6.6/P12.6 ingress preflight and foreign lifecycle tests passed\n');
