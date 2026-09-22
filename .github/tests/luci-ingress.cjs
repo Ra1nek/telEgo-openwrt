@@ -177,8 +177,10 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(rpcCalls.includes('platform_status'));
 	assert.ok(rpcCalls.includes('firewall_status'));
 	assert.ok(rpcCalls.includes('certificate_status'));
-	assert.deepEqual(sections, [{ section: 'shared', title: 'Ingress Profile' }],
-		'Native Shared-Port options must not render as a separate always-visible card');
+	assert.deepEqual(sections, [
+		{ section: 'shared', title: 'Ingress Wizard' },
+		{ section: 'shared', title: 'Ingress Profile' }
+	], 'P6.5 wizard coordinates the draft while Native Shared-Port remains contextual');
 
 	const mode = options.find(o => o.name === '_mode');
 	assert.ok(mode, 'ingress mode selector exists');
@@ -364,5 +366,5 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_status'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_preflight'));
 
-	console.log('LuCI P12.6 dedicated Direct HTTPS ingress tests passed');
+	console.log('LuCI P6.5 wizard shell + P12.6 ingress tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
