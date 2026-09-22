@@ -44,6 +44,12 @@ const callCertificatePreflight = rpc.declare({
 	expect: { '': {} }
 });
 
+const callCandidateNginxValidate = rpc.declare({
+	object: 'telego.nginx',
+	method: 'candidate_nginx_validate',
+	expect: { '': {} }
+});
+
 const callApplyPreflight = rpc.declare({
 	object: 'telego.nginx',
 	method: 'apply_preflight',
@@ -319,6 +325,7 @@ function notifyCertificatePreflight(result) {
 function applyPreflightSummary(result) {
 	const labels = {
 		candidate: _('Candidate contract'),
+		nginx: _('Candidate Nginx'),
 		platform: _('Platform'),
 		firewall: _('Firewall'),
 		certificate: _('Certificate'),
@@ -332,6 +339,24 @@ function applyPreflightSummary(result) {
 		parts.push(label + ': ' + (check.ok ? _('Passed') : _('Failed')));
 	}
 	return parts.join(' · ');
+}
+
+function notifyCandidateNginxValidation(result) {
+	if (result && result.ok) {
+		ui.addNotification(
+			null,
+			E('p', {}, result.message || _('Candidate Nginx validation passed.')),
+			'info'
+		);
+		return;
+	}
+
+	const error = result && result.error ? String(result.error) : _('unknown error');
+	ui.addNotification(
+		null,
+		E('p', {}, _('Candidate Nginx validation failed:') + ' ' + error),
+		'danger'
+	);
 }
 
 function notifyApplyPreflight(result) {
@@ -510,8 +535,8 @@ return view.extend({
 		}
 
 		let wizardNotice = s.option(form.DummyValue, '_wizard_notice', _('Validation Boundary'),
-			_('P6.6 Apply Preflight validates the pending wizard candidate before LuCI applies it. Candidate rendering, profile contracts and mode-specific platform/firewall/certificate checks are read-only; no service is restarted.'));
-		wizardNotice.cfgvalue = function () { return _('Prepare Candidate only stages UCI changes. Apply Preflight also stages current wizard fields, then validates them without applying.'); };
+			_('P6.7 validates the generated candidate Nginx tree before LuCI applies it. Candidate rendering, candidate nginx -t, profile contracts and mode-specific platform/firewall/certificate checks are read-only; no service is restarted.'));
+		wizardNotice.cfgvalue = function () { return _('Prepare Candidate only stages UCI changes. Candidate Nginx Validation and Apply Preflight stage current wizard fields, then validate them without applying.'); };
 
 		let wizardPrepare = s.option(form.Button, '_wizard_prepare', _('Prepare Candidate'),
 			_('Stages the coordinated telEgo + nginx-telego draft in UCI pending changes and reloads this page for review. It does not Apply the configuration.'));
@@ -529,8 +554,32 @@ return view.extend({
 			});
 		};
 
+		let wizardNginxValidate = s.option(form.Button, '_wizard_nginx_validate', _('Candidate Nginx Validation'),
+			_('Stages the current wizard fields, builds the exact managed Nginx candidate in a temporary tree and runs nginx -t against that candidate. Active Nginx files are not replaced and no service is reloaded.'));
+		wizardNginxValidate.inputtitle = _('Validate Candidate Nginx');
+		wizardNginxValidate.inputstyle = 'apply';
+		wizardNginxValidate.onclick = function (sectionId) {
+			return stageWizardCandidate(sectionId).then(function () {
+				return L.resolveDefault(callCandidateNginxValidate(), {
+					ok: false,
+					message: '',
+					error: 'rpc-failed'
+				});
+			}).then(function (result) {
+				notifyCandidateNginxValidation(result);
+				return result;
+			}, function (error) {
+				ui.addNotification(null, E('p', {}, wizardErrorMessage(error)), 'danger');
+				return {
+					ok: false,
+					message: '',
+					error: String(error && error.message || error)
+				};
+			});
+		};
+
 		let wizardPreflight = s.option(form.Button, '_wizard_apply_preflight', _('Apply Preflight'),
-			_('Stages the current wizard fields as pending UCI changes, then validates the exact candidate with the read-only P6.6 preflight. Nothing is applied and no service is restarted.'));
+			_('Stages the current wizard fields as pending UCI changes, then runs the complete read-only P6.7 preflight, including candidate Nginx validation. Nothing is applied and no service is restarted.'));
 		wizardPreflight.inputtitle = _('Run Apply Preflight');
 		wizardPreflight.inputstyle = 'apply';
 		wizardPreflight.onclick = function (sectionId) {
