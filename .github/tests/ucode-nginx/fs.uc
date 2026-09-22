@@ -68,6 +68,16 @@ function popen(command, mode) {
 			output = 'nginx-telego-cert: direct_https certificate preflight passed; nginx -t succeeded\n';
 		return { read: function(kind) { return output; }, close: function() { return 0; } };
 	}
+	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-render ') == 0) {
+		global.render_command = command;
+		if (global.fixture?.mode == 'popen-failed') return null;
+		if (global.fixture?.mode == 'render-failed')
+			return { read: function(kind) { return 'nginx-telego: candidate render rejected\n'; }, close: function() { return 1; } };
+		return {
+			read: function(kind) { return 'nginx-telego: candidate render preflight passed for direct_https\n'; },
+			close: function() { return 0; }
+		};
+	}
 	global.admin_command = command;
 	if (global.fixture?.mode == 'popen-failed') return null;
 	let output = '';
