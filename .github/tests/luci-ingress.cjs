@@ -117,6 +117,11 @@ const rpc = {
 				rpcCalls.push('certificate_preflight');
 				return { ok: true, message: 'certificate preflight passed; nginx -t succeeded', error: '' };
 			};
+		if (spec.method === 'candidate_nginx_validate')
+			return async () => {
+				rpcCalls.push('candidate_nginx_validate');
+				return { ok: true, message: 'candidate Nginx validation passed for direct_https', error: '' };
+			};
 		if (spec.method === 'apply_preflight')
 			return async () => {
 				rpcCalls.push('apply_preflight');
@@ -126,6 +131,7 @@ const rpc = {
 					profile: 'direct_https',
 					checks: [
 						{ name: 'candidate', ok: true, message: 'candidate render preflight passed', error: '' },
+						{ name: 'nginx', ok: true, message: 'candidate Nginx validation passed', error: '' },
 						{ name: 'platform', ok: true, message: 'platform preflight passed', error: '' },
 						{ name: 'firewall', ok: true, message: 'firewall preflight passed', error: '' },
 						{ name: 'certificate', ok: true, message: 'certificate preflight passed', error: '' }
@@ -208,6 +214,13 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(rpcCalls.includes('platform_status'));
 	assert.ok(rpcCalls.includes('firewall_status'));
 	assert.ok(rpcCalls.includes('certificate_status'));
+
+	const candidateNginx = options.find(o => o.name === '_wizard_nginx_validate');
+	assert.ok(candidateNginx, 'P6.7 Candidate Nginx Validation button exists');
+	const candidateNginxResult = await candidateNginx.onclick('shared');
+	assert.equal(candidateNginxResult.ok, true);
+	assert.ok(rpcCalls.includes('candidate_nginx_validate'));
+	assert.equal(notifications.at(-1).style, 'info');
 
 	const applyPreflight = options.find(o => o.name === '_wizard_apply_preflight');
 	assert.ok(applyPreflight, 'P6.6 Apply Preflight button exists');
@@ -410,7 +423,8 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(acl.read.ubus['telego.nginx'].includes('firewall_preflight'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_status'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_preflight'));
+	assert.ok(acl.read.ubus['telego.nginx'].includes('candidate_nginx_validate'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('apply_preflight'));
 
-	console.log('LuCI P6.6 Apply Preflight + P12.6 ingress tests passed');
+	console.log('LuCI P6.7 Candidate Nginx Validation + P12.6 ingress tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
