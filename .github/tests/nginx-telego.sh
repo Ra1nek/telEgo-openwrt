@@ -68,6 +68,9 @@ if [ "${EXPECT_CANDIDATE_VALIDATION:-0}" = 1 ]; then
     grep -Fq 'proxy_pass http://telego_web;' "$candidate_root/snippets/telego.locations" || exit 38
     grep -Fq 'server_name web.example.com;' "$candidate_root/conf.d/80-telego-ingress.conf" || exit 39
     ! grep -Fq 'active-drift-core' "$candidate_root/conf.d/20-telego-core.conf" || exit 40
+    if [ "${EXPECT_FOREIGN_FALLBACK:-0}" = 1 ]; then
+        grep -Fq '# foreign-fallback-preserved' "$candidate_root/conf.d/85-telego-fallback.conf" || exit 41
+    fi
 fi
 
 [ "${NGINX_TEST_FAIL:-0}" != 1 ]
@@ -191,6 +194,33 @@ grep -q 'candidate Nginx validation failed for cloudflare' "$work/validate-fail.
 cmp "$work/before-check-ingress" "$NGINX_TELEGO_INGRESS_OUTPUT"
 cmp "$work/before-check-fallback" "$NGINX_TELEGO_FALLBACK_OUTPUT"
 unset EXPECT_CANDIDATE_VALIDATION NGINX_TEST_FAIL
+
+# If a generated target is foreign and the desired state does not manage it,
+# Apply preserves it; the validation tree must preserve the same file.
+cp "$NGINX_TELEGO_FALLBACK_OUTPUT" "$work/managed-fallback.before-foreign"
+printf '%s\n' '# foreign-fallback-preserved' 'server { listen 127.0.0.1:18081; }' >"$NGINX_TELEGO_FALLBACK_OUTPUT"
+export FIX_FALLBACK_MANAGE=0 EXPECT_CANDIDATE_VALIDATION=1 EXPECT_FOREIGN_FALLBACK=1
+"$RENDER" validate --no-reload >"$work/validate-foreign-preserved.out"
+grep -q 'candidate Nginx validation passed for cloudflare' "$work/validate-foreign-preserved.out"
+grep -Fq '# foreign-fallback-preserved' "$NGINX_TELEGO_FALLBACK_OUTPUT"
+cp "$work/managed-fallback.before-foreign" "$NGINX_TELEGO_FALLBACK_OUTPUT"
+export FIX_FALLBACK_MANAGE=1
+unset EXPECT_CANDIDATE_VALIDATION EXPECT_FOREIGN_FALLBACK
+
+# Reconcile refuses package-owned symlink/non-regular active paths, so P6.7
+# must fail closed instead of validating an impossible post-apply state.
+cp "$NGINX_TELEGO_CORE_ACTIVE" "$work/active-core.before-unsafe"
+rm -f "$NGINX_TELEGO_CORE_ACTIVE"
+ln -s "$work/active-core.before-unsafe" "$NGINX_TELEGO_CORE_ACTIVE"
+nginx_calls=$(wc -l <"$NGINX_LOG")
+if "$RENDER" validate --no-reload >"$work/validate-unsafe-core.out" 2>&1; then
+    echo 'candidate validation unexpectedly accepted unsafe active core path' >&2
+    exit 1
+fi
+grep -q 'active core path is unsafe and cannot be reconciled' "$work/validate-unsafe-core.out"
+[[ $(wc -l <"$NGINX_LOG") == "$nginx_calls" ]]
+rm -f "$NGINX_TELEGO_CORE_ACTIVE"
+cp "$work/active-core.before-unsafe" "$NGINX_TELEGO_CORE_ACTIVE"
 
 reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 "$RENDER" apply
