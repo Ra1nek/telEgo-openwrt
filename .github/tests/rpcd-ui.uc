@@ -7,8 +7,8 @@ global.fixture = {
 	openwrt_release: "DISTRIB_RELEASE='25.12.4'\nDISTRIB_DESCRIPTION='OpenWrt 25.12.4 r-test'\nDISTRIB_ARCH='x86_64'\n",
 	packages: {
 		'telego-pkg': '0.6.5-r13',
-		'luci-app-telego': '0.6.5-r30',
-		'nginx-telego': '0.6.5-r9',
+		'luci-app-telego': '0.6.5-r32',
+		'nginx-telego': '0.6.5-r10',
 		'nginx-ssl': '1.27.5-r1',
 		'luci-lib-uqr': '1.0-r1'
 	},
@@ -71,15 +71,15 @@ assert(caps.ok && caps.error == '' && caps.api_version == 2, 'capability API ver
 assert(caps.features.serviceLifecycle, 'P6.4 lifecycle capability advertised');
 assert(caps.features.redactedLogs && caps.features.redactedRuntimeConfig, 'diagnostic viewers advertised');
 assert(caps.features.componentVersions, 'version discovery advertised');
-assert(!caps.features.candidateIngressPreflight && !caps.features.candidateNginxValidation, 'future mutation/preflight APIs stay unavailable');
+assert(caps.features.candidateIngressPreflight && !caps.features.candidateNginxValidation, 'P6.6 candidate ingress preflight is advertised while future candidate Nginx validation stays unavailable');
 
 const info = ui.system_info.call();
 assert(info.ok && info.error == '', 'system_info success');
 assert(info.openwrt_release == 'OpenWrt 25.12.4 r-test', 'OpenWrt release parsing');
 assert(info.architecture == 'x86_64', 'architecture parsing');
 assert(info.packages['telego-pkg'] == '0.6.5-r13', 'telego package version');
-assert(info.packages['luci-app-telego'] == '0.6.5-r30', 'LuCI package version');
-assert(info.packages['nginx-telego'] == '0.6.5-r9', 'nginx package version');
+assert(info.packages['luci-app-telego'] == '0.6.5-r32', 'LuCI package version');
+assert(info.packages['nginx-telego'] == '0.6.5-r10', 'nginx package version');
 assert(info.packages['acme-acmesh'] == null, 'missing optional package is reported as null');
 assert(info.core_version == 'v0.6.5', 'core version parser');
 assert(info.build_go_version == null, 'missing Go build metadata is allowed');
@@ -228,4 +228,4 @@ const failed_logs = ui.logs.call({ args: { limit: 20 } });
 assert(!failed_logs.ok && failed_logs.error == 'logread-failed' && failed_logs.content == '', 'logread failure is stable and empty');
 assert(index(sprintf('%.J', failed_logs), secret_canary) < 0, 'logread error never forwards captured output');
 
-print('rpcd P6.3/P6.4 UI backend tests passed\n');
+print('rpcd P6.3-P6.6 UI backend tests passed\n');
