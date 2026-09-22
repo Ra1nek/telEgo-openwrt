@@ -39,7 +39,7 @@ assert "request.args.path" not in source
 assert "request.args.command" not in source
 assert "request.args.package" not in source
 assert "LIFECYCLE_HELPER = '/usr/libexec/telego-ui-lifecycle'" in source
-assert "serviceLifecycle: true" in source
+assert "serviceLifecycle: true" in source\nassert "ingressWizard: true" in source
 assert "invalid-action" in source
 assert "invalid-request-id" in source
 assert "invalid-revision" in source
@@ -52,7 +52,7 @@ assert "runtime-config-parse-failed" in source
 assert '"[REDACTED]"' in source
 assert "SAFE_LOG_MESSAGES" in source
 
-assert "PKG_RELEASE:=30" in makefile
+assert "PKG_RELEASE:=31" in makefile
 assert "./root/usr/share/rpcd/ucode/telego-ui" in makefile
 assert "$(1)/usr/share/rpcd/ucode/telego-ui" in makefile
 assert "./root/usr/libexec/telego-ui-lifecycle" in makefile
