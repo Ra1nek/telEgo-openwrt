@@ -1231,13 +1231,8 @@ P5.7 RESPONSIVE / MOBILE / ACCESSIBILITY ACCEPTANCE
 .telego-app-tab,
 .telego-connection-mode-tab,
 .telego-performance-profile,
-#cbi-telego-secret .cbi-button,
-.telego-connection-actions .btn,
-.telego-connection-footer .btn,
-.telego-diagnostics-actions .btn,
-.telego-overview-heading .btn,
-.telego-responsive-table .cbi-button,
-.telego-app .cbi-page-actions .cbi-button {
+.telego-app .cbi-button,
+.telego-app .btn {
 	min-height: 44px;
 }
 
@@ -1292,6 +1287,14 @@ P5.7 RESPONSIVE / MOBILE / ACCESSIBILITY ACCEPTANCE
 	.telego-app-content .cbi-value,
 	.telego-app-content .cbi-value-field {
 		min-width: 0;
+		max-width: 100%;
+	}
+
+	.telego-app-content .cbi-value-description,
+	.telego-app-content .cbi-value-field,
+	.telego-app-content .alert-message {
+		overflow-wrap: anywhere;
+		word-break: break-word;
 	}
 
 	.telego-secret-editor {
