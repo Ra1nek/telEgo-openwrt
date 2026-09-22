@@ -687,6 +687,15 @@ server {
 EOF_FALLBACK
 
 if [ "$MODE" = check ]; then
+    ingress_state=$(cat "$work/ingress.state")
+    fallback_state=$(cat "$work/fallback.state")
+    if [ "$desired_ingress" -eq 1 ] && [ "$ingress_state" = foreign ]; then
+        fail "$INGRESS_OUTPUT already exists but is not owned by nginx-telego; Apply Preflight cannot replace it"
+    fi
+    if [ "$desired_fallback" -eq 1 ] && [ "$fallback_state" = foreign ]; then
+        fail "$FALLBACK_OUTPUT already exists but is not owned by nginx-telego; Apply Preflight cannot replace it"
+    fi
+
     if is_enabled "$direct_https_enabled"; then
         profile=direct_https
     elif is_enabled "$shared_enabled"; then
