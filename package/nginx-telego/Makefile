@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=nginx-telego
 PKG_VERSION:=0.6.5
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -22,7 +22,7 @@ copies, guarded administrator operations for foreign/custom conf.d files, a
 restricted transactional editor and lifecycle helper for foreign files, a
 transactional firewall4 manager plus LuCI/split-DNS platform reconciliation for
 Direct HTTPS dedicated TCP/443 ownership, X.509/ACME readiness checks with a
-renewal hotplug preflight, staged Direct HTTPS HSTS, Nginx version-disclosure
+renewal hotplug preflight, read-only candidate-tree nginx -t validation, staged Direct HTTPS HSTS, Nginx version-disclosure
 hardening and fallback-only security headers, plus opt-in native shared-port,
 Cloudflare Tunnel, or Direct HTTPS ingress profiles. Managed listeners are disabled
 by default.
