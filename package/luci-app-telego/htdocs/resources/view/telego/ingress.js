@@ -486,12 +486,15 @@ return view.extend({
 		platformState = data && data[2] ? data[2] : null;
 		firewallState = data && data[3] ? data[3] : null;
 		certificateState = data && data[4] ? data[4] : null;
+		this._ingressWizardPlan = null;
 
+		const viewState = this;
 		const m = new form.Map(
 			'nginx_telego',
 			_('WEB Ingress / Nginx Integration'),
 			_('Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated before public traffic is changed.')
 		);
+		this._ingressMap = m;
 
 		let s = m.section(form.TypedSection, 'shared', _('Ingress Profile'));
 		s.anonymous = true;
@@ -510,7 +513,10 @@ return view.extend({
 		o.default = 'disabled';
 		o.cfgvalue = profileMode;
 		o.validate = function (sectionId, value) {
-			if (value !== 'disabled') {
+			const prepared = viewState._ingressWizardPlan;
+			const preparedForValue = prepared && prepared.mode === value && !prepared.blockers.length;
+
+			if (value !== 'disabled' && !preparedForValue) {
 				const webError = managedWebContractError();
 				if (webError)
 					return webError;
@@ -520,7 +526,7 @@ return view.extend({
 				if (error)
 					return error;
 			}
-			if (value === 'shared' && !tlsFrontingEnabled())
+			if (value === 'shared' && !preparedForValue && !tlsFrontingEnabled())
 				return _('Native Shared-Port requires TLS Fronting. Enable it in Services → telEgo → Configuration first.');
 			return true;
 		};
@@ -531,7 +537,6 @@ return view.extend({
 		};
 
 		const modeOption = o;
-		let preparedWizardPlan = null;
 
 		o = s.option(
 			form.Button,
@@ -543,12 +548,7 @@ return view.extend({
 		o.inputstyle = 'apply';
 		o.onclick = function (ev, sectionId) {
 			const plan = ingressWizardPlan(selectedWizardMode(modeOption, sectionId));
-			preparedWizardPlan = null;
-
-			if (!plan.blockers.length) {
-				applyIngressWizardPlan(plan);
-				preparedWizardPlan = plan;
-			}
+			viewState._ingressWizardPlan = plan.blockers.length ? null : plan;
 
 			notifyIngressWizard(plan, !plan.blockers.length);
 			return Promise.resolve(plan);
@@ -564,8 +564,8 @@ return view.extend({
 		o.inputstyle = 'neutral';
 		o.onclick = function (ev, sectionId) {
 			const mode = selectedWizardMode(modeOption, sectionId);
-			const prepared = preparedWizardPlan && preparedWizardPlan.mode === mode;
-			const plan = prepared ? preparedWizardPlan : ingressWizardPlan(mode);
+			const prepared = viewState._ingressWizardPlan && viewState._ingressWizardPlan.mode === mode;
+			const plan = prepared ? viewState._ingressWizardPlan : ingressWizardPlan(mode);
 
 			notifyIngressWizard(plan, !!prepared);
 			return Promise.resolve(plan);
@@ -931,5 +931,31 @@ return view.extend({
 		return m.render().then(function (node) {
 			return appShell.wrap('web', node);
 		});
+	},
+
+	handleSave: function () {
+		const map = this._ingressMap;
+		const prepared = this._ingressWizardPlan;
+
+		if (!map)
+			return Promise.resolve();
+
+		return map.save(function () {
+			if (!prepared || profileMode() !== prepared.mode)
+				return;
+
+			const plan = ingressWizardPlan(prepared.mode);
+			if (plan.blockers.length)
+				throw new Error(_('Ingress wizard draft is no longer valid. Review the profile before saving.'));
+
+			applyIngressWizardPlan(plan);
+		}).then(() => {
+			this._ingressWizardPlan = null;
+		});
+	},
+
+	handleReset: function () {
+		this._ingressWizardPlan = null;
+		return this._ingressMap ? this._ingressMap.reset() : Promise.resolve();
 	}
 });

@@ -148,6 +148,27 @@ class Map {
 			}
 		};
 	}
+	save(cb) {
+		const mode = options.find(option => option.name === '_mode');
+		if (mode) {
+			const value = mode.formvalue('shared');
+			if (typeof mode.validate === 'function') {
+				const result = mode.validate('shared', value);
+				if (result !== true)
+					return Promise.reject(new Error(String(result)));
+			}
+			if (typeof mode.write === 'function')
+				mode.write('shared', value);
+		}
+
+		return Promise.resolve()
+			.then(() => typeof cb === 'function' ? cb() : null)
+			.then(() => { this.saveCount = (this.saveCount || 0) + 1; });
+	}
+	reset() {
+		this.resetCount = (this.resetCount || 0) + 1;
+		return Promise.resolve();
+	}
 	render() { return Promise.resolve({ config: this.config }); }
 }
 
@@ -368,15 +389,31 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	store.telego.web_proxy.trusted_proxy_cidrs = ['10.0.0.0/8'];
 	let wizardResult = await wizardPrepare.onclick(null, 'shared');
 	assert.ok(wizardResult.blockers.some(message => /TCP\/443/.test(message)));
-	assert.equal(store.telego.general.enabled, '0', 'blocked wizard must not partially mutate telEgo');
-	assert.equal(store.nginx_telego.direct_https.enabled, '0', 'blocked wizard must not partially select a profile');
+	assert.equal(store.telego.general.enabled, '0', 'blocked wizard must not mutate telEgo');
+	assert.equal(store.nginx_telego.direct_https.enabled, '0', 'blocked wizard must not select a profile');
+	assert.equal(ingress._ingressWizardPlan, null, 'blocked candidate is not retained');
 	assert.equal(notifications.at(-1).style, 'danger');
 
-	// Once the operator chooses a non-443 MTProxy port, deterministic WEB
-	// prerequisites are staged across both UCI packages without saving them.
+	// Prepare holds a separate browser candidate. The UCI cache is untouched
+	// until the normal LuCI Save path has successfully parsed the form.
 	store.telego.general.bind_to = '0.0.0.0:9443';
 	wizardResult = await wizardPrepare.onclick(null, 'shared');
 	assert.equal(wizardResult.blockers.length, 0);
+	assert.equal(store.nginx_telego.direct_https.enabled, '0');
+	assert.equal(store.telego.general.enabled, '0');
+	assert.equal(store.telego.web_proxy.enabled, '0');
+	assert.equal(store.telego.web_proxy.bind_to, '0.0.0.0:8080');
+	assert.deepEqual(store.telego.web_proxy.trusted_proxy_cidrs, ['10.0.0.0/8']);
+	assert.ok(wizardResult.changes.some(change =>
+		change.config === 'telego' && change.section === 'web_proxy' && change.option === 'bind_to'));
+	assert.equal(ingress._ingressWizardPlan, wizardResult);
+	assert.equal(notifications.at(-1).style, 'info');
+
+	const directReview = await wizardReview.onclick(null, 'shared');
+	assert.equal(directReview, wizardResult, 'review reuses the prepared draft for the selected mode');
+	assert.equal(notifications.at(-1).style, 'info');
+
+	await ingress.handleSave();
 	assert.equal(store.nginx_telego.direct_https.enabled, '1');
 	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
 	assert.equal(store.nginx_telego.shared.enabled, '0');
@@ -384,16 +421,10 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.equal(store.telego.web_proxy.enabled, '1');
 	assert.equal(store.telego.web_proxy.bind_to, '127.0.0.1:8080');
 	assert.deepEqual(store.telego.web_proxy.trusted_proxy_cidrs, ['10.0.0.0/8', '127.0.0.1/32']);
-	assert.ok(wizardResult.changes.some(change =>
-		change.config === 'telego' && change.section === 'web_proxy' && change.option === 'bind_to'));
-	assert.equal(notifications.at(-1).style, 'info');
+	assert.equal(ingress._ingressWizardPlan, null, 'successful Save consumes the prepared candidate');
 
-	const directReview = await wizardReview.onclick(null, 'shared');
-	assert.equal(directReview, wizardResult, 'review reuses the prepared draft for the selected mode');
-	assert.equal(notifications.at(-1).style, 'info');
-
-	// Native Shared-Port has a fixed topology, so the wizard may safely stage
-	// the complete telEgo side of that contract.
+	// Native Shared-Port has a fixed topology, so Save may safely merge the
+	// prepared telEgo side of that contract after the form validates.
 	mode._formvalue = 'shared';
 	store.telego.general.bind_to = '0.0.0.0:9443';
 	store.telego.tls_fronting.enabled = '0';
@@ -405,6 +436,12 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	store.telego.tls_fronting.splice_proxy_protocol = '0';
 	wizardResult = await wizardPrepare.onclick(null, 'shared');
 	assert.equal(wizardResult.blockers.length, 0);
+	assert.equal(store.nginx_telego.direct_https.enabled, '1', 'Prepare does not mutate the active local UCI draft');
+	assert.equal(store.nginx_telego.shared.enabled, '0');
+	assert.equal(store.telego.general.bind_to, '0.0.0.0:9443');
+	assert.equal(store.telego.tls_fronting.enabled, '0');
+
+	await ingress.handleSave();
 	assert.equal(store.nginx_telego.direct_https.enabled, '0');
 	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
 	assert.equal(store.nginx_telego.shared.enabled, '1');
@@ -417,13 +454,21 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.equal(store.telego.tls_fronting.splice_port, '8443');
 	assert.equal(store.telego.tls_fronting.splice_proxy_protocol, '2');
 
-	// Disabled only turns managed ingress profiles off; it must not rewrite
-	// the telEgo service or WEB configuration as a side effect.
+	// Reset discards the prepared candidate without touching UCI.
 	mode._formvalue = 'disabled';
-	const preservedEnabled = store.telego.general.enabled;
-	const preservedWebEnabled = store.telego.web_proxy.enabled;
 	wizardResult = await wizardPrepare.onclick(null, 'shared');
 	assert.equal(wizardResult.blockers.length, 0);
+	assert.equal(ingress._ingressWizardPlan, wizardResult);
+	await ingress.handleReset();
+	assert.equal(ingress._ingressWizardPlan, null);
+	assert.equal(store.nginx_telego.shared.enabled, '1');
+
+	// Disabled only turns managed ingress profiles off at Save; it must not
+	// rewrite the telEgo service or WEB configuration as a side effect.
+	wizardResult = await wizardPrepare.onclick(null, 'shared');
+	const preservedEnabled = store.telego.general.enabled;
+	const preservedWebEnabled = store.telego.web_proxy.enabled;
+	await ingress.handleSave();
 	assert.equal(store.nginx_telego.direct_https.enabled, '0');
 	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
 	assert.equal(store.nginx_telego.shared.enabled, '0');
@@ -436,6 +481,7 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	wizardResult = await wizardPrepare.onclick(null, 'shared');
 	assert.ok(wizardResult.blockers.some(message => /WEB hostname/.test(message)));
 	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
+	assert.equal(ingress._ingressWizardPlan, null);
 	store.telego.web_proxy.hostname = 'web.example.com';
 
 	assert.match(platformPreflight.description, /currently saved UCI configuration/);

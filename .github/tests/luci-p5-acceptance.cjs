@@ -139,6 +139,8 @@ assert.match(ingress, /wizardAddChange\(plan, 'telego', 'tls_fronting', 'splice_
 assert.match(ingress, /Direct HTTPS cannot be prepared while the telEgo MTProxy listener still uses TCP\/443/);
 assert.match(ingress, /Existing preflight actions validate the currently saved UCI configuration only/);
 assert.match(ingress, /Save & Apply remains the only activation step/);
+assert.match(ingress, /handleSave: function \(\)[\s\S]*map\.save\(function \(\)[\s\S]*applyIngressWizardPlan\(plan\)/);
+assert.match(ingress, /handleReset: function \(\)[\s\S]*this\._ingressWizardPlan = null/);
 assert.doesNotMatch(ingress, /method:\s*'preflight_candidate'/);
 
 console.log('LuCI P6.5 ingress wizard acceptance tests passed');

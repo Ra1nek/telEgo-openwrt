@@ -1516,3 +1516,6 @@ msgstr "Область проверки"
 
 msgid "This preflight validates the currently saved UCI configuration, not an unsaved wizard draft."
 msgstr "Эта предварительная проверка проверяет текущую сохранённую конфигурацию UCI, а не несохранённый черновик мастера."
+
+msgid "Ingress wizard draft is no longer valid. Review the profile before saving."
+msgstr "Черновик мастера входящего доступа больше недействителен. Проверьте профиль перед сохранением."
