@@ -1526,3 +1526,36 @@ msgstr "Кандидат входящего доступа подготовле�
 
 msgid "Unable to save the ingress candidate as pending UCI changes."
 msgstr "Не удалось сохранить кандидат входящего доступа в ожидающие изменения UCI."
+
+msgid "Candidate contract"
+msgstr "Контракт кандидата"
+
+msgid "Check"
+msgstr "Проверка"
+
+msgid "Passed"
+msgstr "Пройдено"
+
+msgid "Failed"
+msgstr "Ошибка"
+
+msgid "Apply Preflight passed. The pending ingress candidate is ready for Save & Apply."
+msgstr "Предварительная проверка применения пройдена. Ожидающий кандидат входящего доступа готов к «Сохранить и применить»."
+
+msgid "Apply Preflight failed:"
+msgstr "Предварительная проверка применения завершилась ошибкой:"
+
+msgid "P6.6 Apply Preflight validates the pending wizard candidate before LuCI applies it. Candidate rendering, profile contracts and mode-specific platform/firewall/certificate checks are read-only; no service is restarted."
+msgstr "P6.6 проверяет ожидающий кандидат мастера до его применения LuCI. Рендеринг кандидата, контракты профиля и проверки платформы, межсетевого экрана и сертификата для выбранного режима выполняются только для чтения; службы не перезапускаются."
+
+msgid "Prepare Candidate only stages UCI changes. Apply Preflight also stages current wizard fields, then validates them without applying."
+msgstr "«Подготовить кандидат» только создаёт ожидающие изменения UCI. «Предварительная проверка применения» также сохраняет текущие поля мастера в ожидающие изменения, после чего проверяет их без применения."
+
+msgid "Apply Preflight"
+msgstr "Предварительная проверка применения"
+
+msgid "Stages the current wizard fields as pending UCI changes, then validates the exact candidate with the read-only P6.6 preflight. Nothing is applied and no service is restarted."
+msgstr "Сохраняет текущие поля мастера как ожидающие изменения UCI, затем проверяет именно этот кандидат с помощью P6.6 в режиме только чтения. Ничего не применяется, службы не перезапускаются."
+
+msgid "Run Apply Preflight"
+msgstr "Запустить предварительную проверку применения"
