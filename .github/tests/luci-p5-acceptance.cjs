@@ -5,6 +5,7 @@ const shell = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/tel
 const foundation = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ui-foundation.js', 'utf8');
 const config = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/config.js', 'utf8');
 const advanced = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/advanced.js', 'utf8');
+const ingress = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ingress.js', 'utf8');
 const nginx = fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/nginx-files.js', 'utf8');
 const css = fs.readFileSync('package/luci-app-telego/htdocs/css/telego.css', 'utf8');
 const lifecycle = fs.readFileSync('package/luci-app-telego/root/usr/libexec/telego-ui-lifecycle', 'utf8');
@@ -126,4 +127,18 @@ assert.match(lifecycle, /operation_hash\(\)/);
 assert.doesNotMatch(lifecycle, /"\$INIT_SCRIPT" "\$action"/);
 assert.doesNotMatch(lifecycle, /\beval\b/);
 
-console.log('LuCI P6.4 service lifecycle acceptance tests passed');
+
+// P6.5 ingress wizard: cross-map draft coordination is deterministic and
+// local-only. Candidate backend preflight remains a later capability.
+assert.match(ingress, /function ingressWizardPlan\(mode\)/);
+assert.match(ingress, /wizardAddChange\(plan, 'telego', 'web_proxy', 'bind_to', '127\.0\.0\.1:8080'\)/);
+assert.match(ingress, /trusted_proxy_cidrs/);
+assert.match(ingress, /wizardAddChange\(plan, 'telego', 'tls_fronting', 'cert_port', '8444'\)/);
+assert.match(ingress, /wizardAddChange\(plan, 'telego', 'tls_fronting', 'splice_port', '8443'\)/);
+assert.match(ingress, /wizardAddChange\(plan, 'telego', 'tls_fronting', 'splice_proxy_protocol', '2'\)/);
+assert.match(ingress, /Direct HTTPS cannot be prepared while the telEgo MTProxy listener still uses TCP\/443/);
+assert.match(ingress, /Existing preflight actions validate the currently saved UCI configuration only/);
+assert.match(ingress, /Save & Apply remains the only activation step/);
+assert.doesNotMatch(ingress, /method:\s*'preflight_candidate'/);
+
+console.log('LuCI P6.5 ingress wizard acceptance tests passed');

@@ -7,7 +7,7 @@ global.fixture = {
 	openwrt_release: "DISTRIB_RELEASE='25.12.4'\nDISTRIB_DESCRIPTION='OpenWrt 25.12.4 r-test'\nDISTRIB_ARCH='x86_64'\n",
 	packages: {
 		'telego-pkg': '0.6.5-r13',
-		'luci-app-telego': '0.6.5-r30',
+		'luci-app-telego': '0.6.5-r31',
 		'nginx-telego': '0.6.5-r9',
 		'nginx-ssl': '1.27.5-r1',
 		'luci-lib-uqr': '1.0-r1'
@@ -78,7 +78,7 @@ assert(info.ok && info.error == '', 'system_info success');
 assert(info.openwrt_release == 'OpenWrt 25.12.4 r-test', 'OpenWrt release parsing');
 assert(info.architecture == 'x86_64', 'architecture parsing');
 assert(info.packages['telego-pkg'] == '0.6.5-r13', 'telego package version');
-assert(info.packages['luci-app-telego'] == '0.6.5-r30', 'LuCI package version');
+assert(info.packages['luci-app-telego'] == '0.6.5-r31', 'LuCI package version');
 assert(info.packages['nginx-telego'] == '0.6.5-r9', 'nginx package version');
 assert(info.packages['acme-acmesh'] == null, 'missing optional package is reported as null');
 assert(info.core_version == 'v0.6.5', 'core version parser');

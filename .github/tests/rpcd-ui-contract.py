@@ -52,7 +52,7 @@ assert "runtime-config-parse-failed" in source
 assert '"[REDACTED]"' in source
 assert "SAFE_LOG_MESSAGES" in source
 
-assert "PKG_RELEASE:=30" in makefile
+assert "PKG_RELEASE:=31" in makefile
 assert "./root/usr/share/rpcd/ucode/telego-ui" in makefile
 assert "$(1)/usr/share/rpcd/ucode/telego-ui" in makefile
 assert "./root/usr/libexec/telego-ui-lifecycle" in makefile

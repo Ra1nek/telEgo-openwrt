@@ -1453,3 +1453,66 @@ msgstr "Отправка операции управления службой…
 
 msgid "This session has read-only lifecycle access. Service actions are disabled."
 msgstr "В этой сессии доступно только чтение состояния службы. Действия со службой отключены."
+
+msgid "Unknown ingress profile."
+msgstr "Неизвестный профиль входящего WEB-доступа."
+
+msgid "A telEgo WEB hostname is required before a managed ingress profile can be prepared."
+msgstr "Перед подготовкой управляемого профиля входящего доступа необходимо задать имя хоста WEB telEgo."
+
+msgid "Direct HTTPS cannot be prepared while the telEgo MTProxy listener still uses TCP/443. Choose another MTProxy port first."
+msgstr "Нельзя подготовить Direct HTTPS, пока MTProxy telEgo всё ещё использует TCP/443. Сначала выберите другой порт MTProxy."
+
+msgid "Native Shared-Port requires a TCP MTProxy bind address whose port can be changed to 443."
+msgstr "Для Native Shared-Port требуется TCP-адрес привязки MTProxy, порт которого можно изменить на 443."
+
+msgid "Target profile:"
+msgstr "Целевой профиль:"
+
+msgid "The cross-configuration draft has been prepared in the browser. Nothing has been saved or applied."
+msgstr "Черновик согласованных изменений нескольких конфигураций подготовлен в браузере. Ничего не сохранено и не применено."
+
+msgid "Review only. No cross-configuration changes have been staged by the wizard."
+msgstr "Только просмотр. Мастер не добавлял согласованные изменения нескольких конфигураций в черновик."
+
+msgid "Blockers"
+msgstr "Блокирующие условия"
+
+msgid "Wizard-managed changes"
+msgstr "Изменения, подготовленные мастером"
+
+msgid "No additional cross-configuration changes are required."
+msgstr "Дополнительные согласованные изменения конфигураций не требуются."
+
+msgid "This review covers wizard-coordinated UCI changes. Profile fields edited in this form remain part of the normal LuCI form and are saved with Save & Apply."
+msgstr "В этом обзоре показаны изменения UCI, координируемые мастером. Поля профиля, изменённые в этой форме, остаются частью обычной формы LuCI и сохраняются через «Сохранить и применить»."
+
+msgid "Existing preflight actions validate the currently saved UCI configuration only. They do not validate an unsaved wizard draft."
+msgstr "Существующие предварительные проверки проверяют только текущую сохранённую конфигурацию UCI. Несохранённый черновик мастера они не проверяют."
+
+msgid "Save & Apply remains the only activation step. The wizard does not restart or reload services."
+msgstr "Активация выполняется только через «Сохранить и применить». Мастер не перезапускает и не перезагружает службы."
+
+msgid "Ingress Wizard"
+msgstr "Мастер входящего WEB-доступа"
+
+msgid "Stages the deterministic cross-configuration changes required by the selected profile in the browser only. Nothing is saved, applied, restarted or reloaded."
+msgstr "Подготавливает в браузере только детерминированные изменения нескольких конфигураций, необходимые выбранному профилю. Ничего не сохраняет, не применяет, не перезапускает и не перезагружает."
+
+msgid "Prepare Draft"
+msgstr "Подготовить черновик"
+
+msgid "Draft Review"
+msgstr "Проверка черновика"
+
+msgid "Shows the wizard-coordinated cross-configuration changes and blockers for the selected profile without saving or applying them."
+msgstr "Показывает согласованные мастером изменения нескольких конфигураций и блокирующие условия для выбранного профиля, не сохраняя и не применяя их."
+
+msgid "Review Draft"
+msgstr "Проверить черновик"
+
+msgid "Validation Scope"
+msgstr "Область проверки"
+
+msgid "This preflight validates the currently saved UCI configuration, not an unsaved wizard draft."
+msgstr "Эта предварительная проверка проверяет текущую сохранённую конфигурацию UCI, а не несохранённый черновик мастера."

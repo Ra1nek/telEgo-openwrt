@@ -132,11 +132,16 @@ class Map {
 		sections.push({ section, title });
 		return {
 			section, title, anonymous: false, addremove: true,
-			option(type, name) {
+			option(type, name, title, description) {
 				const option = {
-					section, name, type, values: [], dependencies: [],
+					section, name, type, title, description, values: [], dependencies: [],
 					value(value, label) { this.values.push([value, label]); },
-					depends(field, value) { this.dependencies.push([field, value]); }
+					depends(field, value) { this.dependencies.push([field, value]); },
+					formvalue(sectionId) {
+						if (this._formvalue !== undefined)
+							return this._formvalue;
+						return typeof this.cfgvalue === 'function' ? this.cfgvalue(sectionId) : undefined;
+					}
 				};
 				options.push(option);
 				return option;
@@ -347,6 +352,96 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	fallback.write(null, '0');
 	assert.equal(store.nginx_telego.fallback.manage, '0');
 
+
+	const wizardPrepare = options.find(o => o.name === '_wizard_prepare');
+	const wizardReview = options.find(o => o.name === '_wizard_review');
+	const wizardScope = options.find(o => o.name === '_wizard_validation_scope');
+	assert.ok(wizardPrepare && wizardReview && wizardScope, 'P6.5 ingress wizard controls render');
+	assert.match(wizardScope.cfgvalue(), /currently saved UCI configuration/);
+
+	// Direct HTTPS never guesses a replacement public MTProxy port.
+	mode._formvalue = 'direct_https';
+	store.telego.general.bind_to = '0.0.0.0:443';
+	store.telego.general.enabled = '0';
+	store.telego.web_proxy.enabled = '0';
+	store.telego.web_proxy.bind_to = '0.0.0.0:8080';
+	store.telego.web_proxy.trusted_proxy_cidrs = ['10.0.0.0/8'];
+	let wizardResult = await wizardPrepare.onclick(null, 'shared');
+	assert.ok(wizardResult.blockers.some(message => /TCP\/443/.test(message)));
+	assert.equal(store.telego.general.enabled, '0', 'blocked wizard must not partially mutate telEgo');
+	assert.equal(store.nginx_telego.direct_https.enabled, '0', 'blocked wizard must not partially select a profile');
+	assert.equal(notifications.at(-1).style, 'danger');
+
+	// Once the operator chooses a non-443 MTProxy port, deterministic WEB
+	// prerequisites are staged across both UCI packages without saving them.
+	store.telego.general.bind_to = '0.0.0.0:9443';
+	wizardResult = await wizardPrepare.onclick(null, 'shared');
+	assert.equal(wizardResult.blockers.length, 0);
+	assert.equal(store.nginx_telego.direct_https.enabled, '1');
+	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
+	assert.equal(store.nginx_telego.shared.enabled, '0');
+	assert.equal(store.telego.general.enabled, '1');
+	assert.equal(store.telego.web_proxy.enabled, '1');
+	assert.equal(store.telego.web_proxy.bind_to, '127.0.0.1:8080');
+	assert.deepEqual(store.telego.web_proxy.trusted_proxy_cidrs, ['10.0.0.0/8', '127.0.0.1/32']);
+	assert.ok(wizardResult.changes.some(change =>
+		change.config === 'telego' && change.section === 'web_proxy' && change.option === 'bind_to'));
+	assert.equal(notifications.at(-1).style, 'info');
+
+	const directReview = await wizardReview.onclick(null, 'shared');
+	assert.equal(directReview, wizardResult, 'review reuses the prepared draft for the selected mode');
+	assert.equal(notifications.at(-1).style, 'info');
+
+	// Native Shared-Port has a fixed topology, so the wizard may safely stage
+	// the complete telEgo side of that contract.
+	mode._formvalue = 'shared';
+	store.telego.general.bind_to = '0.0.0.0:9443';
+	store.telego.tls_fronting.enabled = '0';
+	store.telego.tls_fronting.mask_host = 'old.example.com';
+	store.telego.tls_fronting.cert_host = '';
+	store.telego.tls_fronting.cert_port = '';
+	store.telego.tls_fronting.splice_host = '';
+	store.telego.tls_fronting.splice_port = '';
+	store.telego.tls_fronting.splice_proxy_protocol = '0';
+	wizardResult = await wizardPrepare.onclick(null, 'shared');
+	assert.equal(wizardResult.blockers.length, 0);
+	assert.equal(store.nginx_telego.direct_https.enabled, '0');
+	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
+	assert.equal(store.nginx_telego.shared.enabled, '1');
+	assert.equal(store.telego.general.bind_to, '0.0.0.0:443');
+	assert.equal(store.telego.tls_fronting.enabled, '1');
+	assert.equal(store.telego.tls_fronting.mask_host, 'web.example.com');
+	assert.equal(store.telego.tls_fronting.cert_host, '127.0.0.1');
+	assert.equal(store.telego.tls_fronting.cert_port, '8444');
+	assert.equal(store.telego.tls_fronting.splice_host, '127.0.0.1');
+	assert.equal(store.telego.tls_fronting.splice_port, '8443');
+	assert.equal(store.telego.tls_fronting.splice_proxy_protocol, '2');
+
+	// Disabled only turns managed ingress profiles off; it must not rewrite
+	// the telEgo service or WEB configuration as a side effect.
+	mode._formvalue = 'disabled';
+	const preservedEnabled = store.telego.general.enabled;
+	const preservedWebEnabled = store.telego.web_proxy.enabled;
+	wizardResult = await wizardPrepare.onclick(null, 'shared');
+	assert.equal(wizardResult.blockers.length, 0);
+	assert.equal(store.nginx_telego.direct_https.enabled, '0');
+	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
+	assert.equal(store.nginx_telego.shared.enabled, '0');
+	assert.equal(store.telego.general.enabled, preservedEnabled);
+	assert.equal(store.telego.web_proxy.enabled, preservedWebEnabled);
+
+	// Missing hostname is a hard blocker and, like the port blocker, is atomic.
+	mode._formvalue = 'cloudflare';
+	store.telego.web_proxy.hostname = '';
+	wizardResult = await wizardPrepare.onclick(null, 'shared');
+	assert.ok(wizardResult.blockers.some(message => /WEB hostname/.test(message)));
+	assert.equal(store.nginx_telego.cloudflare.enabled, '0');
+	store.telego.web_proxy.hostname = 'web.example.com';
+
+	assert.match(platformPreflight.description, /currently saved UCI configuration/);
+	assert.match(preflight.description, /currently saved UCI configuration/);
+	assert.match(certPreflight.description, /currently saved UCI configuration/);
+
 	const menu = JSON.parse(fs.readFileSync('package/luci-app-telego/root/usr/share/luci/menu.d/telego.menu.json', 'utf8'));
 	assert.equal(menu['admin/services/telego'].action.type, 'firstchild');
 	assert.equal(menu['admin/services/telego'].action.preferred, 'configuration');
@@ -364,5 +459,5 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_status'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_preflight'));
 
-	console.log('LuCI P12.6 dedicated Direct HTTPS ingress tests passed');
+	console.log('LuCI P12.6 / P6.5 ingress wizard tests passed');
 })().catch(error => { console.error(error); process.exit(1); });

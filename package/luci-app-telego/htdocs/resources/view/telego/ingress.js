@@ -47,6 +47,168 @@ let platformState = null;
 let firewallState = null;
 let certificateState = null;
 
+
+function wizardProfileLabel(mode) {
+	if (mode === 'direct_https')
+		return 'Direct HTTPS';
+	if (mode === 'cloudflare')
+		return 'Cloudflare Tunnel';
+	if (mode === 'shared')
+		return _('Native Shared-Port (Advanced)');
+	return _('Disabled');
+}
+
+function wizardList(value) {
+	if (Array.isArray(value))
+		return value.map(String).filter(Boolean);
+
+	const text = value == null ? '' : String(value).trim();
+	return text ? text.split(/\s+/).filter(Boolean) : [];
+}
+
+function wizardValuesEqual(current, desired) {
+	if (Array.isArray(desired))
+		return JSON.stringify(wizardList(current)) === JSON.stringify(desired);
+
+	return String(current == null ? '' : current) === String(desired == null ? '' : desired);
+}
+
+function wizardAddChange(plan, config, section, option, desired) {
+	const current = uci.get(config, section, option);
+	if (wizardValuesEqual(current, desired))
+		return;
+
+	plan.changes.push({
+		config: config,
+		section: section,
+		option: option,
+		before: Array.isArray(desired) ? wizardList(current) : current,
+		after: desired
+	});
+}
+
+function wizardPublic443Bind(value) {
+	const current = String(value || '0.0.0.0:443');
+	return /:\d+$/.test(current) ? current.replace(/:\d+$/, ':443') : null;
+}
+
+function ingressWizardPlan(mode) {
+	const allowed = ['disabled', 'direct_https', 'cloudflare', 'shared'];
+	const plan = { mode: mode, changes: [], blockers: [] };
+
+	if (!allowed.includes(mode)) {
+		plan.blockers.push(_('Unknown ingress profile.'));
+		return plan;
+	}
+
+	wizardAddChange(plan, 'nginx_telego', 'direct_https', 'enabled', mode === 'direct_https' ? '1' : '0');
+	wizardAddChange(plan, 'nginx_telego', 'cloudflare', 'enabled', mode === 'cloudflare' ? '1' : '0');
+	wizardAddChange(plan, 'nginx_telego', 'shared', 'enabled', mode === 'shared' ? '1' : '0');
+
+	if (mode === 'disabled')
+		return plan;
+
+	const hostname = String(uci.get('telego', 'web_proxy', 'hostname') || '').trim();
+	const publicBind = String(uci.get('telego', 'general', 'bind_to') || '0.0.0.0:443');
+
+	if (!hostname)
+		plan.blockers.push(_('A telEgo WEB hostname is required before a managed ingress profile can be prepared.'));
+
+	if (mode === 'direct_https' && /:443$/.test(publicBind))
+		plan.blockers.push(_('Direct HTTPS cannot be prepared while the telEgo MTProxy listener still uses TCP/443. Choose another MTProxy port first.'));
+
+	wizardAddChange(plan, 'telego', 'general', 'enabled', '1');
+	wizardAddChange(plan, 'telego', 'web_proxy', 'enabled', '1');
+	wizardAddChange(plan, 'telego', 'web_proxy', 'bind_to', '127.0.0.1:8080');
+
+	const trusted = wizardList(uci.get('telego', 'web_proxy', 'trusted_proxy_cidrs'));
+	if (!trusted.includes('127.0.0.1/32'))
+		trusted.push('127.0.0.1/32');
+	wizardAddChange(plan, 'telego', 'web_proxy', 'trusted_proxy_cidrs', trusted);
+
+	if (mode === 'shared') {
+		const sharedBind = wizardPublic443Bind(publicBind);
+		if (!sharedBind)
+			plan.blockers.push(_('Native Shared-Port requires a TCP MTProxy bind address whose port can be changed to 443.'));
+		else
+			wizardAddChange(plan, 'telego', 'general', 'bind_to', sharedBind);
+
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'enabled', '1');
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'mask_host', hostname);
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'cert_host', '127.0.0.1');
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'cert_port', '8444');
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'splice_host', '127.0.0.1');
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'splice_port', '8443');
+		wizardAddChange(plan, 'telego', 'tls_fronting', 'splice_proxy_protocol', '2');
+	}
+
+	return plan;
+}
+
+function applyIngressWizardPlan(plan) {
+	for (const change of plan.changes)
+		uci.set(change.config, change.section, change.option, change.after);
+}
+
+function wizardValueText(value) {
+	if (Array.isArray(value))
+		return value.length ? value.join(' ') : _('not set');
+
+	return value == null || value === '' ? _('not set') : String(value);
+}
+
+function wizardReviewNode(plan, prepared) {
+	const content = [
+		E('p', {}, [
+			E('strong', {}, _('Target profile:')),
+			' ' + wizardProfileLabel(plan.mode)
+		]),
+		E('p', {}, prepared
+			? _('The cross-configuration draft has been prepared in the browser. Nothing has been saved or applied.')
+			: _('Review only. No cross-configuration changes have been staged by the wizard.'))
+	];
+
+	if (plan.blockers.length) {
+		content.push(E('p', {}, E('strong', {}, _('Blockers'))));
+		content.push(E('ul', {}, plan.blockers.map(message => E('li', {}, message))));
+	}
+
+	if (plan.changes.length) {
+		content.push(E('p', {}, E('strong', {}, _('Wizard-managed changes'))));
+		content.push(E('ul', {}, plan.changes.map(change => E('li', {}, [
+			E('code', {}, change.config + '.' + change.section + '.' + change.option),
+			' — ' + wizardValueText(change.before) + ' → ' + wizardValueText(change.after)
+		]))));
+	}
+	else if (!plan.blockers.length) {
+		content.push(E('p', {}, _('No additional cross-configuration changes are required.')));
+	}
+
+	content.push(E('p', {}, _('This review covers wizard-coordinated UCI changes. Profile fields edited in this form remain part of the normal LuCI form and are saved with Save & Apply.')));
+	content.push(E('p', {}, _('Existing preflight actions validate the currently saved UCI configuration only. They do not validate an unsaved wizard draft.')));
+	content.push(E('p', {}, _('Save & Apply remains the only activation step. The wizard does not restart or reload services.')));
+
+	return E('div', { 'class': 'telego-ingress-wizard-review' }, content);
+}
+
+function notifyIngressWizard(plan, prepared) {
+	ui.addNotification(
+		null,
+		wizardReviewNode(plan, prepared),
+		plan.blockers.length ? 'danger' : 'info'
+	);
+}
+
+function selectedWizardMode(modeOption, sectionId) {
+	const value = modeOption && typeof modeOption.formvalue === 'function'
+		? modeOption.formvalue(sectionId)
+		: null;
+
+	return ['disabled', 'direct_https', 'cloudflare', 'shared'].includes(value)
+		? value
+		: profileMode();
+}
+
 function isEnabled(config, section, option) {
 	return uci.get(config, section, option || 'enabled') === '1';
 }
@@ -368,6 +530,52 @@ return view.extend({
 			uci.set('nginx_telego', 'shared', 'enabled', value === 'shared' ? '1' : '0');
 		};
 
+		const modeOption = o;
+		let preparedWizardPlan = null;
+
+		o = s.option(
+			form.Button,
+			'_wizard_prepare',
+			_('Ingress Wizard'),
+			_('Stages the deterministic cross-configuration changes required by the selected profile in the browser only. Nothing is saved, applied, restarted or reloaded.')
+		);
+		o.inputtitle = _('Prepare Draft');
+		o.inputstyle = 'apply';
+		o.onclick = function (ev, sectionId) {
+			const plan = ingressWizardPlan(selectedWizardMode(modeOption, sectionId));
+			preparedWizardPlan = null;
+
+			if (!plan.blockers.length) {
+				applyIngressWizardPlan(plan);
+				preparedWizardPlan = plan;
+			}
+
+			notifyIngressWizard(plan, !plan.blockers.length);
+			return Promise.resolve(plan);
+		};
+
+		o = s.option(
+			form.Button,
+			'_wizard_review',
+			_('Draft Review'),
+			_('Shows the wizard-coordinated cross-configuration changes and blockers for the selected profile without saving or applying them.')
+		);
+		o.inputtitle = _('Review Draft');
+		o.inputstyle = 'neutral';
+		o.onclick = function (ev, sectionId) {
+			const mode = selectedWizardMode(modeOption, sectionId);
+			const prepared = preparedWizardPlan && preparedWizardPlan.mode === mode;
+			const plan = prepared ? preparedWizardPlan : ingressWizardPlan(mode);
+
+			notifyIngressWizard(plan, !!prepared);
+			return Promise.resolve(plan);
+		};
+
+		o = s.option(form.DummyValue, '_wizard_validation_scope', _('Validation Scope'));
+		o.cfgvalue = function () {
+			return _('Existing preflight actions validate the currently saved UCI configuration only. They do not validate an unsaved wizard draft.');
+		};
+
 		o = s.option(form.DummyValue, '_profile_state', _('Status'));
 		o.cfgvalue = function () {
 			if (profileConflict())
@@ -414,7 +622,7 @@ return view.extend({
 			form.Button,
 			'_certificate_preflight',
 			_('Certificate Preflight'),
-			_('Validates X.509 parsing, private key parsing, certificate/key match, hostname coverage, expiry and the complete Nginx configuration with nginx -t. No files or services are changed.')
+			_('Validates X.509 parsing, private key parsing, certificate/key match, hostname coverage, expiry and the complete Nginx configuration with nginx -t. No files or services are changed.') + ' ' + _('This preflight validates the currently saved UCI configuration, not an unsaved wizard draft.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.depends('_mode', 'shared');
@@ -561,7 +769,7 @@ return view.extend({
 			form.Button,
 			'_platform_preflight',
 			_('Platform Preflight'),
-			_('Checks LuCI TCP/443 migration safety, the configured management port, optional split DNS, pending UCI changes and ownership drift without changing services or configuration.')
+			_('Checks LuCI TCP/443 migration safety, the configured management port, optional split DNS, pending UCI changes and ownership drift without changing services or configuration.') + ' ' + _('This preflight validates the currently saved UCI configuration, not an unsaved wizard draft.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.inputtitle = _('Run Platform Preflight');
@@ -602,7 +810,7 @@ return view.extend({
 			form.Button,
 			'_firewall_preflight',
 			_('Firewall Preflight'),
-			_('Checks dedicated WAN TCP/443 ownership, WAN zone safety, pending UCI changes and fw4 syntax without changing firewall rules.')
+			_('Checks dedicated WAN TCP/443 ownership, WAN zone safety, pending UCI changes and fw4 syntax without changing firewall rules.') + ' ' + _('This preflight validates the currently saved UCI configuration, not an unsaved wizard draft.')
 		);
 		o.depends('_mode', 'direct_https');
 		o.inputtitle = _('Run Preflight');
