@@ -1,9 +1,20 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 
-const wizard = new Function(
+const baseclass = {
+	extend(proto) {
+		function Module() {}
+		Object.assign(Module.prototype, proto);
+		return Module;
+	}
+};
+
+const WizardModule = new Function(
+	'baseclass',
 	fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ingress-wizard.js', 'utf8')
-)();
+)(baseclass);
+assert.equal(typeof WizardModule, 'function', 'LuCI helper factory must yield a constructor');
+const wizard = new WizardModule();
 
 const current = {
 	trusted_proxy_cidrs: ['10.0.0.0/8'],
@@ -41,6 +52,7 @@ candidate = wizard.buildCandidate(current, {
 assert.equal(candidate.telego.general.bind_to, '0.0.0.0:443');
 assert.equal(candidate.telego.general.public_port, '443');
 assert.equal(candidate.telego.tls_fronting.enabled, '1');
+assert.equal(candidate.telego.tls_fronting.mask_host, 'web.example.com');
 assert.equal(candidate.telego.tls_fronting.cert_host, '127.0.0.1');
 assert.equal(candidate.telego.tls_fronting.cert_port, '8444');
 assert.equal(candidate.telego.tls_fronting.splice_host, '127.0.0.1');
