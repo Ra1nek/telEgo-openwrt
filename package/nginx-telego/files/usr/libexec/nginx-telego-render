@@ -727,7 +727,7 @@ mirror_directory() {
     skip_two=$4
     skip_three=$5
 
-    mkdir -p "$target_dir"
+    mkdir -p "$target_dir" || return 1
     [ -d "$source_dir" ] || return 0
 
     for source in "$source_dir"/*; do
@@ -737,7 +737,7 @@ mirror_directory() {
         [ "$source" = "$skip_three" ] && continue
 
         name=${source##*/}
-        ln -s "$source" "$target_dir/$name"
+        ln -s "$source" "$target_dir/$name" || return 1
     done
 }
 
