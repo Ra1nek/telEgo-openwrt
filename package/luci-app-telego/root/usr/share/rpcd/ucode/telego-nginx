@@ -7,6 +7,7 @@ const EDITOR = '/usr/libexec/nginx-telego-editor';
 const PLATFORM = '/usr/libexec/nginx-telego-platform';
 const FIREWALL = '/usr/libexec/nginx-telego-firewall';
 const CERTIFICATE = '/usr/libexec/nginx-telego-cert';
+const RENDER = '/usr/libexec/nginx-telego-render';
 const MAX_EDIT_BYTES = 65536;
 
 function shell_quote(value) {
@@ -291,6 +292,95 @@ function certificate_preflight() {
 		: { ok: false, message: '', error: result.error };
 }
 
+function run_render(args) {
+	let command = RENDER;
+	for (let arg in args)
+		command += ' ' + shell_quote(arg);
+	command += ' 2>&1';
+
+	const proc = popen(command, 'r');
+	if (!proc)
+		return { ok: false, output: '', error: 'render-helper-unavailable' };
+
+	const output = proc.read('all') || '';
+	const exit_code = proc.close();
+	if (exit_code != 0)
+		return { ok: false, output: '', error: trim(output) || 'candidate-render-preflight-failed' };
+
+	return { ok: true, output: output, error: '' };
+}
+
+function preflight_check(name, result) {
+	return {
+		name: name,
+		ok: !!result.ok,
+		message: result.ok ? trim(result.message || result.output || '') : '',
+		error: result.ok ? '' : (result.error || 'preflight-failed')
+	};
+}
+
+function apply_preflight_failure(profile, checks, error) {
+	return {
+		ok: false,
+		ready: false,
+		profile: profile || 'unknown',
+		checks: checks,
+		message: '',
+		error: error || 'apply-preflight-failed'
+	};
+}
+
+function apply_preflight() {
+	const checks = [];
+
+	const render = run_render(['check', '--no-reload']);
+	push(checks, preflight_check('candidate', render));
+	if (!render.ok)
+		return apply_preflight_failure('unknown', checks, render.error);
+
+	const status = certificate_status();
+	if (!status.ok) {
+		push(checks, preflight_check('profile', status));
+		return apply_preflight_failure('unknown', checks, status.error);
+	}
+
+	const profile = status.profile || 'unknown';
+	if (profile == 'conflict')
+		return apply_preflight_failure(profile, checks, status.profile_error || 'multiple-managed-ingress-profiles');
+	if (profile == 'disabled')
+		return apply_preflight_failure(profile, checks, 'no-managed-ingress-profile');
+	if (!(profile in ['direct_https', 'shared', 'cloudflare']))
+		return apply_preflight_failure(profile, checks, 'unsupported-managed-ingress-profile');
+
+	if (profile == 'direct_https') {
+		const platform = platform_preflight();
+		push(checks, preflight_check('platform', platform));
+		if (!platform.ok)
+			return apply_preflight_failure(profile, checks, platform.error);
+
+		const firewall = firewall_preflight();
+		push(checks, preflight_check('firewall', firewall));
+		if (!firewall.ok)
+			return apply_preflight_failure(profile, checks, firewall.error);
+	}
+
+	if (profile == 'direct_https' || profile == 'shared') {
+		const certificate = certificate_preflight();
+		push(checks, preflight_check('certificate', certificate));
+		if (!certificate.ok)
+			return apply_preflight_failure(profile, checks, certificate.error);
+	}
+
+	return {
+		ok: true,
+		ready: true,
+		profile: profile,
+		checks: checks,
+		message: 'Ingress candidate passed Apply Preflight.',
+		error: ''
+	};
+}
+
 function valid_name(name) {
 	return !!match(name || '', /^[A-Za-z0-9_+-][A-Za-z0-9._+-]*\.conf$/);
 }
@@ -490,6 +580,7 @@ const methods = {
 	firewall_preflight: { call: function () { return firewall_preflight(); } },
 	certificate_status: { call: function () { return certificate_status(); } },
 	certificate_preflight: { call: function () { return certificate_preflight(); } },
+	apply_preflight: { call: function () { return apply_preflight(); } },
 	managed_content: {
 		args: { role: '', side: '' },
 		call: function (request) { return managed_content(request.args.role, request.args.side); }
