@@ -1559,3 +1559,12 @@ msgstr "Сохраняет текущие поля мастера как ожи�
 
 msgid "Run Apply Preflight"
 msgstr "Запустить предварительную проверку применения"
+
+msgid "Platform"
+msgstr "Платформа"
+
+msgid "Firewall"
+msgstr "Межсетевой экран"
+
+msgid "Profile"
+msgstr "Профиль"
