@@ -1,5 +1,7 @@
 'use strict';
 
+'require baseclass';
+
 function stringValue(value) {
 	return value == null ? '' : String(value).trim();
 }
@@ -107,7 +109,7 @@ function buildCandidate(current, input) {
 		candidate.telego.general.public_port = '443';
 		candidate.telego.tls_fronting = {
 			enabled: '1',
-			mask_host: stringValue(current.mask_host) || 'www.google.com',
+			mask_host: hostname,
 			cert_host: '127.0.0.1',
 			cert_port: '8444',
 			splice_host: '127.0.0.1',
@@ -144,4 +146,10 @@ function applyCandidate(uci, candidate) {
 		applySection(uci, 'nginx_telego', section, candidate.nginx_telego[section]);
 }
 
-return { buildCandidate, applyCandidate, validHostname, validPort, validPath };
+return baseclass.extend({
+	buildCandidate: buildCandidate,
+	applyCandidate: applyCandidate,
+	validHostname: validHostname,
+	validPort: validPort,
+	validPath: validPath
+});
