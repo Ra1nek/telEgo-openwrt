@@ -5,6 +5,7 @@ cd "$(dirname "$0")/../.."
 bash -n scripts/install-on-router.sh
 sh -n install.sh
 sh -n scripts/verify-direct-https-router.sh
+sh -n scripts/verify-p6-router.sh
 sh -n scripts/verify-direct-https-client.sh
 python3 - <<'PY'
 from pathlib import Path
@@ -102,6 +103,7 @@ bash .github/tests/telego-ui-lifecycle.sh
 "${NODE:-node}" .github/tests/luci-config.cjs
 "${NODE:-node}" .github/tests/luci-advanced.cjs
 "${NODE:-node}" .github/tests/luci-p5-acceptance.cjs
+"${NODE:-node}" .github/tests/luci-p6-full-acceptance.cjs
 "${NODE:-node}" .github/tests/luci-ingress.cjs
 "${NODE:-node}" .github/tests/luci-p6-ingress-wizard.cjs
 "${NODE:-node}" .github/tests/luci-nginx-files.cjs
