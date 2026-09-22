@@ -268,7 +268,7 @@ function capabilities() {
 			redactedLogs: true,
 			redactedRuntimeConfig: true,
 			componentVersions: true,
-			candidateIngressPreflight: false,
+			candidateIngressPreflight: true,
 			candidateNginxValidation: false
 		}
 	};
