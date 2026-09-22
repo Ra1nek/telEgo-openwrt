@@ -73,6 +73,7 @@ const certificateStatus = {
 
 const uci = {
 	load: async config => config,
+	save: async () => true,
 	get: (config, section, option) => store[config]?.[section]?.[option],
 	set: (config, section, option, value) => {
 		store[config] ??= {};
@@ -115,6 +116,23 @@ const rpc = {
 			return async () => {
 				rpcCalls.push('certificate_preflight');
 				return { ok: true, message: 'certificate preflight passed; nginx -t succeeded', error: '' };
+			};
+		if (spec.method === 'apply_preflight')
+			return async () => {
+				rpcCalls.push('apply_preflight');
+				return {
+					ok: true,
+					ready: true,
+					profile: 'direct_https',
+					checks: [
+						{ name: 'candidate', ok: true, message: 'candidate render preflight passed', error: '' },
+						{ name: 'platform', ok: true, message: 'platform preflight passed', error: '' },
+						{ name: 'firewall', ok: true, message: 'firewall preflight passed', error: '' },
+						{ name: 'certificate', ok: true, message: 'certificate preflight passed', error: '' }
+					],
+					message: 'Ingress candidate passed Apply Preflight.',
+					error: ''
+				};
 			};
 		throw new Error('unexpected RPC method ' + spec.method);
 	}
@@ -161,10 +179,23 @@ global.L = {
 };
 global.E = (tag, attrs, children) => ({ tag, attrs: attrs || {}, children });
 
+const baseclass = {
+	extend(proto) {
+		function Module() {}
+		Object.assign(Module.prototype, proto);
+		return Module;
+	}
+};
+const WizardModule = new Function(
+	'baseclass',
+	fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ingress-wizard.js', 'utf8')
+)(baseclass);
+const ingressWizard = new WizardModule();
+
 const appShell = { wrap: (active, content) => content };
-const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell',
+const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell', 'ingressWizard',
 	fs.readFileSync('package/luci-app-telego/htdocs/resources/view/telego/ingress.js', 'utf8'))(
-	form, rpc, ui, uci, { extend: x => x }, x => x, appShell
+	form, rpc, ui, uci, { extend: x => x }, x => x, appShell, ingressWizard
 );
 
 (async () => {
@@ -177,6 +208,16 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(rpcCalls.includes('platform_status'));
 	assert.ok(rpcCalls.includes('firewall_status'));
 	assert.ok(rpcCalls.includes('certificate_status'));
+
+	const applyPreflight = options.find(o => o.name === '_wizard_apply_preflight');
+	assert.ok(applyPreflight, 'P6.6 Apply Preflight button exists');
+	const applyPreflightResult = await applyPreflight.onclick('shared');
+	assert.equal(applyPreflightResult.ok, true);
+	assert.equal(applyPreflightResult.ready, true);
+	assert.ok(rpcCalls.includes('apply_preflight'));
+	assert.equal(notifications.at(-1).style, 'info');
+	assert.equal(store.nginx_telego.direct_https.enabled, '1');
+	assert.equal(store.telego.web_proxy.bind_to, '127.0.0.1:8080');
 	assert.deepEqual(sections, [
 		{ section: 'shared', title: 'Ingress Wizard' },
 		{ section: 'shared', title: 'Ingress Profile' }
@@ -365,6 +406,7 @@ const ingress = new Function('form', 'rpc', 'ui', 'uci', 'view', '_', 'appShell'
 	assert.ok(acl.read.ubus['telego.nginx'].includes('firewall_preflight'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_status'));
 	assert.ok(acl.read.ubus['telego.nginx'].includes('certificate_preflight'));
+	assert.ok(acl.read.ubus['telego.nginx'].includes('apply_preflight'));
 
-	console.log('LuCI P6.5 wizard shell + P12.6 ingress tests passed');
+	console.log('LuCI P6.6 Apply Preflight + P12.6 ingress tests passed');
 })().catch(error => { console.error(error); process.exit(1); });
