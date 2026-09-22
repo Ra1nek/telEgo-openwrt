@@ -39,7 +39,8 @@ assert "request.args.path" not in source
 assert "request.args.command" not in source
 assert "request.args.package" not in source
 assert "LIFECYCLE_HELPER = '/usr/libexec/telego-ui-lifecycle'" in source
-assert "serviceLifecycle: true" in source\nassert "ingressWizard: true" in source
+assert "serviceLifecycle: true" in source
+assert "ingressWizard: true" in source
 assert "invalid-action" in source
 assert "invalid-request-id" in source
 assert "invalid-revision" in source
