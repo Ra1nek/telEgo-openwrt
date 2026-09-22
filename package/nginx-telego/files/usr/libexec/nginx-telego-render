@@ -749,6 +749,13 @@ candidate_nginx_test() {
     [ -f "$LOCATIONS_SOURCE" ] && [ ! -L "$LOCATIONS_SOURCE" ] ||
         fail "canonical locations source is unavailable or unsafe: $LOCATIONS_SOURCE"
 
+    if [ -L "$CORE_ACTIVE" ] || { [ -e "$CORE_ACTIVE" ] && [ ! -f "$CORE_ACTIVE" ]; }; then
+        fail "active core path is unsafe and cannot be reconciled: $CORE_ACTIVE"
+    fi
+    if [ -L "$LOCATIONS_ACTIVE" ] || { [ -e "$LOCATIONS_ACTIVE" ] && [ ! -f "$LOCATIONS_ACTIVE" ]; }; then
+        fail "active locations path is unsafe and cannot be reconciled: $LOCATIONS_ACTIVE"
+    fi
+
     candidate_root="$work/nginx-root"
     candidate_conf_dir="$candidate_root/conf.d"
     candidate_snippet_dir="$candidate_root/snippets"
@@ -756,25 +763,40 @@ candidate_nginx_test() {
     candidate_core="$candidate_conf_dir/${CORE_ACTIVE##*/}"
     candidate_locations="$candidate_snippet_dir/${LOCATIONS_ACTIVE##*/}"
 
-    mkdir -p "$candidate_root"
-    mirror_directory "$NGINX_ROOT_DIR" "$candidate_root" "$CONF_DIR" "$SNIPPET_DIR" "$NGINX_CONF"
-    mirror_directory "$CONF_DIR" "$candidate_conf_dir" "$CORE_ACTIVE" "$INGRESS_OUTPUT" "$FALLBACK_OUTPUT"
-    mirror_directory "$SNIPPET_DIR" "$candidate_snippet_dir" "$LOCATIONS_ACTIVE" '' ''
+    mkdir -p "$candidate_root" || fail "could not create candidate Nginx root"
+    mirror_directory "$NGINX_ROOT_DIR" "$candidate_root" "$CONF_DIR" "$SNIPPET_DIR" "$NGINX_CONF" ||
+        fail "could not mirror Nginx root for candidate validation"
+    mirror_directory "$CONF_DIR" "$candidate_conf_dir" "$CORE_ACTIVE" "$INGRESS_OUTPUT" "$FALLBACK_OUTPUT" ||
+        fail "could not mirror Nginx conf.d for candidate validation"
+    mirror_directory "$SNIPPET_DIR" "$candidate_snippet_dir" "$LOCATIONS_ACTIVE" '' '' ||
+        fail "could not mirror Nginx snippets for candidate validation"
 
-    cp "$CORE_SOURCE" "$candidate_core"
-    cp "$LOCATIONS_SOURCE" "$candidate_locations"
+    cp "$CORE_SOURCE" "$candidate_core" ||
+        fail "could not stage canonical core for candidate validation"
+    cp "$LOCATIONS_SOURCE" "$candidate_locations" ||
+        fail "could not stage canonical locations for candidate validation"
 
     if [ "$desired_ingress" -eq 1 ]; then
-        sed "s|$LOCATIONS_ACTIVE|$candidate_locations|g" "$ingress_candidate" >"$candidate_conf_dir/${INGRESS_OUTPUT##*/}"
+        sed "s|$LOCATIONS_ACTIVE|$candidate_locations|g" "$ingress_candidate" >"$candidate_conf_dir/${INGRESS_OUTPUT##*/}" ||
+            fail "could not stage candidate ingress configuration"
+    elif [ "$ingress_state" = foreign ]; then
+        ln -s "$INGRESS_OUTPUT" "$candidate_conf_dir/${INGRESS_OUTPUT##*/}" ||
+            fail "could not preserve foreign ingress path in candidate tree"
     fi
+
     if [ "$desired_fallback" -eq 1 ]; then
-        cp "$fallback_candidate" "$candidate_conf_dir/${FALLBACK_OUTPUT##*/}"
+        cp "$fallback_candidate" "$candidate_conf_dir/${FALLBACK_OUTPUT##*/}" ||
+            fail "could not stage candidate fallback configuration"
+    elif [ "$fallback_state" = foreign ]; then
+        ln -s "$FALLBACK_OUTPUT" "$candidate_conf_dir/${FALLBACK_OUTPUT##*/}" ||
+            fail "could not preserve foreign fallback path in candidate tree"
     fi
 
     sed \
         -e "s|$CONF_DIR/|$candidate_conf_dir/|g" \
         -e "s|$SNIPPET_DIR/|$candidate_snippet_dir/|g" \
-        "$NGINX_CONF" >"$candidate_main"
+        "$NGINX_CONF" >"$candidate_main" ||
+        fail "could not stage candidate main Nginx configuration"
 
     "$NGINX_BIN" -t -p "$candidate_root/" -c "$candidate_main"
 }
