@@ -19,7 +19,7 @@ MODE=apply
 mode_seen=0
 
 usage() {
-    echo "Usage: $0 [apply|remove] [--no-reload]" >&2
+    echo "Usage: $0 [apply|remove|check] [--no-reload]" >&2
     exit 2
 }
 
@@ -33,6 +33,11 @@ for arg in "$@"; do
         remove)
             [ "$mode_seen" -eq 0 ] || usage
             MODE=remove
+            mode_seen=1
+            ;;
+        check)
+            [ "$mode_seen" -eq 0 ] || usage
+            MODE=check
             mode_seen=1
             ;;
         --no-reload)
@@ -680,6 +685,20 @@ server {
     }
 }
 EOF_FALLBACK
+
+if [ "$MODE" = check ]; then
+    if is_enabled "$direct_https_enabled"; then
+        profile=direct_https
+    elif is_enabled "$shared_enabled"; then
+        profile=shared
+    elif is_enabled "$cloudflare_enabled"; then
+        profile=cloudflare
+    else
+        profile=disabled
+    fi
+    echo "nginx-telego: candidate render preflight passed for $profile"
+    exit 0
+fi
 
 TX_ACTIVE=1
 apply_desired "$INGRESS_OUTPUT" "$ingress_candidate" "$desired_ingress" ingress
