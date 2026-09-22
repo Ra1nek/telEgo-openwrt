@@ -5,7 +5,7 @@ ROOT=$(cd "$(dirname "$0")/../.." && pwd)
 RENDER="$ROOT/package/nginx-telego/files/usr/libexec/nginx-telego-render"
 work=$(mktemp -d)
 trap 'rm -rf -- "$work"' EXIT
-mkdir -p "$work/conf.d"
+mkdir -p "$work/nginx-source/conf.d" "$work/nginx-source/snippets" "$work/templates"
 
 cat >"$work/uci" <<'SH'
 #!/bin/sh
@@ -45,6 +45,31 @@ chmod +x "$work/uci"
 cat >"$work/nginx" <<'SH'
 #!/bin/sh
 printf '%s\n' "$*" >>"$NGINX_LOG"
+
+if [ "${EXPECT_CANDIDATE_VALIDATION:-0}" = 1 ]; then
+    prefix=''
+    conf=''
+    while [ "$#" -gt 0 ]; do
+        case "$1" in
+            -p) prefix=$2; shift 2 ;;
+            -c) conf=$2; shift 2 ;;
+            *) shift ;;
+        esac
+    done
+
+    [ -n "$prefix" ] && [ -n "$conf" ] || exit 31
+    [ "$conf" != "$NGINX_CONF" ] || exit 32
+    candidate_root=${prefix%/}
+    [ -f "$candidate_root/conf.d/20-telego-core.conf" ] || exit 33
+    [ -f "$candidate_root/conf.d/80-telego-ingress.conf" ] || exit 34
+    [ -f "$candidate_root/conf.d/85-telego-fallback.conf" ] || exit 35
+    [ -f "$candidate_root/snippets/telego.locations" ] || exit 36
+    grep -Fq 'upstream telego_web' "$candidate_root/conf.d/20-telego-core.conf" || exit 37
+    grep -Fq 'proxy_pass http://telego_web;' "$candidate_root/snippets/telego.locations" || exit 38
+    grep -Fq 'server_name web.example.com;' "$candidate_root/conf.d/80-telego-ingress.conf" || exit 39
+    ! grep -Fq 'active-drift-core' "$candidate_root/conf.d/20-telego-core.conf" || exit 40
+fi
+
 [ "${NGINX_TEST_FAIL:-0}" != 1 ]
 SH
 chmod +x "$work/nginx"
@@ -59,7 +84,17 @@ esac
 SH
 chmod +x "$work/nginx-init"
 
-: >"$work/uci.conf"
+cat >"$work/nginx-source/uci.conf" <<'NGINX'
+events {}
+http {
+    include conf.d/*.conf;
+}
+NGINX
+
+cp "$ROOT/package/nginx-telego/files/conf.d/20-telego-core.conf" "$work/templates/20-telego-core.conf"
+cp "$ROOT/package/nginx-telego/files/telego.locations" "$work/templates/telego.locations"
+printf '%s\n' '# active-drift-core' >"$work/nginx-source/conf.d/20-telego-core.conf"
+printf '%s\n' '# active-drift-locations' >"$work/nginx-source/snippets/telego.locations"
 : >"$work/nginx-uci"
 cat >"$work/fullchain.pem" <<'PEM'
 -----BEGIN CERTIFICATE-----
@@ -72,11 +107,17 @@ test-private-key-body
 -----END PRIVATE KEY-----
 PEM
 
-export UCI_BIN="$work/uci" NGINX_BIN="$work/nginx" NGINX_CONF="$work/uci.conf"
+export UCI_BIN="$work/uci" NGINX_BIN="$work/nginx" NGINX_CONF="$work/nginx-source/uci.conf"
 export NGINX_INIT="$work/nginx-init" NGINX_UCI_CONFIG="$work/nginx-uci"
-export NGINX_TELEGO_CONF_DIR="$work/conf.d"
-export NGINX_TELEGO_INGRESS_OUTPUT="$work/conf.d/80-telego-ingress.conf"
-export NGINX_TELEGO_FALLBACK_OUTPUT="$work/conf.d/85-telego-fallback.conf"
+export NGINX_TELEGO_NGINX_ROOT_DIR="$work/nginx-source"
+export NGINX_TELEGO_CONF_DIR="$work/nginx-source/conf.d"
+export NGINX_TELEGO_SNIPPET_DIR="$work/nginx-source/snippets"
+export NGINX_TELEGO_CORE_ACTIVE="$work/nginx-source/conf.d/20-telego-core.conf"
+export NGINX_TELEGO_LOCATIONS_ACTIVE="$work/nginx-source/snippets/telego.locations"
+export NGINX_TELEGO_CORE_SOURCE="$work/templates/20-telego-core.conf"
+export NGINX_TELEGO_LOCATIONS_SOURCE="$work/templates/telego.locations"
+export NGINX_TELEGO_INGRESS_OUTPUT="$work/nginx-source/conf.d/80-telego-ingress.conf"
+export NGINX_TELEGO_FALLBACK_OUTPUT="$work/nginx-source/conf.d/85-telego-fallback.conf"
 export NGINX_LOG="$work/nginx.log" NGINX_RELOAD_LOG="$work/reload.log"
 export FIX_CERT="$work/fullchain.pem" FIX_KEY="$work/privkey.pem"
 export FIX_DIRECT_CERT="$work/fullchain.pem" FIX_DIRECT_KEY="$work/privkey.pem"
@@ -123,6 +164,33 @@ cmp "$work/before-check-ingress" "$NGINX_TELEGO_INGRESS_OUTPUT"
 cmp "$work/before-check-fallback" "$NGINX_TELEGO_FALLBACK_OUTPUT"
 [[ $(wc -l <"$NGINX_LOG") == "$nginx_calls" ]]
 [[ $(wc -l <"$NGINX_RELOAD_LOG") == "$reloads" ]]
+
+# P6.7 validates the rendered candidate against a temporary Nginx tree.
+# The active generated files, drifted package-owned files and service state
+# remain untouched while nginx -t receives the candidate root/config.
+export EXPECT_CANDIDATE_VALIDATION=1
+nginx_calls=$(wc -l <"$NGINX_LOG")
+reloads=$(wc -l <"$NGINX_RELOAD_LOG")
+"$RENDER" validate --no-reload >"$work/validate.out"
+grep -q 'candidate Nginx validation passed for cloudflare' "$work/validate.out"
+cmp "$work/before-check-ingress" "$NGINX_TELEGO_INGRESS_OUTPUT"
+cmp "$work/before-check-fallback" "$NGINX_TELEGO_FALLBACK_OUTPUT"
+grep -Fqx '# active-drift-core' "$NGINX_TELEGO_CORE_ACTIVE"
+grep -Fqx '# active-drift-locations' "$NGINX_TELEGO_LOCATIONS_ACTIVE"
+[[ $(wc -l <"$NGINX_LOG") == $((nginx_calls + 1)) ]]
+[[ $(wc -l <"$NGINX_RELOAD_LOG") == "$reloads" ]]
+tail -n 1 "$NGINX_LOG" | grep -Eq -- '-t -p .*/nginx-root/ -c .*/nginx-root/uci\.conf'
+unset EXPECT_CANDIDATE_VALIDATION
+
+export EXPECT_CANDIDATE_VALIDATION=1 NGINX_TEST_FAIL=1
+if "$RENDER" validate --no-reload >"$work/validate-fail.out" 2>&1; then
+    echo 'candidate validation unexpectedly accepted nginx -t failure' >&2
+    exit 1
+fi
+grep -q 'candidate Nginx validation failed for cloudflare' "$work/validate-fail.out"
+cmp "$work/before-check-ingress" "$NGINX_TELEGO_INGRESS_OUTPUT"
+cmp "$work/before-check-fallback" "$NGINX_TELEGO_FALLBACK_OUTPUT"
+unset EXPECT_CANDIDATE_VALIDATION NGINX_TEST_FAIL
 
 reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 "$RENDER" apply
@@ -254,10 +322,10 @@ export FIX_CF_ENABLED=0 FIX_DIRECT_ENABLED=0
 export FIX_SHARED_ENABLED=0 FIX_CF_ENABLED=1 FIX_CF_HOSTNAME=web.example.com FIX_WEB_HOSTNAME=web.example.com
 "$RENDER" apply
 cp "$NGINX_TELEGO_INGRESS_OUTPUT" "$work/before-conflict"
-printf 'server { listen 18080; }\n' >"$work/conf.d/manual.conf"
+printf 'server { listen 18080; }\n' >"$work/nginx-source/conf.d/manual.conf"
 if "$RENDER" apply >"$work/conflict.out" 2>&1; then exit 1; fi
 cmp "$work/before-conflict" "$NGINX_TELEGO_INGRESS_OUTPUT"
-rm -f "$work/conf.d/manual.conf"
+rm -f "$work/nginx-source/conf.d/manual.conf"
 printf "config disable '_lan'\n\tlist listen '18080'\n\tlist listen '[::]:18080'\n" >"$NGINX_UCI_CONFIG"
 "$RENDER" apply
 printf "config server 'existing'\n\tlist listen '127.0.0.1:18080'\n" >"$NGINX_UCI_CONFIG"
@@ -278,14 +346,14 @@ grep -q 'generated-file transaction rolled back' "$work/test-fail.out"
 unset NGINX_TEST_FAIL
 
 # External fallback may own 8090 when package fallback is disabled.
-printf 'server { listen 127.0.0.1:8090; }\n' >"$work/conf.d/site.conf"
+printf 'server { listen 127.0.0.1:8090; }\n' >"$work/nginx-source/conf.d/site.conf"
 export FIX_FALLBACK_MANAGE=0 FIX_CF_ENABLED=1 FIX_SHARED_ENABLED=0
 "$RENDER" apply
 ! test -e "$NGINX_TELEGO_FALLBACK_OUTPUT"
 grep -q 'listen 127.0.0.1:18080;' "$NGINX_TELEGO_INGRESS_OUTPUT"
 
 # remove --no-reload removes only current managed generated outputs.
-rm -f "$work/conf.d/site.conf"
+rm -f "$work/nginx-source/conf.d/site.conf"
 reloads=$(wc -l <"$NGINX_RELOAD_LOG")
 "$RENDER" remove --no-reload
 ! test -e "$NGINX_TELEGO_INGRESS_OUTPUT"
