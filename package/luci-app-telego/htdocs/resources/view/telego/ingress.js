@@ -6,6 +6,7 @@
 'require uci';
 'require view';
 'require view.telego.app-shell as appShell';
+'require view.telego.ingress-wizard as ingressWizard';
 
 const callPlatformStatus = rpc.declare({
 	object: 'telego.nginx',
@@ -331,7 +332,147 @@ return view.extend({
 			_('Choose one managed WEB ingress profile. Disabled leaves hand-written Nginx configuration untouched; managed profiles are mutually exclusive and are validated before public traffic is changed.')
 		);
 
-		let s = m.section(form.TypedSection, 'shared', _('Ingress Profile'));
+		let s = m.section(form.TypedSection, 'shared', _('Ingress Wizard'));
+		s.anonymous = true;
+		s.addremove = false;
+
+		let wizardMode = s.option(form.ListValue, '_wizard_mode', _('Target Mode'),
+			_('Prepare one coherent pending configuration across telEgo and nginx-telego. The wizard saves a draft only; it does not apply or restart services.'));
+		wizardMode.value('direct_https', 'Direct HTTPS');
+		wizardMode.value('cloudflare', 'Cloudflare Tunnel');
+		wizardMode.value('shared', _('Native Shared-Port (Advanced)'));
+		wizardMode.cfgvalue = function () {
+			const mode = profileMode();
+			return mode === 'disabled' ? 'direct_https' : mode;
+		};
+		wizardMode.write = function () {};
+
+		let wizardHostname = s.option(form.Value, '_wizard_hostname', _('Public WEB Hostname'),
+			_('The same hostname is staged for telEgo WEB Proxy and the selected managed ingress profile.'));
+		wizardHostname.datatype = 'hostname';
+		wizardHostname.rmempty = false;
+		wizardHostname.cfgvalue = function () {
+			return uci.get('telego', 'web_proxy', 'hostname') ||
+				uci.get('nginx_telego', 'direct_https', 'hostname') ||
+				uci.get('nginx_telego', 'cloudflare', 'hostname') ||
+				uci.get('nginx_telego', 'shared', 'hostname') || '';
+		};
+		wizardHostname.write = function () {};
+
+		let wizardMtproxyPort = s.option(form.Value, '_wizard_mtproxy_port', _('MTProxy Public Port'),
+			_('Direct HTTPS owns TCP/443, so the wizard moves MTProxy to this port and updates generated client links.'));
+		wizardMtproxyPort.depends('_wizard_mode', 'direct_https');
+		wizardMtproxyPort.datatype = 'port';
+		wizardMtproxyPort.rmempty = false;
+		wizardMtproxyPort.cfgvalue = function () {
+			const bind = uci.get('telego', 'general', 'bind_to') || '';
+			const match = bind.match(/:([0-9]+)$/);
+			return match && match[1] !== '443' ? match[1] : '2443';
+		};
+		wizardMtproxyPort.write = function () {};
+
+		let wizardCertificate = s.option(form.Value, '_wizard_certificate', _('TLS Certificate'),
+			_('Direct HTTPS and Native Shared-Port only. Leave empty to stage the OpenWrt ACME DNS-01 path derived from the hostname.'));
+		wizardCertificate.depends('_wizard_mode', 'direct_https');
+		wizardCertificate.depends('_wizard_mode', 'shared');
+		wizardCertificate.rmempty = true;
+		wizardCertificate.cfgvalue = function () {
+			const mode = profileMode();
+			return uci.get('nginx_telego', mode === 'shared' ? 'shared' : 'direct_https', 'certificate') || '';
+		};
+		wizardCertificate.write = function () {};
+
+		let wizardCertificateKey = s.option(form.Value, '_wizard_certificate_key', _('TLS Private Key'),
+			_('Direct HTTPS and Native Shared-Port only. Leave empty to stage the matching OpenWrt ACME DNS-01 key path.'));
+		wizardCertificateKey.depends('_wizard_mode', 'direct_https');
+		wizardCertificateKey.depends('_wizard_mode', 'shared');
+		wizardCertificateKey.rmempty = true;
+		wizardCertificateKey.cfgvalue = function () {
+			const mode = profileMode();
+			return uci.get('nginx_telego', mode === 'shared' ? 'shared' : 'direct_https', 'certificate_key') || '';
+		};
+		wizardCertificateKey.write = function () {};
+
+		let wizardLuciPort = s.option(form.Value, '_wizard_luci_port', _('LuCI HTTPS Management Port'),
+			_('Direct HTTPS only. TCP/443 remains dedicated to Nginx while LuCI HTTPS uses this management port.'));
+		wizardLuciPort.depends('_wizard_mode', 'direct_https');
+		wizardLuciPort.datatype = 'port';
+		wizardLuciPort.rmempty = false;
+		wizardLuciPort.cfgvalue = function () {
+			return uci.get('nginx_telego', 'direct_https', 'luci_https_port') || '10443';
+		};
+		wizardLuciPort.write = function () {};
+
+		let wizardSplitDns = s.option(form.Value, '_wizard_split_dns', _('LAN Split-DNS Address'),
+			_('Optional Direct HTTPS LAN IPv4 address. Leave empty to preserve administrator-managed DNS.'));
+		wizardSplitDns.depends('_wizard_mode', 'direct_https');
+		wizardSplitDns.datatype = 'ip4addr';
+		wizardSplitDns.rmempty = true;
+		wizardSplitDns.cfgvalue = function () {
+			return uci.get('nginx_telego', 'direct_https', 'split_dns_address') || '';
+		};
+		wizardSplitDns.write = function () {};
+
+		let wizardNotice = s.option(form.DummyValue, '_wizard_notice', _('Validation Boundary'),
+			_('P6.5 coordinates the pending candidate only. Existing Platform, Firewall and Certificate Preflight buttons validate saved UCI state, not unsaved wizard fields. Prepare the candidate first, then review and Save & Apply before relying on those checks.'));
+		wizardNotice.cfgvalue = function () { return _('No service is restarted by Prepare Candidate.'); };
+
+		let wizardPrepare = s.option(form.Button, '_wizard_prepare', _('Prepare Candidate'),
+			_('Stages the coordinated telEgo + nginx-telego draft in UCI pending changes and reloads this page for review. It does not Apply the configuration.'));
+		wizardPrepare.inputtitle = _('Prepare Candidate');
+		wizardPrepare.inputstyle = 'apply';
+		wizardPrepare.onclick = function (sectionId) {
+			function field(option, fallback) {
+				try {
+					const value = option.formvalue(sectionId);
+					return value == null ? fallback : value;
+				}
+				catch (e) {
+					return fallback;
+				}
+			}
+
+			let candidate;
+			try {
+				candidate = ingressWizard.buildCandidate({
+					trusted_proxy_cidrs: uci.get('telego', 'web_proxy', 'trusted_proxy_cidrs'),
+					mask_host: uci.get('telego', 'tls_fronting', 'mask_host')
+				}, {
+					mode: field(wizardMode, wizardMode.cfgvalue()),
+					hostname: field(wizardHostname, wizardHostname.cfgvalue()),
+					mtproxy_port: field(wizardMtproxyPort, wizardMtproxyPort.cfgvalue()),
+					certificate: field(wizardCertificate, wizardCertificate.cfgvalue()),
+					certificate_key: field(wizardCertificateKey, wizardCertificateKey.cfgvalue()),
+					luci_https_port: field(wizardLuciPort, wizardLuciPort.cfgvalue()),
+					split_dns_address: field(wizardSplitDns, wizardSplitDns.cfgvalue())
+				});
+				ingressWizard.applyCandidate(uci, candidate);
+			}
+			catch (e) {
+				const messages = {
+					'invalid-mode': _('Choose a supported ingress mode.'),
+					'invalid-hostname': _('Enter a valid public WEB hostname.'),
+					'invalid-mtproxy-port': _('Direct HTTPS requires an MTProxy port other than 443.'),
+					'invalid-luci-port': _('LuCI HTTPS management port must differ from both 443 and the MTProxy port.'),
+					'invalid-certificate-path': _('Certificate and key paths must be absolute safe paths.')
+				};
+				const code = String(e && e.message || e);
+				ui.addNotification(null, E('p', {}, messages[code] || _('Unable to prepare the ingress candidate.')), 'danger');
+				return Promise.resolve(false);
+			}
+
+			return Promise.resolve(uci.save()).then(function () {
+				ui.addNotification(null, E('p', {}, _('Ingress candidate prepared as pending UCI changes. Review it before Save & Apply.')), 'info');
+				if (window && window.location && typeof(window.location.reload) === 'function')
+					window.location.reload();
+				return candidate;
+			}, function () {
+				ui.addNotification(null, E('p', {}, _('Unable to save the ingress candidate as pending UCI changes.')), 'danger');
+				return false;
+			});
+		};
+
+		s = m.section(form.TypedSection, 'shared', _('Ingress Profile'));
 		s.anonymous = true;
 		s.addremove = false;
 
