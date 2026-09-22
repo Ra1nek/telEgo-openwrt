@@ -103,6 +103,7 @@ bash .github/tests/telego-ui-lifecycle.sh
 "${NODE:-node}" .github/tests/luci-advanced.cjs
 "${NODE:-node}" .github/tests/luci-p5-acceptance.cjs
 "${NODE:-node}" .github/tests/luci-ingress.cjs
+"${NODE:-node}" .github/tests/luci-p6-ingress-wizard.cjs
 "${NODE:-node}" .github/tests/luci-nginx-files.cjs
 python3 .github/tests/test_installer.py
 python3 .github/scripts/check-luci-i18n.py
