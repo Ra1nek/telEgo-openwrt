@@ -70,6 +70,8 @@ function popen(command, mode) {
 	}
 	if (type(command) == 'string' && index(command, '/usr/libexec/nginx-telego-render ') == 0) {
 		global.render_command = command;
+		if (!global.render_commands) global.render_commands = [];
+		push(global.render_commands, command);
 		if (global.fixture?.mode == 'popen-failed') return null;
 		if (global.fixture?.mode == 'render-failed' && index(command, " 'check'") >= 0)
 			return { read: function(kind) { return 'nginx-telego: candidate render rejected\n'; }, close: function() { return 1; } };
