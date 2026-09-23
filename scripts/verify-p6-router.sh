@@ -55,10 +55,16 @@ json_true() {
 fingerprint() {
 	path=$1
 	if [ -L "$path" ]; then
-		printf 'symlink:'
-		readlink "$path" 2>/dev/null || true
+		target=$(readlink "$path" 2>/dev/null) || return 1
+		printf 'symlink:%s\n' "$target"
 	elif [ -f "$path" ]; then
-		cksum "$path"
+		if command -v sha256sum >/dev/null 2>&1; then
+			sha256sum "$path" | awk '{print "file:" $1}'
+		elif busybox sha256sum "$path" >/dev/null 2>&1; then
+			busybox sha256sum "$path" | awk '{print "file:" $1}'
+		else
+			return 1
+		fi
 	elif [ -e "$path" ]; then
 		printf 'other\n'
 	else
@@ -186,10 +192,15 @@ else
 		fail 'telego.nginx RPC object is unavailable'
 	fi
 
-	before_ingress=$(fingerprint /etc/nginx/conf.d/80-telego-ingress.conf)
-	before_fallback=$(fingerprint /etc/nginx/conf.d/85-telego-fallback.conf)
-	before_core=$(fingerprint /etc/nginx/conf.d/20-telego-core.conf)
-	before_locations=$(fingerprint /etc/nginx/snippets/telego.locations)
+	if before_ingress=$(fingerprint /etc/nginx/conf.d/80-telego-ingress.conf) &&
+	   before_fallback=$(fingerprint /etc/nginx/conf.d/85-telego-fallback.conf) &&
+	   before_core=$(fingerprint /etc/nginx/conf.d/20-telego-core.conf) &&
+	   before_locations=$(fingerprint /etc/nginx/snippets/telego.locations); then
+		fingerprints_ready=1
+	else
+		fingerprints_ready=0
+		fail 'could not fingerprint active Nginx files before candidate validation'
+	fi
 
 	if ubus call telego.nginx candidate_nginx_validate >"$TMP_BASE.candidate" 2>"$TMP_BASE.candidate.err" &&
 	   grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "$TMP_BASE.candidate"; then
@@ -200,18 +211,25 @@ else
 		cat "$TMP_BASE.candidate.err" >&2 2>/dev/null || true
 	fi
 
-	after_ingress=$(fingerprint /etc/nginx/conf.d/80-telego-ingress.conf)
-	after_fallback=$(fingerprint /etc/nginx/conf.d/85-telego-fallback.conf)
-	after_core=$(fingerprint /etc/nginx/conf.d/20-telego-core.conf)
-	after_locations=$(fingerprint /etc/nginx/snippets/telego.locations)
-
-	if [ "$before_ingress" = "$after_ingress" ] &&
-	   [ "$before_fallback" = "$after_fallback" ] &&
-	   [ "$before_core" = "$after_core" ] &&
-	   [ "$before_locations" = "$after_locations" ]; then
-		pass 'candidate validation left active Nginx files unchanged'
+	if after_ingress=$(fingerprint /etc/nginx/conf.d/80-telego-ingress.conf) &&
+	   after_fallback=$(fingerprint /etc/nginx/conf.d/85-telego-fallback.conf) &&
+	   after_core=$(fingerprint /etc/nginx/conf.d/20-telego-core.conf) &&
+	   after_locations=$(fingerprint /etc/nginx/snippets/telego.locations); then
+		after_fingerprints_ready=1
 	else
-		fail 'candidate validation changed active Nginx files'
+		after_fingerprints_ready=0
+		fail 'could not fingerprint active Nginx files after candidate validation'
+	fi
+
+	if [ "$fingerprints_ready" -eq 1 ] && [ "$after_fingerprints_ready" -eq 1 ]; then
+		if [ "$before_ingress" = "$after_ingress" ] &&
+		   [ "$before_fallback" = "$after_fallback" ] &&
+		   [ "$before_core" = "$after_core" ] &&
+		   [ "$before_locations" = "$after_locations" ]; then
+			pass 'candidate validation left active Nginx files unchanged'
+		else
+			fail 'candidate validation changed active Nginx files'
+		fi
 	fi
 
 	direct=$(uci -q get nginx_telego.direct_https.enabled 2>/dev/null || printf '0')
