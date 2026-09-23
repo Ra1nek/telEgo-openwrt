@@ -79,6 +79,34 @@ enabled() {
 	esac
 }
 
+show_firewall_conflict() {
+	status_file="$TMP_BASE.firewall-status"
+	if [ ! -x /usr/libexec/nginx-telego-firewall ]; then
+		warn 'nginx-telego-firewall helper is unavailable; cannot describe WAN/443 conflict'
+		return
+	fi
+
+	if ! /usr/libexec/nginx-telego-firewall status >"$status_file" 2>/dev/null; then
+		warn 'could not read nginx-telego firewall status'
+		return
+	fi
+
+	conflict=$(awk -F '\t' '$1 == "foreign_wan443" { print $2; exit }' "$status_file")
+	[ -n "$conflict" ] && [ "$conflict" != '-' ] || return
+
+	printf 'INFO: conflicting WAN/443 owner: %s\n' "$conflict" >&2
+	section=${conflict#*:}
+	case "$section" in
+		@rule\[*\]|@redirect\[*\]|[A-Za-z0-9_]*)
+			printf 'INFO: conflicting firewall UCI section:\n' >&2
+			uci -q show "firewall.$section" >&2 2>/dev/null || warn "could not display firewall.$section"
+			;;
+		*)
+			warn "refusing to inspect unexpected firewall section token: $section"
+			;;
+	esac
+}
+
 printf '%s\n' 'telEgo P6.8 Full Router / Mobile / Accessibility Acceptance'
 printf '%s\n' 'Read-only verifier: no UCI commit/apply and no service reload/restart.'
 
@@ -251,6 +279,7 @@ else
 			fail 'P6.6 Apply Preflight rejected the current managed profile'
 			cat "$TMP_BASE.preflight" >&2 2>/dev/null || true
 			cat "$TMP_BASE.preflight.err" >&2 2>/dev/null || true
+			show_firewall_conflict
 		fi
 	else
 		warn 'managed ingress is disabled; Apply Preflight profile-ready assertion skipped'
